@@ -21,7 +21,7 @@ You improve the setup, not the product. One run covers the last 7 days. The outp
 6. Compare the installed Superpowers version with its latest release (`gh release list -R obra/superpowers --limit 3`). Read the release notes of a new version.
 
 ## 2. Measure
-Put this table in each report. Count only the PRs of this week.
+Put this table in each report. Fill the "This week" column from the data of section 1. For the "Last week" column, do steps 3 and 4 of section 1 again for the 7 days before. In step 3, search with `merged:<YYYY-MM-DD>..<YYYY-MM-DD>`. Use these results only in this table.
 
 | Measure | This week | Last week | Target |
 | --- | --- | --- | --- |

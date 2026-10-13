@@ -44,7 +44,7 @@ The `disable` commands keep both plugins off in all other folders and chats. Eac
    }
    ```
 2. Add a profile section to `AGENTS.md`. Start from `skills/dev-loop/assets/project-profile.md`. Its first line makes the dev-loop rules take precedence over skill instructions.
-3. Add `docs/flows/INDEX.md`. Start from `skills/flow-docs/assets/flow-index.md`.
+3. If the project has app flows, add `docs/flows/INDEX.md`. Start from `skills/flow-docs/assets/flow-index.md`.
 4. Trust the project folder. Copilot applies the repo's `enabledPlugins` only in a trusted folder.
    - CLI: when Copilot asks, choose to trust the folder and remember it. A trusted parent folder (for example the worktrees folder) also trusts the folders in it.
    - Copilot app: if the app asks you to trust the repository configuration, accept it. Then do the check below.

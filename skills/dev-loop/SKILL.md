@@ -45,7 +45,7 @@ Do this step for each code change, also a small one.
 - Do a "simplify" pass. Remove the code, flags, and abstractions that the goal does not need.
 - Check the change against the acceptance record and the profile's review checklist.
 - For a change with a plan, also use `requesting-code-review`, or the final whole-branch review of the execution skill. Give the reviewer the acceptance record and the review checklist.
-- Fix the Critical and Important findings. List the Minor findings in the PR body.
+- Check each finding with `receiving-code-review`. Fix the Critical and Important findings that pass this check. List the other findings in the PR body, with the reason.
 - Check the size with `git diff --stat <base>...HEAD`. If the code change is more than about 400 lines, split it.
 
 ## 6. Verify
