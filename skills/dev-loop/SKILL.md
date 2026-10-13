@@ -16,10 +16,10 @@ Do not skip a step because a change looks small. Each route below says which ste
 
 ## 1. Route
 - **Feature or behavior change, also a small one:** use `brainstorming`. Put the facts from the profile, and from the flow docs if the repo has them, into your questions. Do not write code before the owner approves the design.
-  - For a small feature (one area, 3 tasks or fewer), show a design of 2–5 lines and ask one question, with your recommended choice first. After the approval, build it with `test-driven-development`. Do not write a plan. Put the acceptance record in the PR body.
+  - For a small feature (one area, 3 tasks or fewer), show a design of 2–5 lines and ask one question, with your recommended choice first. After the approval, write the acceptance record (`assets/acceptance-record.md`), and then build it with `test-driven-development`. Do not write a plan. Copy the record into the PR body.
   - For a bigger feature, write a plan (step 2) after the approval.
 - **Bug:** use `systematic-debugging`. Reproduce the bug, find the root cause, and write a test that fails because of the bug.
-  - If the fix is in one area and has 3 tasks or fewer, fix it with `test-driven-development`. Do not write a plan. Put the acceptance record in the PR body.
+  - If the fix is in one area and has 3 tasks or fewer, write the acceptance record (`assets/acceptance-record.md`), and then fix it with `test-driven-development`. Do not write a plan. Copy the record into the PR body.
   - If the fix is bigger, write a plan (step 2).
 - **Trivial change** (no change in behavior: text, a comment, a typo): make the change, and go to step 4. In step 6, run only the fast checks. A config change that changes behavior is a behavior change.
 - **Question:** answer with evidence (paths, commands, and results). Do not change code.
@@ -58,6 +58,10 @@ Do this step after the last change to the branch, so that all evidence is at the
 
 ## 7. Ship
 - Push the branch, and open a PR with a body from `assets/pr-body.md`. Fill in the evidence and the Dev-loop feedback.
+- After each push, wait for the checks and for the automatic review of the head commit. `gh pr checks` does not show Copilot code review. Find its check run, `copilot-pull-request-reviewer`, in `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`. The review starts 1 minute or less after the push, and it can take 5 minutes. If no review starts in 2 minutes, the repo has no automatic review.
+- Do review rounds. Read each new finding, in the review threads and in the review text. Check it as in step 5. When a finding asks only for evidence, get the evidence, and do not change code for it. Reply in its thread with your change or your reason, and resolve the thread.
+- Put all the fixes of a round in one push. Before the push, do steps 4 to 6 for the fixes. Then update the PR body.
+- Stop the rounds when a round has no new finding that you must fix. A repeat of a rejected finding is not new. Do not push only to get a clean review. After 3 rounds with fixes, stop, and report each open finding to the owner, with your verdict.
 - Do not merge.
 
 ## 8. Report
@@ -69,7 +73,7 @@ Please check: <the one or two things that only a person can check>.
 ```
 
 ## Stop conditions
-- **Done:** each "done when" item has evidence at the head commit, and the PR is open.
+- **Done:** each "done when" item has evidence at the head commit, the PR is open, and the review rounds stopped.
 - **Blocked:** 3 failed fixes, missing access, no device, or a product decision that the repo does not answer. Stop. Report what you tried, the evidence, and the decision that you need.
 - **Ask the owner** only at the feature design, at a plan for a risky area, and before a destructive action.
 
