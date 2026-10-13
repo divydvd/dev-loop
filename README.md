@@ -6,7 +6,7 @@ A Copilot plugin that lets one session run the full development loop from one li
 | Part | Path | Job |
 | --- | --- | --- |
 | Core rules | `com.github.copilot/rules/core.mdc` | The owner's standing instructions. Always on in a repo that turns on the plugin. |
-| `dev-loop` skill | `skills/dev-loop/` | The loop for one task: route, plan, build, verify, flow docs, self-review, PR, and report. Templates: the acceptance record, the PR body, and the project profile. |
+| `dev-loop` skill | `skills/dev-loop/` | The loop for one task: route, plan, build, flow docs, self-review, verify, PR, and report. Templates: the acceptance record, the PR body, and the project profile. |
 | `flow-docs` skill | `skills/flow-docs/` | Read, update, and create the flow docs in `docs/flows/`. |
 | `infra-review` skill | `skills/infra-review/` | The weekly review that improves this plugin and the project profiles. |
 | Check script | `scripts/check.mjs` | Exact checks: the rule size, the frontmatter, the links, and the versions. CI runs it on each PR. |

@@ -13,14 +13,17 @@ const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const faults = [];
 const fault = (path, message) => faults.push(`${relative(root, path) || "."}: ${message}`);
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function readJson(path) {
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
+    const value = JSON.parse(readFileSync(path, "utf8"));
+    if (value && typeof value === "object" && !Array.isArray(value)) return value;
+    fault(path, "must be a JSON object");
   } catch (error) {
     fault(path, `cannot read JSON (${error.message})`);
-    return null;
   }
+  return null;
 }
 
 function readFrontmatter(path) {
@@ -43,14 +46,17 @@ function checkManifest() {
   if (!plugin || !market) return;
 
   if (plugin.$schema !== SCHEMA) fault(pluginPath, `$schema must be ${SCHEMA}`);
-  if (!PLUGIN_NAME.test(plugin.name ?? "")) fault(pluginPath, `name "${plugin.name}" is not valid`);
+  if (typeof plugin.name !== "string" || !PLUGIN_NAME.test(plugin.name)) fault(pluginPath, `name "${plugin.name}" is not valid`);
   const version = typeof plugin.version === "string" ? plugin.version : "";
   if (!version) fault(pluginPath, "version is missing or is not a string");
 
-  const entry = (market.plugins ?? []).find((p) => p.name === plugin.name);
-  if (!entry) fault(marketPath, `no plugin entry named "${plugin.name}"`);
-  else if (entry.version !== plugin.version) {
-    fault(marketPath, `version ${entry.version} differs from plugin.json version ${plugin.version}`);
+  if (!Array.isArray(market.plugins)) fault(marketPath, "plugins must be an array");
+  else {
+    const entry = market.plugins.find((p) => p?.name === plugin.name);
+    if (!entry) fault(marketPath, `no plugin entry named "${plugin.name}"`);
+    else if (entry.version !== plugin.version) {
+      fault(marketPath, `version ${entry.version} differs from plugin.json version ${plugin.version}`);
+    }
   }
   if (market.metadata?.version !== plugin.version) {
     fault(marketPath, `metadata.version ${market.metadata?.version} differs from plugin.json version ${plugin.version}`);
@@ -58,7 +64,7 @@ function checkManifest() {
 
   const changelogPath = join(root, "CHANGELOG.md");
   if (!existsSync(changelogPath)) fault(changelogPath, "file is missing");
-  else if (version && !new RegExp(`^## ${version.replace(/\./g, "\\.")}\\b`, "m").test(readFileSync(changelogPath, "utf8"))) {
+  else if (version && !new RegExp(`^## ${escapeRegExp(version)}(?=\\s|$)`, "m").test(readFileSync(changelogPath, "utf8"))) {
     fault(changelogPath, `no "## ${version}" entry`);
   }
 }

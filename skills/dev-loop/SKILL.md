@@ -1,6 +1,6 @@
 ---
 name: dev-loop
-description: Use for each feature, bug fix, or code change in a repo that uses the dev loop. Runs the full loop from one line of input - context, route, plan with an acceptance record, build, verify with evidence, flow docs, self-review, PR, and report.
+description: Use for each feature, bug fix, or code change in a repo that uses the dev loop. Runs the full loop from one line of input - context, route, plan with an acceptance record, build, flow docs, self-review, verify with evidence, PR, and report.
 ---
 
 # Dev loop
@@ -21,7 +21,7 @@ Do not skip a step because a change looks small. Each route below says which ste
 - **Bug:** use `systematic-debugging`. Reproduce the bug, find the root cause, and write a test that fails because of the bug.
   - If the fix is in one area and has 3 tasks or fewer, fix it with `test-driven-development`. Do not write a plan. Put the acceptance record in the PR body.
   - If the fix is bigger, write a plan (step 2).
-- **Trivial change** (no change in behavior: text, a comment, a typo): make the change, run the fast checks, and go to step 5. A config change that changes behavior is a behavior change.
+- **Trivial change** (no change in behavior: text, a comment, a typo): make the change, and go to step 4. In step 6, run only the fast checks. A config change that changes behavior is a behavior change.
 - **Question:** answer with evidence (paths, commands, and results). Do not change code.
 - **Big work** (more than about 3 PRs): you are the lead. Split the work into a stack of PRs, with one child session for each PR. Use the `pr-stack` and `orchestrate` skills when they are available. Review each child PR before you report.
 
@@ -36,25 +36,27 @@ Do not skip a step because a change looks small. Each route below says which ste
 - Run independent tasks and research in parallel. Run only one heavy build at a time, with the profile's commands.
 - When the plan does not answer a question, decide it, and record the ruling in the ledger.
 
-## 4. Verify
-- Run the test tier for each changed area. Read the output.
-- If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, record the result, and restore the device. Ask the owner only when no device is connected or a step needs a sign-in.
-- Write each result as evidence: `<check>: <command or scenario> → <result> at <sha7>`. If the `work_ledger_record` tool is available, also record the result there (kind `validated` or `device_tested`).
-- Use `verification-before-completion` before you say "done".
-
-## 5. Flow docs
+## 4. Flow docs
 - Skip this step when the profile says that the repo has no flow docs.
 - Otherwise, use `flow-docs`. Update the doc of each flow that you changed, in the same PR. Add each new pitfall and invariant.
 
-## 6. Self-review
+## 5. Self-review
 Do this step for each code change, also a small one.
 - Do a "simplify" pass. Remove the code, flags, and abstractions that the goal does not need.
 - Check the change against the acceptance record and the profile's review checklist.
 - For a change with a plan, also use `requesting-code-review`, or the final whole-branch review of the execution skill. Give the reviewer the acceptance record and the review checklist.
 - Fix the Critical and Important findings. List the Minor findings in the PR body.
+- Check the size with `git diff --stat <base>...HEAD`. If the code change is more than about 400 lines, split it.
+
+## 6. Verify
+Do this step after the last change to the branch, so that all evidence is at the head commit.
+- Run the test tier for each changed area. Read the output.
+- If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, record the result, and restore the device. Ask the owner only when no device is connected or a step needs a sign-in.
+- Write each result as evidence: `<check>: <command or scenario> → <result> at <sha7>`. If the `work_ledger_record` tool is available, also record the result there (kind `validated` or `device_tested`).
+- If a check fails, fix the cause, do steps 4 and 5 for the fix, and run this step again.
+- Use `verification-before-completion` before you say "done".
 
 ## 7. Ship
-- Check the size with `git diff --stat <base>...HEAD`. If the code change is more than about 400 lines, split it.
 - Push the branch, and open a PR with a body from `assets/pr-body.md`. Fill in the evidence and the Dev-loop feedback.
 - Do not merge.
 
