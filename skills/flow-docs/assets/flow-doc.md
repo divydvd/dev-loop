@@ -1,6 +1,6 @@
 # <Flow name>
 
-Last verified: <YYYY-MM-DD> at `<sha7>`.
+Last verified: <YYYY-MM-DD>.
 
 ## Purpose
 <What the user sees, and why the flow exists. 2–3 sentences.>

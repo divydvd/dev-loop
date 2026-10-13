@@ -11,14 +11,14 @@ The docs live in `docs/flows/<flow>.md`. The index is `docs/flows/INDEX.md`.
 
 ## Before you change a flow
 1. Find the flow in `docs/flows/INDEX.md`. Read its doc.
-2. Read the "Last verified" line. Run `git log --oneline <sha>..HEAD -- <key files>`.
-3. If the key files changed after that commit, compare the doc with the code before you trust it. Fix the doc in your PR.
+2. Find the last commit that changed the doc: `git log -1 --format=%h -- <doc>`. Then run `git log --oneline <that commit>..HEAD -- <key files>`.
+3. If the key files changed after that commit, or the "Last verified" line says "not yet", compare the doc with the code before you trust it. Fix the doc in your PR.
 
 ## Update a flow doc (in the same PR as the code)
 - Update each section that your change makes wrong: the sequence, the key files, the invariants, and the tests.
 - Add each new pitfall: `**<symptom>.** Cause: <cause>. Rule: <what to do>. (Found in #<PR>)`.
 - Add each new invariant: a fact that must stay true, and why.
-- Set "Last verified" to today and the short SHA of your last code commit. Update it again if you change the flow code after that.
+- Set "Last verified" to today. Do not write a commit SHA: a squash merge or a rebase merge changes it.
 - Write in short sentences. Name files and functions. Do not copy code. Link to the code instead.
 
 ## Write a new flow doc

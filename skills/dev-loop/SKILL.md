@@ -1,6 +1,6 @@
 ---
 name: dev-loop
-description: Use for each feature, bug fix, or code change in a repo that uses the dev loop. Runs the full loop from one line of input - context, route, plan with an acceptance record, build, flow docs, self-review, verify with evidence, PR, and report.
+description: Use first for each feature, bug fix, or code change in a repo that uses the dev loop, also when you continue one. Load it before brainstorming, systematic-debugging, or test-driven-development. Runs the full loop from one line of input - context, route, plan with an acceptance record, build, flow docs, self-review, verify with evidence, PR, and report.
 ---
 
 # Dev loop
@@ -12,14 +12,14 @@ Do not skip a step because a change looks small. Each route below says which ste
 ## Before you start
 - Read `AGENTS.md`. Find its dev-loop profile: commands, test tiers, heavy builds, the device test, risky areas, and the review checklist. If the profile is missing, tell the owner, and propose one from `assets/project-profile.md`.
 - If the repo has `docs/flows/INDEX.md`, read it and the flow docs for the area. Use the `flow-docs` skill. If the profile says that the repo has no flow docs, skip the flow-doc work in each step.
-- To resume a task, find its plan in `docs/superpowers/plans/`. Read the plan, its ledger (`.superpowers/sdd/<plan>/progress.md`), and `git log`. Do not do the done tasks again.
+- To resume a task, find its plan in `docs/superpowers/plans/`. Read the plan, its ledger (`.superpowers/sdd/<plan>/progress.md`) if it has one, and `git log`. Do not do the done tasks again.
 
 ## 1. Route
 - **Feature or behavior change, also a small one:** use `brainstorming`. Put the facts from the profile, and from the flow docs if the repo has them, into your questions. Do not write code before the owner approves the design.
-  - For a small feature (one area, 3 tasks or fewer), show a design of 2–5 lines and ask one question, with your recommended choice first. After the approval, write the acceptance record (`assets/acceptance-record.md`), and then build it with `test-driven-development`. Do not write a plan. Copy the record into the PR body.
+  - For a small feature (one area, 3 tasks or fewer), show a design of 2–5 lines and ask one question, with your recommended choice first. After the approval, save the acceptance record (`assets/acceptance-record.md`) as the plan, in `docs/superpowers/plans/<YYYY-MM-DD>-<topic>.md`. Then build it with `test-driven-development`. Do not use `writing-plans`. Copy the record into the PR body.
   - For a bigger feature, write a plan (step 2) after the approval.
 - **Bug:** use `systematic-debugging`. Reproduce the bug, find the root cause, and write a test that fails because of the bug.
-  - If the fix is in one area and has 3 tasks or fewer, write the acceptance record (`assets/acceptance-record.md`), and then fix it with `test-driven-development`. Do not write a plan. Copy the record into the PR body.
+  - If the fix is in one area and has 3 tasks or fewer, save the acceptance record (`assets/acceptance-record.md`) before you write the fix. Save it as the plan, in `docs/superpowers/plans/<YYYY-MM-DD>-<topic>.md`. Then fix it with `test-driven-development`. Do not use `writing-plans`. Copy the record into the PR body.
   - If the fix is bigger, write a plan (step 2).
 - **Trivial change** (no change in behavior: text, a comment, a typo): make the change, and go to step 4. In step 6, run only the fast checks. A config change that changes behavior is a behavior change.
 - **Question:** answer with evidence (paths, commands, and results). Do not change code.
@@ -78,4 +78,4 @@ Please check: <the one or two things that only a person can check>.
 - **Ask the owner** only at the feature design, at a plan for a risky area, and before a destructive action.
 
 ## After compaction, or in a new session
-- The files are the source, not the chat. Read the plan, its ledger, and `git log`. Continue at the first task that is not done.
+- The files are the source, not the chat. Read the plan, its ledger if it has one, and `git log`. Continue at the first task that is not done.

@@ -2,7 +2,7 @@
 <2–4 sentences. Link the issue or the owner's request.>
 
 ## Acceptance record
-<Copy it from the plan. If the task has no plan, copy the record that you wrote before the build. Check each "done when" item that has evidence.>
+<Copy it from the plan. For a trivial change, write "none: trivial change". Check each "done when" item that has evidence.>
 
 ## Evidence
 | Check | Command or scenario | Result | Commit |
