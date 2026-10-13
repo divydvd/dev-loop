@@ -48,7 +48,7 @@ The `disable` commands keep both plugins off in all other folders and chats. Eac
 4. Trust the project folder. Copilot applies the repo's `enabledPlugins` only in a trusted folder.
    - CLI: when Copilot asks, choose to trust the folder and remember it. A trusted parent folder (for example the worktrees folder) also trusts the folders in it.
    - Copilot app: if the app asks you to trust the repository configuration, accept it. Then do the check below.
-   - Copilot app, new project: trust the repository before you start an autopilot session in it. Until you trust it, the app holds each tool call for approval. Autopilot cannot ask you, so it denies each call.
+   - Copilot app, new project: trust the repository before you start an autopilot session in it. Until you trust it, the app holds most tool calls for approval. Autopilot cannot ask you, so it denies them. Only some read-only calls in the worktree run.
 
 ## Check that it works
 In a terminal in the project folder:
