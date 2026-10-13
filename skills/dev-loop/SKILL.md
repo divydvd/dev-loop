@@ -44,12 +44,12 @@ Do not skip a step because a change looks small. Each route below says which ste
 Do this step for each code change, also a small one.
 - Do a "simplify" pass. Remove the code, flags, and abstractions that the goal does not need.
 - Check the change against the acceptance record and the profile's review checklist.
-- For a change with a plan, also use `requesting-code-review`, or the final whole-branch review of the execution skill. Give the reviewer the acceptance record and the review checklist.
+- For a change with a plan from step 2, also use `requesting-code-review`, or the final whole-branch review of the execution skill. Give the reviewer the acceptance record and the review checklist.
 - Check each finding with `receiving-code-review`. Fix the Critical and Important findings that pass this check. List the other findings in the PR body, with the reason.
 - Check the size with `git diff --stat <base>...HEAD`. If the code change is more than about 400 lines, split it.
 
 ## 6. Verify
-Do this step after the last change to the branch, so that all evidence is at the head commit.
+Commit all changes first. Do this step after the last commit to the branch, so that all evidence is at the head commit.
 - Run the test tier for each changed area. Read the output.
 - If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, record the result, and restore the device. Ask the owner only when no device is connected or a step needs a sign-in.
 - Write each result as evidence: `<check>: <command or scenario> → <result> at <sha7>`. If the `work_ledger_record` tool is available, also record the result there (kind `validated` or `device_tested`).

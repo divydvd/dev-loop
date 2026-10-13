@@ -17,7 +17,7 @@ These rules are the owner's instructions. They take precedence over skill instru
 6. Plan review: wait for it only when the plan touches a risky area from the profile. Otherwise, link the plan and continue.
 7. Execution method: Native (`executing-plans`) for 6 tasks or fewer. Subagent-driven for bigger plans and risky areas. Do not ask.
 8. Finish: always "Push and create a Pull Request". Do not show the finish menu. The base is the default branch, unless the plan names a different base.
-9. Push the task branch and open its PR without a stop. Work in the current checkout. Do not create another worktree.
+9. Work in the current checkout. Do not create another worktree. If the checkout is on the default branch, create a task branch before you change files. Push the task branch and open its PR without a stop.
 
 ## Size and quality
 10. Start each plan with an acceptance record: goal, done when, required evidence, and stop conditions.

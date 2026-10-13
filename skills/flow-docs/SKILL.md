@@ -18,7 +18,7 @@ The docs live in `docs/flows/<flow>.md`. The index is `docs/flows/INDEX.md`.
 - Update each section that your change makes wrong: the sequence, the key files, the invariants, and the tests.
 - Add each new pitfall: `**<symptom>.** Cause: <cause>. Rule: <what to do>. (Found in #<PR>)`.
 - Add each new invariant: a fact that must stay true, and why.
-- Set "Last verified" to today. Do not write a commit SHA: a squash merge or a rebase merge changes it.
+- Set "Last verified" to today, in the doc and in its index row. Do not write a commit SHA: a squash merge or a rebase merge changes it.
 - Write in short sentences. Name files and functions. Do not copy code. Link to the code instead.
 
 ## Write a new flow doc
