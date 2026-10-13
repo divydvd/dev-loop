@@ -44,7 +44,8 @@ function checkManifest() {
 
   if (plugin.$schema !== SCHEMA) fault(pluginPath, `$schema must be ${SCHEMA}`);
   if (!PLUGIN_NAME.test(plugin.name ?? "")) fault(pluginPath, `name "${plugin.name}" is not valid`);
-  if (!plugin.version) fault(pluginPath, "version is missing");
+  const version = typeof plugin.version === "string" ? plugin.version : "";
+  if (!version) fault(pluginPath, "version is missing or is not a string");
 
   const entry = (market.plugins ?? []).find((p) => p.name === plugin.name);
   if (!entry) fault(marketPath, `no plugin entry named "${plugin.name}"`);
@@ -57,8 +58,8 @@ function checkManifest() {
 
   const changelogPath = join(root, "CHANGELOG.md");
   if (!existsSync(changelogPath)) fault(changelogPath, "file is missing");
-  else if (!new RegExp(`^## ${plugin.version.replace(/\./g, "\\.")}\\b`, "m").test(readFileSync(changelogPath, "utf8"))) {
-    fault(changelogPath, `no "## ${plugin.version}" entry`);
+  else if (version && !new RegExp(`^## ${version.replace(/\./g, "\\.")}\\b`, "m").test(readFileSync(changelogPath, "utf8"))) {
+    fault(changelogPath, `no "## ${version}" entry`);
   }
 }
 

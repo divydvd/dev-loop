@@ -33,4 +33,4 @@ A plan that touches one of these areas needs the owner's plan review.
 - <a project-specific check for the reviewer>
 
 ### Flow docs
-- Index: `docs/flows/INDEX.md`
+- Index: `docs/flows/INDEX.md`. Write "None" if the repo has no app flows.
