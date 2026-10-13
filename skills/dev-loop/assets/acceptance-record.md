@@ -1,0 +1,11 @@
+## Acceptance record
+- **Goal:** <one sentence: what changes for the user>
+- **Done when:**
+  - [ ] <an observable check that a test or a device scenario can prove>
+  - [ ] <another check>
+- **Required evidence:** <the test tier commands; the device scenario, or "no device test" and why>
+- **Out of scope:** <what this task does not change>
+- **Risky area:** <none | the area from the profile> (a risky area needs the owner's plan review)
+- **Stop conditions:**
+  - Done: each "done when" item has evidence at the head commit, the PR is open, and the review rounds stopped.
+  - Blocked: 3 failed fixes, missing access, no device, or a product decision. Stop and report with the evidence.

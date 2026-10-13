@@ -1,0 +1,10 @@
+{
+  "enabledPlugins": {
+    "superpowers@superpowers-marketplace": true,
+    "dev-loop@dev-loop": true
+  },
+  "extraKnownMarketplaces": {
+    "superpowers-marketplace": { "source": { "source": "github", "repo": "obra/superpowers-marketplace" } },
+    "dev-loop": { "source": { "source": "github", "repo": "divydvd/dev-loop" } }
+  }
+}
