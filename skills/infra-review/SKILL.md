@@ -27,6 +27,8 @@ Put this table in each report. Fill the "This week" column from the data of sect
 | --- | --- | --- | --- |
 | Merged PRs | | | — |
 | Median PR size (changed lines of code) | | | 400 or fewer |
+| Always-loaded text (KB) | | | 15 or less |
+| Model calls for each merged PR (mean) | | | lower than last week |
 | PRs with evidence at the head commit | | | all |
 | PRs that changed a flow and its doc | | | all |
 | PRs with filled Dev-loop feedback | | | all |
@@ -38,6 +40,10 @@ Use the `gh pr list` data from section 1 to compute the PR measures:
 - PR size: add the `additions` and `deletions` of the code files in `files`. Do not count docs (`*.md`, `docs/`) or generated files.
 - Evidence at the head commit: the Commit cell of each Evidence row is the first 7 characters of `headRefOid`.
 - A flow and its doc: when `files` has a key file of a flow doc, `files` also has that flow doc.
+
+Compute the session measures from the files on this Mac. 1 KB is 1,000 bytes. Round to one decimal.
+- Always-loaded text: add the sizes of the instruction files that load in each project session, and of the Superpowers start text. `copilot instruction list` in a project checkout shows the instruction files: today the project's `AGENTS.md`, `com.github.copilot/rules/core.mdc`, and `~/.copilot/copilot-instructions.md`. Take the size of `AGENTS.md` on the default branch. The Superpowers start hook loads `skills/using-superpowers/SKILL.md` of the installed Superpowers in each session.
+- Model calls: find the task session of each merged PR. Look only at the sessions whose `~/.copilot/session-state/<id>/workspace.yaml` names the project repo. Of these, the task session has the most lines with the PR URL in its `events.jsonl`. In this `events.jsonl`, count the `assistant.turn_start` and `session.compaction_start` events. The file also has the events of the subagents.
 
 ## 3. Find the faults
 - Group the feedback lines and the signals by cause.

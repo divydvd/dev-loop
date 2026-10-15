@@ -14,6 +14,12 @@ Do not skip a step because a change looks small. Each route below says which ste
 - If the repo has `docs/flows/INDEX.md`, read it and the flow docs for the area. Use the `flow-docs` skill. If the profile says that the repo has no flow docs, skip the flow-doc work in each step.
 - To resume a task, find its plan in `docs/superpowers/plans/`. Read the plan, its ledger (`.superpowers/sdd/<plan>/progress.md`) if it has one, and `git log`. Do not do the done tasks again.
 
+## Keep the context small
+Each compaction costs model calls and loses facts. Do these steps in each phase.
+- Find code with `grep` or a code search first. Then read only the lines that you need: about 150 lines or fewer in each read. Do not read a whole file of more than about 300 lines. These limits also apply to `cat`, `sed`, and `head` in a shell.
+- Write the facts that you will need again (paths, line numbers, signatures, rulings) in the plan or the ledger. Do not read a file again for a fact that you already have.
+- After a compaction, continue from these notes. Read a file again only for the lines that you will change.
+
 ## 1. Route
 - **Feature or behavior change, also a small one:** use `brainstorming`. Put the facts from the profile, and from the flow docs if the repo has them, into your questions. Do not write code before the owner approves the design.
   - For a small feature (one area, 3 tasks or fewer), show a design of 2–5 lines and ask one question, with your recommended choice first. After the approval, save the acceptance record (`assets/acceptance-record.md`) as the plan, in `docs/superpowers/plans/<YYYY-MM-DD>-<topic>.md`. Then build it with `test-driven-development`. Do not use `writing-plans`. Copy the record into the PR body.
@@ -28,11 +34,13 @@ Do not skip a step because a change looks small. Each route below says which ste
 ## 2. Plan
 - Use `writing-plans`. Put the acceptance record (`assets/acceptance-record.md`) at the top of the plan.
 - Make tasks of 2–5 minutes. Mark the tasks that can run in parallel.
-- If the plan touches a risky area from the profile, mark it "risky". Wait for the owner's plan review only then.
+- If a task touches a risky area from the profile, mark the task and the plan "risky". Wait for the owner's plan review only then.
 - Choose the execution method from the core rules. Do not ask.
 
 ## 3. Build
-- Follow `executing-plans` or `subagent-driven-development`. Use test-driven development.
+- Follow `executing-plans` or `subagent-driven-development`, as core rule 7 says. Use test-driven development.
+- With `executing-plans`, after each task in a risky area, get one independent review: use `requesting-code-review` for the commits of that task. Give the reviewer the task, the acceptance record, and the review checklist. Before the next task, fix the findings that pass `receiving-code-review`. `subagent-driven-development` already reviews each task.
+- If a review subagent fails, here or in step 5, start it again once. If it fails again, do not put your own review in its place. Write the task or the branch in the "Not reviewed" line of the PR body, and name it in the report.
 - Run independent tasks and research in parallel. Run only one heavy build at a time, with the profile's commands.
 - When the plan does not answer a question, decide it, and record the ruling in the ledger.
 
