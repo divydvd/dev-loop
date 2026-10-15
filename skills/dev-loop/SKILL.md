@@ -17,8 +17,8 @@ Do not skip a step because a change looks small. Each route below says which ste
 ## Keep the context small
 Each compaction costs model calls and loses facts. Do these steps in each phase.
 - Find code with `grep` or a code search first. Then read only the lines that you need: about 150 lines or fewer in each read. Do not read a whole file of more than about 300 lines. These limits also apply to `cat`, `sed`, and `head` in a shell.
-- Write the facts that you will need again (paths, line numbers, signatures, rulings) in the plan or the ledger. Do not read a file again for a fact that you already have.
-- After a compaction, continue from these notes. Read a file again only for the lines that you will change.
+- Write the facts that you will need again (paths, line numbers, signatures, rulings) in the plan or the ledger. Do not read a file again for a fact that you already have. If the file changed after you wrote the fact, find the fact again with `grep`.
+- After a compaction, continue from these notes. Read again only the lines that the next step needs and the notes do not give. Examples are the text to change and the code to check or debug.
 
 ## 1. Route
 - **Feature or behavior change, also a small one:** use `brainstorming`. Put the facts from the profile, and from the flow docs if the repo has them, into your questions. Do not write code before the owner approves the design.
