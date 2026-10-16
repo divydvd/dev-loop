@@ -10,6 +10,14 @@
 | Unit tests | `<command>` | <N passed> | `<sha7>` |
 | Device test | <scenario, or "not needed: reason"> | <pass or fail, and a note> | `<sha7>` |
 
+## Screenshots
+<For a UI change: one cell for each validated screen, with 4 cells in each row. Use this HTML table, because Markdown images in a table show at full size. Name each image that you left out, and the type of personal data in it. For other changes, delete the table, and write "none: <reason>".>
+<table>
+<tr>
+<td align="center" valign="top"><img src="<URL from github-pr-media>" width="180" alt="<scenario>: <what the screen shows>"><br><sub><b><scenario></b> <caption></sub></td>
+</tr>
+</table>
+
 ## Flow docs
 - `docs/flows/<flow>.md`: <what changed> (or "none: <reason>")
 

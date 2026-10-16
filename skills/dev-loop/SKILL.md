@@ -60,12 +60,17 @@ Do this step for each code change, also a small one.
 Commit all changes first. Do this step after the last commit to the branch, so that all evidence is at the head commit.
 - Run the test tier for each changed area. Read the output.
 - If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, record the result, and restore the device. Ask the owner only when no device is connected or a step needs a sign-in.
+- For a UI change, keep a screenshot of each screen that the device test validates, in a folder outside the repo.
 - Write each result as evidence: `<check>: <command or scenario> → <result> at <sha7>`. If the `work_ledger_record` tool is available, also record the result there (kind `validated` or `device_tested`).
 - If a check fails, fix the cause, do steps 4 and 5 for the fix, and run this step again.
 - Use `verification-before-completion` before you say "done".
 
 ## 7. Ship
 - Push the branch, and open a PR with a body from `assets/pr-body.md`. Fill in the evidence and the Dev-loop feedback.
+- For a UI change, fill in the "Screenshots" section before you open the PR:
+  - Look at each screenshot. Leave out an image that shows personal data: a name, an email address, a phone number, an account photo, or private text. In the section, name the image and the type of data, not the data.
+  - Upload each image with the `github-pr-media` skill. The upload needs only the repository id, not a PR. Do not add its Markdown image lines: put each URL in the table of the template.
+  - Do not commit the images.
 - After each push, wait for the checks and for the automatic review of the head commit. `gh pr checks` does not show Copilot code review. Find its check run, `copilot-pull-request-reviewer`, in `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`. The review starts 1 minute or less after the push, and it can take 5 minutes. If no review starts in 2 minutes, the repo has no automatic review.
 - Do review rounds. Read each new finding, in the review threads and in the review text. Check it as in step 5. When a finding asks only for evidence, get the evidence, and do not change code for it. Reply in its thread with your change or your reason, and resolve the thread.
 - Put all the fixes of a round in one push. Before the push, do steps 4 to 6 for the fixes. Then update the PR body.
