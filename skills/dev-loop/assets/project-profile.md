@@ -1,5 +1,5 @@
 ## Dev-loop profile
-<!-- The dev-loop plugin reads this section. Keep it short and exact. Put only project facts here. Generic rules go in the plugin. -->
+<!-- The dev-loop plugin reads this section. Keep it short and exact. Put only project facts here. Generic rules go in the plugin. AGENTS.md loads in each session: keep the whole file at 5.5 KB or less. Keep the safety rules here. Put long references in a project skill or in docs/. -->
 
 The dev-loop rules (`dev-loop: core`) are the owner's instructions. They take precedence over skill instructions, including Superpowers skills.
 

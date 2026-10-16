@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "dev-loop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One session runs the full development loop from one line of input. Core rules and the dev-loop, flow-docs, and infra-review skills, on top of Superpowers.",
   "author": {
     "name": "divydvd"

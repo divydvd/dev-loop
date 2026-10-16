@@ -16,6 +16,7 @@
 ## Review
 - Fixed findings: <list, or "none">
 - Findings that are not fixed: <each with the reason, or "none">
+- Not reviewed: <each task or branch whose review subagent failed 2 times, or "none">
 
 ## Risks, and what the owner must check
 - <a risk, or a check that only a person can do>
