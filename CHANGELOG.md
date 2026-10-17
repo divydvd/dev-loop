@@ -2,6 +2,38 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.2.1 (2026-10-17)
+- **Screenshots of a UI change in the PR body.**
+  - **What:** the PR template has a new "Screenshots" section. For a UI change, the `dev-loop` skill now does these steps:
+    - Step 6 takes a screenshot of each screen that the device test validates. The screenshots stay in a folder outside the repo.
+    - Before the PR, step 7 checks each screenshot. The agent does not upload a screenshot that shows personal data or a secret, or a screenshot that it cannot check.
+    - The section names each screenshot that the agent did not upload, and the reason, but not the data.
+    - The agent uploads the other screenshots with `github-pr-media`. It puts them in an HTML table with `width="180"`, because Markdown images in a table show at full size.
+    - A failed upload does not stop the task. The agent writes the reason in the section.
+    - The agent does not commit the screenshots.
+    - When a review fix changes a validated screen, the agent fills in the section again.
+    - The step adds no stop, and `core.mdc` does not change.
+    - In SmarType, L17 of `smartype-device-test` forbids the upload. divydvd/SmarType#323 changes this line.
+  - **Why:** before the merge of divydvd/SmarType#303, the owner asked for the device screenshots, and the coordinator added 9 by hand. On 2026-10-17, the owner made the step a standing answer. This entry replaces the "Not changed" line of 0.2.0 about the screenshot step.
+  - **Check:** each SmarType PR with a UI change has a "Screenshots" section with images. The owner does not ask for screenshots. No image in a PR shows personal data.
+- **Tested before release** (skill test F, with fresh subagents):
+  - The UI scenario: the SmarType feature divydvd/SmarType#263 at step 7. The screenshot of the signed-in screen (N1) shows an account name, an email address, and a photo.
+  - The control scenario: a made-up fix in the Functions code, with no UI change and no device test.
+  - RED, with the 0.2.0 text: 3 of 3 UI runs put no screenshot in the PR. Each run quoted `smartype-device-test`: "Never commit or upload them".
+  - GREEN round 1 (the first draft and the new L17): 7 of 7 runs pass (5 UI, 2 control). Round 2 (the second draft): 3 of 3 runs pass (2 UI, 1 control). Each of the 7 UI runs did these steps:
+    - It added S4, a pass at font scale 1.5, because `smartype-device-test` asks for it. The scenario had only S1–S3 and N1.
+    - It uploaded S1–S4 with `github-pr-media` before the PR, and put them in the table with `width="180"`.
+    - It did not upload N1, and it named the type of data.
+    - It committed no screenshot, uploaded no log, and asked the owner nothing new.
+  - The 3 control runs wrote "none: <reason>", uploaded nothing, and ran no device test.
+  - Round 1 found 2 unclear points: what to do with the example table for a change without UI, and whether the upload needs a PR. The second draft answers both. The 3 runs of round 2 did not ask about them again.
+  - An independent review of the branch found 2 Important gaps. The text had no safe default for a screenshot that the agent cannot check, or for a secret. The screenshots could become old after a review fix. The final text fixes both.
+  - GREEN round 3 (the final text): 2 of 2 runs pass. In total, 12 of 12 GREEN runs pass.
+    - g8: the agent did not upload a screenshot that it could not check. A notification banner was on it, and the agent could not read the text. An upload failed 2 times. The agent wrote the reason in the section, and it opened the PR.
+    - g9: a review fix changed a validated screen. The agent took the screenshots of the new device test, checked them, and uploaded them again. It updated the commits in the Evidence table.
+  - The merge order (one run for each state). With only the new dev-loop text, or with only the new L17, the agent uploaded the 4 safe screenshots. It left out N1, uploaded no log, and did not stop. With only the new L17, the images showed at full size, and the agent had no safe default for a screenshot that it cannot check.
+  - The install loads the rule and the 3 skills.
+
 ## 0.2.0 (2026-10-15)
 The first weekly review. It covers the setup week and the 2-task trial in `divydvd/SmarType`: PR #296 (bug #287) and PR #303 (feature #263). The PR of this version has the measures table and the changes that the review did not make, with the reasons.
 
