@@ -2,6 +2,12 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.2.2 (2026-10-22)
+- **Record ledger evidence after the PR opens.**
+  - **What:** `dev-loop` step 6 still verifies the committed head and writes each result with its commit. Step 7 records those results with `work_ledger_record` after PR creation. Each call supplies the PR number and the exact commit SHA. New results after review fixes use their own commits.
+  - **Why:** the feedback in #3 reports 8 test runs that found the old order impossible. The API requires a PR number, but step 6 precedes PR creation. A fresh application test confirmed this contradiction before the edit.
+  - **Check:** next week, no session attempts this API before its PR exists. Ledger evidence must name the commit that the check tested. The core rule and the always-loaded text do not change.
+
 ## 0.2.1 (2026-10-17)
 - **Screenshots of a UI change in the PR body.**
   - **What:** the PR template has a new "Screenshots" section. For a UI change, the `dev-loop` skill now does these steps:
