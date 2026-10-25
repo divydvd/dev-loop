@@ -2,6 +2,13 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.3.1 (2026-10-25)
+- **Test tool feedback in each PR.**
+  - **What:** the PR template has a new "Test tool feedback" section: each gap of the test tool, each workaround (for example raw adb instead of the test tool) and why, and each unreliable step. `dev-loop` step 6 notes these facts. The project profile has a new "Test tool repo" fact. `infra-review` reads the section, measures "Device tests that needed a workaround", and opens a fix PR in the test tool repo when a gap has evidence.
+  - **Why:** in SmarType, 111 of 119 merged PRs (2026-10-11..24) had a device test, but no PR reports a Verdict run. Agents used raw adb, because Verdict pastes text and has 5 keys. Nothing recorded these gaps, so nobody fixed Verdict. The owner asked for this feedback on 2026-10-25.
+  - **Check:** next week, each SmarType PR with a device test has the section. The number of device tests with a workaround goes down after the Verdict fixes.
+- **Not changed:** `core.mdc`. Rule 22 still names only the 3 "Dev-loop feedback" lines; the new section is in the template and the skill.
+
 ## 0.3.0 (2026-10-25)
 The weekly infra review of SmarType (2026-10-18..24, 95 merged PRs) found these faults. Plan: `docs/superpowers/plans/2026-10-25-dev-loop-0-3-0.md`.
 

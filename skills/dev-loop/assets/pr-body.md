@@ -29,6 +29,10 @@
 ## Risks, and what the owner must check
 - <a risk, or a check that only a person can do>
 
+## Test tool feedback
+<For a device test or another test tool run: each gap of the test tool, each step that needed a workaround (for example raw adb instead of the test tool) and why, and each unreliable step. Start each line with one label: `gap`, `workaround`, or `unreliable`. If the run had none of these, write "none: no finding". If no test tool ran, write "none: <reason>".>
+- <gap | workaround | unreliable>: <tool>: <what, and why> (<scenario>)
+
 ## Dev-loop feedback
 - Slowed me: <what, or "none">
 - Missing or wrong rule: <which, or "none">
