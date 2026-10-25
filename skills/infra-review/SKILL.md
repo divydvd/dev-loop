@@ -40,8 +40,8 @@ Put this table in each report. Fill the "This week" column from the data of sect
 
 Use the `gh pr list` data from section 1 to compute the PR measures:
 - PR size: add the `additions` and `deletions` of the production code files in `files`. Do not count tests, docs (`*.md`, `docs/`), or generated files.
-- Actions minutes: list the runs of the week with `gh api --paginate "repos/<repo>/actions/runs?created=<from>..<to>&per_page=100"`. Add `updated_at` − `run_started_at` of each run. Name the 2 workflows that used the most minutes.
-- Copilot reviews: count the runs named "Running Copilot Code Review" in the same list. Divide by the number of PRs that had a push in the week.
+- Actions minutes: list the runs of the week with `gh api --paginate "repos/<repo>/actions/runs?created=<from>..<to>&per_page=100"`. For each run, read `billable.UBUNTU.total_ms` from `gh api repos/<repo>/actions/runs/<id>/timing`, and add these values. This counts each Linux job, also parallel jobs. Do not use the elapsed time of a run. Name the 2 workflows that used the most minutes. If the timing data is not available, write "n/a" and the reason.
+- Copilot reviews: use the merged PRs of the week. For each PR, count the runs named "Running Copilot Code Review" on its head branch: `gh api --paginate "repos/<repo>/actions/runs?branch=<headRefName>&per_page=100"`. Divide the total by the number of these PRs. If the week has no merged PRs, write "n/a".
 - Evidence at the head commit: the Commit cell of each Evidence row is the first 7 characters of `headRefOid`.
 - A flow and its doc: when `files` has a key file of a flow doc, `files` also has that flow doc.
 
