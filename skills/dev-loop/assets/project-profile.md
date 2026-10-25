@@ -23,6 +23,7 @@ The dev-loop rules (`dev-loop: core`) are the owner's instructions. They take pr
 - **Needed when:** <the change touches ...>
 - **Procedure:** <install the build, run the scenario, capture the evidence, restore the device>
 - **Tools:** <adb, a test tool, ...>
+- **Test tool repo:** <owner/repo of the test tool, for its improvement PRs, or "none">
 - **Ask the owner only when:** no device is connected, or a step needs a sign-in.
 
 ### Risky areas

@@ -12,7 +12,7 @@ You improve the setup, not the product. One run covers the last 7 days. The outp
 2. Find the project repos: each repo that the owner lists, or that has `"dev-loop@dev-loop": true` in `.github/copilot/settings.json`.
 3. For each project repo, list the merged PRs of the week:
    `gh pr list -R <repo> --state merged --search "merged:>=<YYYY-MM-DD>" --limit 100 --json number,title,url,body,mergedAt,headRefOid,headRefName,files`
-   Read the "Dev-loop feedback" section of each body.
+   Read the "Dev-loop feedback" and the "Test tool feedback" sections of each body.
 4. If the `session_store_sql` tool is available, read the sessions of the week for these repos. Find:
    - owner messages that repeat a basic instruction (device test, small PRs, no rebase, simple code, docs, parallel work, status requests);
    - sessions that ended "blocked", or that tried the same fix again;
@@ -37,11 +37,13 @@ Put this table in each report. Fill the "This week" column from the data of sect
 | Fix-up PRs | | | 0 |
 | Actions minutes (Linux), all project repos | | | lower than last week |
 | Copilot reviews for each PR (mean) | | | 2 or fewer |
+| Device tests that needed a workaround | | | lower than last week |
 
 Use the `gh pr list` data from section 1 to compute the PR measures:
 - PR size: add the `additions` and `deletions` of the production code files in `files`. Do not count tests, docs (`*.md`, `docs/`), or generated files.
 - Actions minutes: list the runs of the week with `gh api --paginate "repos/<repo>/actions/runs?created=<from>..<to>&per_page=100"`. For each run, read `billable.UBUNTU.total_ms` from `gh api repos/<repo>/actions/runs/<id>/timing`, and add these values. This counts each Linux job, also parallel jobs. Do not use the elapsed time of a run. Name the 2 workflows that used the most minutes. If the timing data is not available, write "n/a" and the reason.
 - Copilot reviews: use the merged PRs of the week. For each PR, count the runs named "Running Copilot Code Review" on its head branch: `gh api --paginate "repos/<repo>/actions/runs?branch=<headRefName>&per_page=100"`. Divide the total by the number of these PRs. If the week has no merged PRs, write "n/a".
+- Device tests that needed a workaround: count the PRs with a device test whose "Test tool feedback" names a workaround. Write it as "<N> of <PRs with a device test>". A PR without the section counts as "n/a".
 - Evidence at the head commit: the Commit cell of each Evidence row is the first 7 characters of `headRefOid`.
 - A flow and its doc: when `files` has a key file of a flow doc, `files` also has that flow doc.
 
@@ -66,6 +68,7 @@ Compute the session measures from the files on this Mac. 1 KB is 1,000 bytes. Ro
 ## 5. Output
 - **Core PR** in `divydvd/dev-loop`: bump the version in `plugin.json` and in `.github/plugin/marketplace.json`. Add a `CHANGELOG.md` entry: what changed, the evidence, and the check for next week. Run `node scripts/check.mjs`.
 - **Project PR** in each project repo that needs a change: the profile, a project skill, or a flow doc.
+- **Test tool PR** in the repo that the profile names as "Test tool repo", for a test tool gap with evidence. Prefer a fix in the test tool to a new workaround in a project skill.
 - Open each PR from a checkout of its repo. In the app, start a child session for the other repo.
 - Each PR body has the measures table, the faults with links to the evidence, the changes, and the changes that you did not make, with the reason.
 - If nothing needs a change, open no PR. Send the owner only the measures table.

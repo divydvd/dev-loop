@@ -63,6 +63,7 @@ Commit all changes first. Do this step after the last commit to the branch, so t
 - Run the test tier for each changed area. Read the output.
 - If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, record the result, and restore the device. Ask the owner only when no device is connected or a step needs a sign-in.
 - For a UI change, take a screenshot of each screen that the device test validates. Keep the screenshots in a folder outside the repo.
+- Note each gap of the test tool, each workaround, and each unreliable step for the "Test tool feedback" section of the PR body.
 - Write each result as evidence: `<check>: <command or scenario> → <result> at <sha7>`.
 - If a check fails, fix the cause, do steps 4 and 5 for the fix, and run this step again.
 - Use `verification-before-completion` before you say "done".
