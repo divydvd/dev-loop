@@ -30,8 +30,8 @@
 - <a risk, or a check that only a person can do>
 
 ## Test tool feedback
-<For a device test or another test tool run: each gap of the test tool, each step that needed a workaround (for example raw adb instead of the test tool) and why, and each unreliable step. If the run had no gap, write "none: no gap". If no test tool ran, write "none: <reason>".>
-- <tool>: <gap, workaround, or unreliable step> (<scenario>)
+<For a device test or another test tool run: each gap of the test tool, each step that needed a workaround (for example raw adb instead of the test tool) and why, and each unreliable step. Start each line with one label: `gap`, `workaround`, or `unreliable`. If the run had none of these, write "none: no finding". If no test tool ran, write "none: <reason>".>
+- <tool>: <gap | workaround | unreliable>: <what, and why> (<scenario>)
 
 ## Dev-loop feedback
 - Slowed me: <what, or "none">

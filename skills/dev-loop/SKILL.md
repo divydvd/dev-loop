@@ -63,7 +63,7 @@ Commit all changes first. Do this step after the last commit to the branch, so t
 - Run the test tier for each changed area. Read the output.
 - If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, record the result, and restore the device. Ask the owner only when no device is connected or a step needs a sign-in.
 - For a UI change, take a screenshot of each screen that the device test validates. Keep the screenshots in a folder outside the repo.
-- Note each gap of the test tool, each workaround, and each unreliable step for the "Test tool feedback" section of the PR body.
+- Note each gap of the test tool, each workaround and its reason, and each unreliable step for the "Test tool feedback" section of the PR body.
 - Write each result as evidence: `<check>: <command or scenario> → <result> at <sha7>`.
 - If a check fails, fix the cause, do steps 4 and 5 for the fix, and run this step again.
 - Use `verification-before-completion` before you say "done".
@@ -77,7 +77,7 @@ Commit all changes first. Do this step after the last commit to the branch, so t
   - If an upload fails, write the reason in the section. Do not stop for this.
   - Do not commit the screenshots.
 - Each push starts CI and a Copilot review, and both cost Actions minutes. Do not push the branch before this step. Push once to open the PR, and then once for each review round.
-- Push the branch, and open a PR with a body from `assets/pr-body.md`. Fill in the evidence and the Dev-loop feedback.
+- Push the branch, and open a PR with a body from `assets/pr-body.md`. Fill in the evidence, the Test tool feedback, and the Dev-loop feedback.
 - After the PR opens, if `work_ledger_record` is available, record each result from step 6 with the PR number and its exact commit SHA (kind `validated` or `device_tested`). Record new results after each review fix.
 - After each push, wait for the checks and for the automatic review of the head commit. `gh pr checks` does not show Copilot code review. Find its check run, `copilot-pull-request-reviewer`, in `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`. The review starts 1 minute or less after the push, and it can take 5 minutes. If no review starts in 2 minutes, the repo has no automatic review.
 - A failed check is a new finding that you must fix. Fix it in the push of the round. If the round limit stops you, report the failed check to the owner.
