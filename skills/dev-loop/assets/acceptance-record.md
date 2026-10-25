@@ -4,6 +4,7 @@
   - [ ] <an observable check that a test or a device scenario can prove>
   - [ ] <another check>
 - **Required evidence:** <the test tier commands; the device scenario, or "no device test" and why>
+- **Size estimate:** <changed lines of production code for each task, and the total; tests, docs, and generated files do not count. More than 400: the stack of PRs>
 - **Out of scope:** <what this task does not change>
 - **Risky area:** <none | the area from the profile> (a risky area needs the owner's plan review)
 - **Stop conditions:**

@@ -26,7 +26,7 @@ Put this table in each report. Fill the "This week" column from the data of sect
 | Measure | This week | Last week | Target |
 | --- | --- | --- | --- |
 | Merged PRs | | | — |
-| Median PR size (changed lines of code) | | | 400 or fewer |
+| Median PR size (changed lines of production code) | | | 400 or fewer |
 | Always-loaded text (KB) | | | 15 or less |
 | Model calls for each merged PR (mean) | | | lower than last week |
 | PRs with evidence at the head commit | | | all |
@@ -35,9 +35,13 @@ Put this table in each report. Fill the "This week" column from the data of sect
 | Owner messages that repeat a basic instruction | | | 0 |
 | Owner messages before the PR (real doubts not counted) | | | 3 or fewer |
 | Fix-up PRs | | | 0 |
+| Actions minutes (Linux), all project repos | | | lower than last week |
+| Copilot reviews for each PR (mean) | | | 2 or fewer |
 
 Use the `gh pr list` data from section 1 to compute the PR measures:
-- PR size: add the `additions` and `deletions` of the code files in `files`. Do not count docs (`*.md`, `docs/`) or generated files.
+- PR size: add the `additions` and `deletions` of the production code files in `files`. Do not count tests, docs (`*.md`, `docs/`), or generated files.
+- Actions minutes: list the runs of the week with `gh api --paginate "repos/<repo>/actions/runs?created=<from>..<to>&per_page=100"`. Add `updated_at` − `run_started_at` of each run. Name the 2 workflows that used the most minutes.
+- Copilot reviews: count the runs named "Running Copilot Code Review" in the same list. Divide by the number of PRs that had a push in the week.
 - Evidence at the head commit: the Commit cell of each Evidence row is the first 7 characters of `headRefOid`.
 - A flow and its doc: when `files` has a key file of a flow doc, `files` also has that flow doc.
 

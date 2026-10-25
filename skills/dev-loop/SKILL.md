@@ -22,6 +22,7 @@ Each compaction costs model calls and loses facts. Do these steps in each phase.
 
 ## 1. Route
 - **Feature or behavior change, also a small one:** use `brainstorming`. Put the facts from the profile, and from the flow docs if the repo has them, into your questions. Do not write code before the owner approves the design.
+  - For a UI change, make a mockup before you ask for the design approval. Do not wait for the owner to ask for it. Make one self-contained HTML file (inline CSS and JavaScript, no network) in the session files folder. Show each changed screen, before and after, in the light and dark themes. Use the app's real texts, colors, and sizes from the code. Open the file in the browser canvas with a `file://` URL, and put its path in the plan and the PR body.
   - For a small feature (one area, 3 tasks or fewer), show a design of 2–5 lines and ask one question, with your recommended choice first. After the approval, save the acceptance record (`assets/acceptance-record.md`) as the plan, in `docs/superpowers/plans/<YYYY-MM-DD>-<topic>.md`. Then build it with `test-driven-development`. Do not use `writing-plans`. Copy the record into the PR body.
   - For a bigger feature, write a plan (step 2) after the approval.
 - **Bug:** use `systematic-debugging`. Reproduce the bug, find the root cause, and write a test that fails because of the bug.
@@ -34,6 +35,7 @@ Each compaction costs model calls and loses facts. Do these steps in each phase.
 ## 2. Plan
 - Use `writing-plans`. Put the acceptance record (`assets/acceptance-record.md`) at the top of the plan.
 - Make tasks of 2–5 minutes. Mark the tasks that can run in parallel.
+- Estimate the changed lines of production code for each task, and fill in the "Size estimate" of the acceptance record. Tests, docs, and generated files do not count. If the total is more than 400, split the plan into a stack of PRs now, with one concern for each PR. Do not split after the build.
 - If a task touches a risky area from the profile, mark the task and the plan "risky". Wait for the owner's plan review only then.
 - Choose the execution method from the core rules. Do not ask.
 
@@ -54,7 +56,7 @@ Do this step for each code change, also a small one.
 - Check the change against the acceptance record and the profile's review checklist.
 - For a change with a plan from step 2, also use `requesting-code-review`, or the final whole-branch review of the execution skill. Give the reviewer the acceptance record and the review checklist.
 - Check each finding with `receiving-code-review`. Fix the Critical and Important findings that pass this check. List the other findings in the PR body, with the reason.
-- Check the size with `git diff --stat <base>...HEAD`. If the code change is more than about 400 lines, split it.
+- Check the size with `git diff --stat <base>...HEAD`. Count only production code: not tests, docs, or generated files. If it is more than about 400 lines, split it, and write in the Dev-loop feedback why the estimate was wrong.
 
 ## 6. Verify
 Commit all changes first. Do this step after the last commit to the branch, so that all evidence is at the head commit.
@@ -73,12 +75,13 @@ Commit all changes first. Do this step after the last commit to the branch, so t
   - Upload the other screenshots with the `github-pr-media` skill. The upload needs only the repository id, not a PR. Do not add the Markdown image lines of that skill. Put each URL in the table.
   - If an upload fails, write the reason in the section. Do not stop for this.
   - Do not commit the screenshots.
+- Each push starts CI and a Copilot review, and both cost Actions minutes. Do not push the branch before this step. Push once to open the PR, and then once for each review round.
 - Push the branch, and open a PR with a body from `assets/pr-body.md`. Fill in the evidence and the Dev-loop feedback.
 - After the PR opens, if `work_ledger_record` is available, record each result from step 6 with the PR number and its exact commit SHA (kind `validated` or `device_tested`). Record new results after each review fix.
 - After each push, wait for the checks and for the automatic review of the head commit. `gh pr checks` does not show Copilot code review. Find its check run, `copilot-pull-request-reviewer`, in `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`. The review starts 1 minute or less after the push, and it can take 5 minutes. If no review starts in 2 minutes, the repo has no automatic review.
 - Do review rounds. Read each new finding, in the review threads and in the review text. Check it as in step 5. When a finding asks only for evidence, get the evidence, and do not change code for it. Reply in its thread with your change or your reason, and resolve the thread.
 - Put all the fixes of a round in one push. Before the push, do steps 4 to 6 for the fixes. Then update the PR body. If a fix changes a validated screen, fill in the "Screenshots" section again.
-- Stop the rounds when a round has no new finding that you must fix. A repeat of a rejected finding is not new. Do not push only to get a clean review. After 3 rounds with fixes, stop, and report each open finding to the owner, with your verdict.
+- Stop the rounds when a round has no new finding that you must fix. A repeat of a rejected finding is not new. Do not push only to get a clean review. After 2 rounds with fixes, stop, and report each open finding to the owner, with your verdict.
 - Do not merge.
 
 ## 8. Report
