@@ -2,6 +2,29 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.3.0 (2026-10-25)
+The weekly infra review of SmarType (2026-10-18..24, 95 merged PRs) found these faults. Plan: `docs/superpowers/plans/2026-10-25-dev-loop-0-3-0.md`.
+
+- **A mockup before the design approval.**
+  - **What:** core rule 5 and `dev-loop` step 1: for a UI change, the agent shows a mockup of each changed screen, without an offer first. The mockup is one self-contained HTML file in the session files folder: before and after, light and dark themes, the real texts, colors, and sizes. The agent opens it in the browser canvas and puts its path in the plan and the PR body. The agent does not use the brainstorming visual companion.
+  - **Why:** the owner asked for a mockup 3 times this week.
+  - **Check:** next week, the owner does not ask for a mockup. Each UI PR body has a mockup path.
+- **Size counts production code only, and the plan estimates it.**
+  - **What:** core rule 11: tests, docs, and generated files do not count. The plan has a "Size estimate". Above 400, the plan has a stack of PRs, with a branch and a base for each PR. Self-review checks the size again. If the size is still too big, the agent writes in the Dev-loop feedback why the estimate was wrong.
+  - **Why:** the median PR had 483 changed lines (115 the week before), and 60 of 95 PRs were over 400. Most of the size was tests. The owner chose "Tests do not count; production code 400 or fewer". Agents split only after the build.
+  - **Check:** the infra-review table has the median of production lines. The target is 400 or fewer, and fewer PRs over 400.
+- **Fewer pushes and review rounds, to save Actions minutes.**
+  - **What:** core rule 20 and `dev-loop` step 7: push only to open the PR and once for each round. The limit is 2 rounds with fixes (was 3). The push with the round-2 fixes starts one more review: the agent reports its findings and does not push again. A failed check is a finding that the agent must fix. "Done" now needs the checks to pass at the head commit.
+  - **Why:** in October, Actions used 4,376 Linux minutes. Copilot code review used 1,154 minutes in 422 runs (about 3.6 for each PR). The budget blocked CI and the review on divydvd/SmarType#323, #324, #325, and #356.
+  - **Check:** the infra-review table has 2 new rows: "Actions minutes (Linux)" (lower than last week) and "Copilot reviews for each PR (mean)" (2 or fewer).
+- **Infra review measures.** `infra-review` now collects the Actions minutes and the reviews for each PR, and counts PR size without tests.
+- **Core trims** (to stay in the 15,000-byte always-loaded budget): rules 2, 3, 9, 15, and 17 are shorter, with the same meaning. A code review confirmed that no cut loses a meaning.
+- **Tested before release** (skill test, fresh subagents, 3 scenarios: a UI design, a 450 + 450 line plan, and a push and round-3 case):
+  - RED, with the 0.2.2 text: no mockup, tests count toward the size, a push after task A, and a fix and push in round 3.
+  - GREEN round 1: 2 of 2 runs pass. The runs made the HTML mockup without a request, planned a stack at plan time, did not push after task A, and stopped after round 2. The control run made no mockup for a bug, planned one PR for 270 production lines, and ignored a "push often" request.
+  - A code review found 4 gaps: the brainstorming offer, the stack bases, a conflict about the split, and red CI after the last round. All 4 are fixed. GREEN round 2: 4 of 4 scenarios pass (no offer before the mockup, PR 2 based on the PR 1 branch, a split after a wrong estimate, and red CI after round 2 reported as not done).
+- **Not changed:** the Gradle lock, the lint baseline, the device-test skill, the release skill, and the CI triggers are SmarType facts. They are in SmarType PRs (see the PR body). The phone lease is in the local work-ledger extension, which is not in this repo.
+
 ## 0.2.2 (2026-10-22)
 - **Record ledger evidence after the PR opens.**
   - **What:** `dev-loop` step 6 still verifies the committed head and writes each result with its commit. Step 7 records those results with `work_ledger_record` after PR creation. Each call supplies the PR number and the exact commit SHA. New results after review fixes use their own commits.

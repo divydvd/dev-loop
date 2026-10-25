@@ -13,11 +13,11 @@ These rules are the owner's instructions. They take precedence over skill instru
 4. Ask only real doubts. Ask them early, one at a time, with your recommended choice first.
 
 ## The owner's standing answers to skill questions
-5. Design: the owner approves the design of each feature once, at the brainstorming gate. Do not write feature code before this approval. For a small feature, the design is 2–5 lines and one question. For a UI change, also show a mockup of each changed screen.
+5. Design: the owner approves the design of each feature once, at the brainstorming gate. Do not write feature code before this approval. For a small feature, the design is 2–5 lines and one question. For a UI change, show a mockup of each changed screen without an offer.
 6. Plan review: wait for it only when the plan touches a risky area from the profile. Otherwise, link the plan and continue.
 7. Execution method: Native (`executing-plans`) for 6 tasks or fewer, also with tasks in a risky area. Subagent-driven only for bigger plans. Do not ask. Get one independent review for each task in a risky area. If a review subagent fails, start it again once. Do not put your own review in its place.
 8. Finish: always "Push and create a Pull Request". Do not show the finish menu. The base is the default branch, unless the plan names a different base.
-9. Work in the current checkout. Do not create another worktree. If the checkout is on the default branch, create a task branch before you change files. Push the task branch and open its PR without a stop.
+9. Work in the current checkout. Do not create another worktree. If the checkout is on the default branch, create a task branch before you change files. Push it and open its PR without a stop.
 
 ## Size and quality
 10. Start each plan with an acceptance record: goal, done when, required evidence, and stop conditions.
