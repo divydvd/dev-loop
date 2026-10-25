@@ -11,7 +11,7 @@ You improve the setup, not the product. One run covers the last 7 days. The outp
 1. Run `copilot plugin update dev-loop@dev-loop`, so that you review the current core.
 2. Find the project repos: each repo that the owner lists, or that has `"dev-loop@dev-loop": true` in `.github/copilot/settings.json`.
 3. For each project repo, list the merged PRs of the week:
-   `gh pr list -R <repo> --state merged --search "merged:>=<YYYY-MM-DD>" --limit 100 --json number,title,url,body,mergedAt,headRefOid,files`
+   `gh pr list -R <repo> --state merged --search "merged:>=<YYYY-MM-DD>" --limit 100 --json number,title,url,body,mergedAt,headRefOid,headRefName,files`
    Read the "Dev-loop feedback" section of each body.
 4. If the `session_store_sql` tool is available, read the sessions of the week for these repos. Find:
    - owner messages that repeat a basic instruction (device test, small PRs, no rebase, simple code, docs, parallel work, status requests);
