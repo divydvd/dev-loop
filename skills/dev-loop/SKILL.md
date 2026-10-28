@@ -20,6 +20,25 @@ Each compaction costs model calls and loses facts. Do these steps in each phase.
 - Write the facts that you will need again (paths, line numbers, signatures, rulings) in the plan or the ledger. Do not read a file again for a fact that you already have. If the file changed after you wrote the fact, find the fact again with `grep`.
 - After a compaction, continue from these notes. Read again only the lines that the next step needs and the notes do not give. Examples are the text to change and the code to check or debug.
 
+### Graphify (optional)
+Use Graphify only when the project profile enables it and the task needs cross-file discovery, such as callers, dependencies, or architecture.
+For a known file or a small local change, use focused source search.
+
+1. Read the profile's graph location, query command, freshness check, and local refresh command.
+2. Before querying, run the freshness check. It must confirm this checkout, its current commit, and its working-tree files.
+   A graph file's presence or timestamp alone does not prove freshness. Missing or unknown freshness means the graph is stale.
+3. If the check reports a missing or stale graph, run only the profile's permitted local refresh, then check freshness again.
+   If the CLI, configuration, or permitted refresh is unavailable, state the limitation and use source search.
+   If the checker cannot run, or a refresh or query fails, report the failure and continue with source search.
+4. Query only the relationships needed for the task. Do not load the full graph or report for a focused question.
+5. Confirm the returned paths and relationships in the current source.
+   An empty result or a missing edge does not prove that no caller exists. Use source search to cover gaps.
+
+Recheck freshness after source changes or a branch switch before another graph query.
+Record useful source references in the plan or ledger, not the full graph output.
+Do not install Graphify, change its configuration, or enable external processing automatically.
+Graph results are discovery hints, not test evidence. Keep all approval gates and required checks.
+
 ## 1. Route
 - **Feature or behavior change, also a small one:** use `brainstorming`. Put the facts from the profile, and from the flow docs if the repo has them, into your questions. Do not write code before the owner approves the design.
   - For a UI change, make a mockup before you ask for the design approval. Do not wait for the owner to ask for it, and do not offer it first. Do not use the brainstorming visual companion. Make one self-contained HTML file (inline CSS and JavaScript, no network) in the session files folder. Show each changed screen, before and after, in the light and dark themes. Use the app's real texts, colors, and sizes from the code. Open the file in the browser canvas with a `file://` URL, and put its path in the plan and the PR body.

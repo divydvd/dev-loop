@@ -14,6 +14,20 @@ The dev-loop rules (`dev-loop: core`) are the owner's instructions. They take pr
 ### Heavy builds
 - <Which commands are heavy. How to run them with low memory. Only one heavy build runs at a time.>
 
+### Graphify (optional)
+<!-- Omit this section when the project does not use Graphify. Keep project commands here, not in the shared plugin. -->
+- **Enabled:** <yes or no>
+- **Graph location:** <path inside this checkout; for example graphify-out/graph.json>
+- **Query command:** <scoped command; for example graphify query "<question>" --budget 1500>
+- **Freshness check:** <command that verifies the graph matches this checkout, HEAD, and working-tree files; or "unavailable">
+- **Local refresh command:** <permitted local-only command; or "none">
+<!-- A freshness check must detect changed, added, and deleted inputs, including relevant untracked files.
+     HEAD or a graph timestamp alone is insufficient. Without a reliable check, use source search.
+     Refresh example: GRAPHIFY_BACKEND=none graphify extract . --code-only.
+     Confirm that the project's refresh also provides the evidence its freshness check needs.
+     Keep generated graphs local to each checkout and exclude them from Git. Never include secrets.
+     No installation or external processing is authorized by this section. -->
+
 ### Test tiers
 | Changed area | Run |
 | --- | --- |

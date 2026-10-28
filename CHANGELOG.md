@@ -2,6 +2,25 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.4.0 (2026-10-29)
+- **Optional Graphify discovery.**
+  - **What:** the dev-loop skill uses scoped graph queries when the project enables Graphify and needs cross-file discovery.
+    The profile supplies the graph location, query, freshness check, and permitted local refresh.
+    Freshness covers the checkout, commit, and working-tree inputs. Unknown freshness requires source search or a permitted refresh.
+    Failed or incomplete graph queries lead to explicit source investigation. Graph results do not replace tests or approvals.
+    The README explains the project setup. The plugin does not install Graphify or enable external processing.
+  - **Why:** the owner installed Graphify in Smartype and approved optional shared guidance on 2026-10-29.
+    Five baseline application cases already made safe choices when given a fully configured profile.
+    However, the existing template had no Graphify contract; the required-field check failed before this change.
+  - **Check:** run `node scripts/check.mjs`, a temporary-home installation smoke test, and skill application cases for fresh, stale, absent, incomplete, and failed graphs.
+    Next weekly review: inspect Graphify projects for scoped queries, source confirmation, and explicit fallback reasons. No token savings are claimed yet.
+- **Tested before release:** the five profile fields pass their contract check after failing before the edit.
+  Eight simulated skill application cases selected safe actions, including unknown freshness, source changes, and query failure.
+  The application test identified ambiguous stale-check wording; the final text separates reported staleness from checker execution errors.
+  An independent review of the final guidance found no significant issue.
+  A temporary Copilot home installed the local branch and discovered `dev-loop: core` and all three plugin skills.
+- **Not changed:** core rules, approval gates, finish rules, application repositories, and Graphify installation.
+
 ## 0.3.1 (2026-10-25)
 - **Test tool feedback in each PR.**
   - **What:** the PR template has a new "Test tool feedback" section: each gap of the test tool, each workaround (for example raw adb instead of the test tool) and why, and each unreliable step. `dev-loop` step 6 notes these facts. The project profile has a new "Test tool repo" fact. `infra-review` reads the section, measures "Device tests that needed a workaround", and opens a fix PR in the test tool repo when a gap has evidence.
