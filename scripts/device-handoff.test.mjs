@@ -53,6 +53,13 @@ test("the profile gives monitors and merging sessions an explicit handoff contra
   assert.match(profile, /source.*artifact.*installed/i);
 });
 
+test("post-merge results use a comment rather than an unsupported merged-body edit", () => {
+  const refresh = skill.split("## After an authorized merge")[1] ?? "";
+  assert.match(refresh, /PR comment.*owner.facing report/i);
+  assert.match(refresh, /do not.*edit.*merged.*PR body/i);
+  assert.doesNotMatch(refresh, /update "Device handoff"/i);
+});
+
 test("the report distinguishes installed app identity from the selected keyboard", () => {
   assert.match(skill, /selected keyboard.*separately/i);
   assert.match(pr, /## Device handoff/);

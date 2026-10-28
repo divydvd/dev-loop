@@ -89,7 +89,9 @@ Device monitors must use that same procedure. Preserve the owner's keyboard sele
 
 When a session handles an authorized merge of a device-tested app change, it refreshes the device from the latest fetched default branch.
 The project profile supplies safe source-selection, build, install, launch, and exclusive-access procedures.
-The session records the source commit, artifact identity, installed version, and launch result in the PR's "Device handoff" section.
+Before merge, the PR's "Device handoff" section records the final device-test state.
+After merge, a PR comment and the owner-facing report record the refreshed source commit, artifact identity, installed version, and launch result.
+The session does not edit the merged PR body.
 An unavailable device, unsafe version change, missing procedure, or failed check blocks the refresh. It does not justify a downgrade or uninstall.
 This procedure does not authorize merges, releases, or deployments. It does not start a background merge watcher.
 

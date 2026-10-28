@@ -128,7 +128,8 @@ For a project with no device test, or a change outside its device-test tier, rep
    Restore only the test changes through the safe project procedure.
    Preserve the owner's selected keyboard or app. State its identity separately from the installed test package.
    Check the remote default branch again. If the default branch has advanced, report the refresh as superseded, not latest.
-5. Update "Device handoff" with the fetched source SHA, installed version, artifact identity, and launch result.
+5. Post a "Device handoff" PR comment and an owner-facing report with the fetched source SHA, installed version, artifact identity, and launch result.
+   Do not edit the merged PR body. Its device-test evidence describes the pre-merge run.
    Record a blocked refresh with its reason and the last verified installed identity. Do not claim that a blocked refresh succeeded.
 
 ## 8. Report
