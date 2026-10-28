@@ -39,6 +39,10 @@ Record useful source references in the plan or ledger, not the full graph output
 Do not install Graphify, change its configuration, or enable external processing automatically.
 Graph results are discovery hints, not test evidence. Keep all approval gates and required checks.
 
+### UI reuse (UI work only)
+For UI work, read `references/ui-reuse.md` before the mockup or implementation.
+For non-UI tasks, skip that reference and the profile's UI reuse pointers.
+
 ## 1. Route
 - **Feature or behavior change, also a small one:** use `brainstorming`. Put the facts from the profile, and from the flow docs if the repo has them, into your questions. Do not write code before the owner approves the design.
   - For a UI change, make a mockup before you ask for the design approval. Do not wait for the owner to ask for it, and do not offer it first. Do not use the brainstorming visual companion. Make one self-contained HTML file (inline CSS and JavaScript, no network) in the session files folder. Show each changed screen, before and after, in the light and dark themes. Use the app's real texts, colors, and sizes from the code. Open the file in the browser canvas with a `file://` URL, and put its path in the plan and the PR body.
@@ -73,6 +77,7 @@ Graph results are discovery hints, not test evidence. Keep all approval gates an
 Do this step for each code change, also a small one.
 - Do a "simplify" pass. Remove the code, flags, and abstractions that the goal does not need.
 - Check the change against the acceptance record and the profile's review checklist.
+- For UI work, check the reuse decision against the final code, affected consumers, and the required UI evidence.
 - For a change with a plan from step 2, also use `requesting-code-review`, or the final whole-branch review of the execution skill. Give the reviewer the acceptance record and the review checklist.
 - Check each finding with `receiving-code-review`. Fix the Critical and Important findings that pass this check. List the other findings in the PR body, with the reason.
 - Check the size with `git diff --stat <base>...HEAD`. Count only production code: not tests, docs, or generated files. If it is still more than about 400 lines, split it, and write in the Dev-loop feedback why the estimate was wrong.

@@ -33,6 +33,15 @@ The dev-loop rules (`dev-loop: core`) are the owner's instructions. They take pr
 | --- | --- |
 | <path or area> | <command> |
 
+### UI reuse (optional)
+<!-- Omit for projects without UI. Keep only paths and check references here, not a component inventory. -->
+- **Components:** <shared UI source paths or component API reference; or "none">
+- **Design tokens:** <theme or named visual-value source paths; or "none">
+- **Examples:** <current example screens, component tests, or an existing catalog; or "none">
+- **UI checks:** <existing commands or scenarios for component behavior, accessibility, themes, and text scaling as applicable; or "unavailable">
+<!-- Missing references do not require a new catalog or library. Inspect the affected UI and follow its current conventions.
+     Use the existing test tiers and device procedure. Put long references beside the UI code or in project docs. -->
+
 ### Device test
 - **Needed when:** <the change touches ...>
 - **Procedure:** <install the build, run the scenario, capture the evidence, restore the device>
