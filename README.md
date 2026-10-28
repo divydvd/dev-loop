@@ -59,6 +59,23 @@ In a new app session in the project, ask: "Which skills and custom instructions 
 
 In a different folder, or in a folder that is not trusted, they do not show.
 
+## Optional Graphify support
+[Graphify](https://github.com/Graphify-Labs/graphify) maps code relationships for cross-file discovery. It is not a dev-loop dependency.
+Install and configure it separately in a project that needs it.
+
+Copy the optional Graphify section from `skills/dev-loop/assets/project-profile.md` into the project's `AGENTS.md`.
+Supply the graph location, a scoped query command, a reliable freshness check, and a permitted local refresh command.
+The check must cover the current checkout, commit, and working-tree inputs, including added and deleted files.
+Dev-loop does not supply that project-specific check. If it is unavailable, dev-loop uses source search.
+
+Keep `graphify-out/` in each project checkout and exclude it from Git.
+Do not place application graphs in this plugin repository.
+The skill uses current graphs for discovery, confirms findings in source, and reports failures before using source search.
+It does not install Graphify or authorize external processing.
+For a local code-only refresh, Graphify documents `GRAPHIFY_BACKEND=none graphify extract . --code-only`.
+This command alone does not establish freshness evidence; the project must supply that check.
+Graphs do not replace flow docs, approval gates, or required tests.
+
 ## Change the plugin
 1. Open a PR. Bump the version in `plugin.json` and in `.github/plugin/marketplace.json`. Add an entry to `CHANGELOG.md`.
 2. Run `node scripts/check.mjs`.
