@@ -10,6 +10,13 @@
 | Unit tests | `<command>` | <N passed> | `<sha7>` |
 | Device test | <scenario, or "not needed: reason"> | <pass or fail, and a note> | `<sha7>` |
 
+## Device handoff
+| Item | Final verified state |
+| --- | --- |
+| Installed test build | <package or app, version, source SHA, artifact identity; or "not needed: reason"> |
+| Selected keyboard or app | <selected package or app; distinguish it from the test build, or "not needed"> |
+| Post-merge refresh | <not merged; completed with fetched source SHA and launch result; blocked with reason and last verified build; or not needed with reason> |
+
 ## Screenshots
 <For a UI change: one cell for each validated screen, with 4 cells in each row. Use this HTML table, because Markdown images in a table show at full size. Name each screenshot that you did not upload, and the reason. For other changes, or when the device test validated no screen, delete the table. Then write "none: <reason>".>
 <table>

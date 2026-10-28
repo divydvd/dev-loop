@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "The dev-loop plugin: rules and skills that let one session run the full development loop.",
-    "version": "0.4.0"
+    "version": "0.4.1"
   },
   "plugins": [
     {
       "name": "dev-loop",
       "source": "./",
       "description": "Core rules and the dev-loop, flow-docs, and infra-review skills, on top of Superpowers.",
-      "version": "0.4.0"
+      "version": "0.4.1"
     }
   ]
 }

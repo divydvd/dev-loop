@@ -10,6 +10,7 @@ A Copilot plugin that lets one session run the full development loop from one li
 | `flow-docs` skill | `skills/flow-docs/` | Read, update, and create the flow docs in `docs/flows/`. |
 | `infra-review` skill | `skills/infra-review/` | The weekly review that improves this plugin and the project profiles. |
 | Check script | `scripts/check.mjs` | Exact checks: the rule size, the frontmatter, the links, and the versions. CI runs it on each PR. |
+| Device handoff tests | `scripts/device-handoff.test.mjs` | Regression checks for passing-build retention, monitor grants, and authorized post-merge refresh instructions. |
 
 ## Layers
 1. **Superpowers:** the process skills (brainstorming, plans, TDD, debugging, review).
@@ -80,6 +81,22 @@ Graphs do not replace flow docs, approval gates, or required tests.
 1. Open a PR. Bump the version in `plugin.json` and in `.github/plugin/marketplace.json`. Add an entry to `CHANGELOG.md`.
 2. Run `node scripts/check.mjs`.
 3. After the merge, run `copilot plugin update dev-loop@dev-loop` on each computer. The weekly review does this at its start.
+
+## Device build handoff
+After a passing device test, keep the tested build installed.
+Restore test data and device settings through the project procedure, not by reinstalling an old baseline APK.
+Device monitors must use that same procedure. Preserve the owner's keyboard selection and report it separately from the installed test app.
+
+When a session handles an authorized merge of a device-tested app change, it refreshes the device from the latest fetched default branch.
+The project profile supplies safe source-selection, build, install, launch, and exclusive-access procedures.
+The session records the source commit, artifact identity, installed version, and launch result in the PR's "Device handoff" section.
+An unavailable device, unsafe version change, missing procedure, or failed check blocks the refresh. It does not justify a downgrade or uninstall.
+This procedure does not authorize merges, releases, or deployments. It does not start a background merge watcher.
+
+Run `node --test scripts/device-handoff.test.mjs` after changes to these instructions.
+Use skill application scenarios as well: text checks do not prove agent behavior.
+After a plugin update, start a new session or explicitly reload the instructions in an existing session.
+Updating repository instructions alone does not update an installed plugin or replace a monitor's retained context.
 
 ## Known limits
 - Copilot loads a plugin rule only from a `.mdc` file in `com.github.copilot/rules/`, with `description` and `alwaysApply: true` in its frontmatter. It ignores `.md` files there. (Tested on Copilot CLI 1.0.94 and 1.0.97.)

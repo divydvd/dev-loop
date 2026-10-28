@@ -2,6 +2,28 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.4.1 (2026-10-29)
+- **Keep a current test build on the device.**
+  - **What:** the core and device-test procedure retain a passing build, while safely restoring test data and settings.
+    Monitor grants follow the project procedure rather than an old APK baseline.
+    After an authorized merge, the merging session refreshes the debug build from the latest fetched default branch.
+    The profile supplies project commands and exclusive access. Version, data, owner approval, and keyboard-selection safeguards remain.
+    The PR template records installed identity, selected keyboard or app, and the refresh result or blocker.
+  - **Why:** the owner reported old apps after testing, despite the passing-build fix in divydvd/SmarType#498.
+    Historical monitor grants required the old APK. The current monitor reports that it no longer does so.
+    A baseline application case still restored an older APK under the shared instructions; no shared post-merge procedure existed.
+  - **Check:** run `node scripts/check.mjs`, the seven device-handoff regression checks, skill application scenarios, and a temporary-home installation smoke test.
+    Next weekly review: compare the final installed commit with the reported fetched default branch after authorized merges.
+    Count blocked refreshes separately. An open instruction PR is not evidence that a device or existing session changed.
+- **Baseline evidence:** seven instruction contracts failed before the change.
+  The baseline application test restored the old APK after a pass and did not refresh after a merge.
+- **Verification:** the seven contracts pass after the change.
+  Five application cases and three edge cases retain passing builds, enforce refresh safeguards, and report blocked or superseded refreshes.
+  A temporary Copilot home installed the local branch and discovered the core rule and all three plugin skills.
+  These simulations test instructions, not a live device installation.
+- **Rollout:** update the plugin on each execution host and refresh existing sessions.
+  Project procedure changes and monitor state remain separate from this plugin release.
+
 ## 0.4.0 (2026-10-29)
 - **Optional Graphify discovery.**
   - **What:** the dev-loop skill uses scoped graph queries when the project enables Graphify and needs cross-file discovery.
