@@ -43,6 +43,17 @@ Graph results are discovery hints, not test evidence. Keep all approval gates an
 For UI work, read `references/ui-reuse.md` before the mockup or implementation.
 For non-UI tasks, skip that reference and the profile's UI reuse pointers.
 
+### Instruction budget
+If the task changes `AGENTS.md` or always-loaded plugin rules, measure the combined instruction size before and after the change.
+Use `copilot instruction list` in each affected project to find all loaded instruction files.
+Add their exact byte sizes and the installed Superpowers `skills/using-superpowers/SKILL.md` start text.
+Use 1 KB = 1,000 bytes. Keep the total at 15,000 bytes or less; a rounded 15.0 KB is not proof.
+The profile allowance is the smaller of 5,500 bytes and the bytes left after the other loaded instructions.
+Move long detail to an on-demand project skill or reference. Keep safety rules and clear routing in the profile.
+Record the paths, before and after byte totals, and remaining allowance in the evidence.
+If a loaded file is unavailable, report the missing measurement; do not claim budget compliance.
+For other tasks, skip this measurement.
+
 ## 1. Route
 - **Feature or behavior change, also a small one:** use `brainstorming`. Put the facts from the profile, and from the flow docs if the repo has them, into your questions. Do not write code before the owner approves the design.
   - For a UI change, make a mockup before you ask for the design approval. Do not wait for the owner to ask for it, and do not offer it first. Do not use the brainstorming visual companion. Make one self-contained HTML file (inline CSS and JavaScript, no network) in the session files folder. Show each changed screen, before and after, in the light and dark themes. Use the app's real texts, colors, and sizes from the code. Open the file in the browser canvas with a `file://` URL, and put its path in the plan and the PR body.

@@ -2,6 +2,22 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.1 (2026-10-29)
+- **Calculate the actual instruction allowance.**
+  - **What:** the skill, project template, and README use a combined ceiling of 15,000 bytes.
+    The profile fits 5,500 bytes or the remaining allowance, whichever is smaller.
+    Changes to the profile or always-loaded rules record exact before and after totals from discovered instruction files and the Superpowers start text.
+    Safety rules and clear routing remain in the profile; operational detail loads on demand.
+    The always-loaded core and approval points do not change.
+  - **Why:** core #2 calculated 5.5 KB from the old shared files; #4 warned that only 11 bytes remained.
+    The weekly review found SmarType at 17,847 bytes after profile and shared-core growth.
+    A baseline application accepted a 5,460-byte profile with a 15,578-byte total because the written allowance still permitted it.
+    Six structural contracts failed before the correction.
+  - **Check:** run the plugin check, the six budget contracts, fresh skill application cases, and an isolated installation smoke test.
+    Next weekly review: measure exact totals after profile or shared-rule changes.
+    Check that a profile below 5.5 KB cannot pass when its combined total exceeds 15,000 bytes.
+    The companion SmarType PR restores its current budget; this plugin change does not shrink existing profiles automatically.
+
 ## 0.5.0 (2026-10-29)
 - **Project-based UI component reuse.**
   - **What:** UI work inspects existing components, design tokens, and current usage before the mockup or implementation.
