@@ -77,10 +77,29 @@ For a local code-only refresh, Graphify documents `GRAPHIFY_BACKEND=none graphif
 This command alone does not establish freshness evidence; the project must supply that check.
 Graphs do not replace flow docs, approval gates, or required tests.
 
+## Reuse UI components
+For UI tasks, dev-loop loads `skills/dev-loop/references/ui-reuse.md` before a mockup or implementation.
+For UI projects, add the optional UI reuse section from `skills/dev-loop/assets/project-profile.md` to `AGENTS.md`.
+Point to shared components, design tokens, current examples, and existing UI checks.
+A design token is a named visual value, such as a semantic color or spacing size.
+Keep the actual code and detailed references in the project, not in this plugin or the always-loaded profile.
+
+For a planned change, the plan records a short reuse decision with source paths, the chosen variant, relevant states, and checks.
+The agent confirms catalog entries against source and reuses suitable components before adding new ones.
+Shared changes preserve existing consumers and update their examples or reference.
+If references are missing, the agent inspects the affected UI and nearby screens.
+It does not build a speculative library, install a catalog tool, or require a design system for a local change.
+Non-UI tasks skip this reference and the UI profile pointers. Existing approval gates and verification requirements still apply.
+Trivial UI text changes need no new plan or mockup.
+
 ## Change the plugin
 1. Open a PR. Bump the version in `plugin.json` and in `.github/plugin/marketplace.json`. Add an entry to `CHANGELOG.md`.
 2. Run `node scripts/check.mjs`.
 3. After the merge, run `copilot plugin update dev-loop@dev-loop` on each computer. The weekly review does this at its start.
+
+To resolve PR conflicts, merge the PR's current base into its working branch.
+Preserve both sets of changes, then rerun the required checks and review before requesting merge approval.
+Do not merge into the default branch locally, rebase, or force push.
 
 ## Device build handoff
 After a passing device test, keep the tested build installed.

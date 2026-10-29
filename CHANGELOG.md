@@ -2,6 +2,36 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.0 (2026-10-29)
+- **Project-based UI component reuse.**
+  - **What:** UI work inspects existing components, design tokens, and current usage before the mockup or implementation.
+    The details load from a reference only for UI tasks, not for backend work.
+    For a planned change, the plan records source paths, the selected variant, affected states, and checks.
+    Shared changes preserve existing consumers and update examples or references.
+    The profile adds optional pointers to components, tokens, examples, and UI checks. Missing references permit focused source investigation.
+    No catalog tool, new dependency, speculative library, or design system is required. Non-UI tasks skip the work.
+  - **Why:** the owner requested consistent reusable design components and an efficient harness.
+    The baseline template had no UI reference contract; its required-field test failed before this change.
+    Baseline application cases already selected sensible reuse. This change makes the project references and plan record explicit; it does not claim measured token savings.
+  - **Check:** run `node scripts/check.mjs`, an isolated-home install smoke test, the profile contract check, and the UI application cases.
+    Next weekly review: inspect UI PRs for source-based reuse decisions, duplicate components, and regressions in shared consumers.
+    Record missing checks and avoid adding UI exploration to backend-only tasks.
+- **Tested before release:** the five profile fields and on-demand reference wiring pass after failing before their edits.
+  Eight simulated application cases preserve reuse, consumer checks, and the bug/non-UI routes.
+  A final contract test exposed an unconditional plan-record requirement; the reference now preserves the trivial-change route explicitly.
+  An independent whole-change review found no significant issue.
+  An isolated Copilot home installed 0.5.0 and discovered the core instruction and all three plugin skills.
+- **Allow safe PR branch maintenance.**
+  - **What:** rule 21 permits merging a PR's base into its working branch, then requires checks and review again.
+    Local merges into the default branch, rebases, and force pushes remain prohibited. PR merges still require owner approval.
+  - **Why:** the blanket local-merge ban blocked conflict resolution for #9 after #8 advanced main.
+    The owner approved this distinction and the core-rule plan on 2026-10-29.
+  - **Check:** `node --test scripts/branch-maintenance.test.mjs` verifies the permission, protected integration boundary, and fresh checks/review.
+    All three contracts failed before the rule edit. CI runs them with the retained device-handoff tests.
+    Next weekly review: branch maintenance does not ask for a policy exception or bypass PR approval.
+- **Conflict resolution:** retain both the 0.4.1 device safeguards and the 0.5.0 UI guidance; keep manifests at 0.5.0.
+- **Not changed:** PR approval requirements, Graphify guidance, application code, and cost measurement.
+
 ## 0.4.1 (2026-10-29)
 - **Keep a current test build on the device.**
   - **What:** the core and device-test procedure retain a passing build, while safely restoring test data and settings.
