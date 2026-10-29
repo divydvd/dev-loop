@@ -1,5 +1,9 @@
 ## Dev-loop profile
-<!-- The dev-loop plugin reads this section. Keep it short and exact. Put only project facts here. Generic rules go in the plugin. AGENTS.md loads in each session: keep the whole file at 5.5 KB or less. Keep the safety rules here. Put long references in a project skill or in docs/. -->
+<!-- The dev-loop plugin reads this section. Put only project facts here. Generic rules go in the plugin.
+AGENTS.md loads in each session. Its limit is 5,500 bytes or the remaining combined instruction allowance, whichever is smaller.
+Keep all loaded instruction files plus the installed Superpowers start text at 15,000 bytes or less.
+Measure actual files with copilot instruction list; shared instructions can change. Keep safety rules and clear routing here.
+Put long references in an on-demand project skill or in docs/. -->
 
 The dev-loop rules (`dev-loop: core`) are the owner's instructions. They take precedence over skill instructions, including Superpowers skills.
 

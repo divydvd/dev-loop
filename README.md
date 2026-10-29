@@ -44,7 +44,7 @@ The `disable` commands keep both plugins off in all other folders and chats. Eac
      }
    }
    ```
-2. Add a profile section to `AGENTS.md`. Start from `skills/dev-loop/assets/project-profile.md`. Its first line makes the dev-loop rules take precedence over skill instructions. `AGENTS.md` loads in each session, so keep the whole file at 5.5 KB or less. Put long references in a project skill or in `docs/`.
+2. Add a profile section to `AGENTS.md`. Start from `skills/dev-loop/assets/project-profile.md`. Its first line makes the dev-loop rules take precedence over skill instructions. The whole file must fit 5,500 bytes or the remaining combined instruction allowance, whichever is smaller. Put long references in an on-demand project skill or in `docs/`.
 3. If the project has app flows, add `docs/flows/INDEX.md`. Start from `skills/flow-docs/assets/flow-index.md`.
 4. Trust the project folder. Copilot applies the repo's `enabledPlugins` only in a trusted folder.
    - CLI: when Copilot asks, choose to trust the folder and remember it. A trusted parent folder (for example the worktrees folder) also trusts the folders in it.
@@ -59,6 +59,15 @@ In a terminal in the project folder:
 In a new app session in the project, ask: "Which skills and custom instructions do you have?" The answer must include the 3 skills and "Dev-loop core rules".
 
 In a different folder, or in a folder that is not trusted, they do not show.
+
+### Instruction size
+Keep all loaded instruction files and the installed Superpowers start text at **15,000 bytes or less** (1 KB = 1,000 bytes).
+Use `copilot instruction list` in the project to find the loaded files.
+Add their exact byte sizes and `skills/using-superpowers/SKILL.md` from the installed Superpowers plugin.
+Subtract the other instructions from 15,000 to calculate the profile allowance; do not assume 5.5 KB remains after a plugin update.
+For example, 4,891 core bytes, 2,035 personal bytes, and 3,192 start bytes leave **4,882 bytes** for `AGENTS.md`.
+When a task changes the profile or always-loaded rules, record the before and after totals.
+Keep safety rules and clear routes in the profile when moving detail to on-demand references.
 
 ## Optional Graphify support
 [Graphify](https://github.com/Graphify-Labs/graphify) maps code relationships for cross-file discovery. It is not a dev-loop dependency.
