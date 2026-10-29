@@ -11,3 +11,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: node scripts/check.mjs
+      - run: node --test scripts/device-handoff.test.mjs
+      - run: node --test scripts/branch-maintenance.test.mjs

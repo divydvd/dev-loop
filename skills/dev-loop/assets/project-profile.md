@@ -44,7 +44,11 @@ The dev-loop rules (`dev-loop: core`) are the owner's instructions. They take pr
 
 ### Device test
 - **Needed when:** <the change touches ...>
-- **Procedure:** <install the build, run the scenario, capture the evidence, restore the device>
+- **Procedure:** <install the build, run the scenario, capture the evidence, safely restore test data and settings>
+- **Final build:** keep a passing tested build installed; use the project recovery procedure after FAIL or BLOCKED.
+- **Device access:** <exclusive device grant procedure, or "one session only">. Monitor grants follow this procedure, not a fixed old APK.
+- **Post-merge refresh:** <safe source-selection, debug build, install, and launch commands for the latest fetched default branch; or "not needed: no app">.
+  Verify the source SHA, artifact identity, and installed identity. Keep data and version safeguards; report blockers without replacing the installed app.
 - **Tools:** <adb, a test tool, ...>
 - **Test tool repo:** <owner/repo of the test tool, for its improvement PRs, or "none">
 - **Ask the owner only when:** no device is connected, or a step needs a sign-in.

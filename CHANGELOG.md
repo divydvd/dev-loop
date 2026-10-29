@@ -21,7 +21,41 @@ Each entry says what changed, why (the evidence), and how the next weekly review
   A final contract test exposed an unconditional plan-record requirement; the reference now preserves the trivial-change route explicitly.
   An independent whole-change review found no significant issue.
   An isolated Copilot home installed 0.5.0 and discovered the core instruction and all three plugin skills.
-- **Not changed:** core rules, approval gates, finish rules, Graphify guidance, application code, and cost measurement.
+- **Allow safe PR branch maintenance.**
+  - **What:** rule 21 permits merging a PR's base into its working branch, then requires checks and review again.
+    Local merges into the default branch, rebases, and force pushes remain prohibited. PR merges still require owner approval.
+  - **Why:** the blanket local-merge ban blocked conflict resolution for #9 after #8 advanced main.
+    The owner approved this distinction and the core-rule plan on 2026-10-29.
+  - **Check:** `node --test scripts/branch-maintenance.test.mjs` verifies the permission, protected integration boundary, and fresh checks/review.
+    All three contracts failed before the rule edit. CI runs them with the retained device-handoff tests.
+    Next weekly review: branch maintenance does not ask for a policy exception or bypass PR approval.
+- **Conflict resolution:** retain both the 0.4.1 device safeguards and the 0.5.0 UI guidance; keep manifests at 0.5.0.
+- **Not changed:** PR approval requirements, Graphify guidance, application code, and cost measurement.
+
+## 0.4.1 (2026-10-29)
+- **Keep a current test build on the device.**
+  - **What:** the core and device-test procedure retain a passing build, while safely restoring test data and settings.
+    Monitor grants follow the project procedure rather than an old APK baseline.
+    After an authorized merge, the merging session refreshes the debug build from the latest fetched default branch.
+    The profile supplies project commands and exclusive access. Version, data, owner approval, and keyboard-selection safeguards remain.
+    The PR template records installed identity and selected keyboard or app.
+    A PR comment and the owner-facing report record the post-merge refresh result or blocker without editing the merged PR body.
+  - **Why:** the owner reported old apps after testing, despite the passing-build fix in divydvd/SmarType#498.
+    Historical monitor grants required the old APK. The current monitor reports that it no longer does so.
+    A baseline application case still restored an older APK under the shared instructions; no shared post-merge procedure existed.
+  - **Check:** run `node scripts/check.mjs`, the eight device-handoff regression checks, skill application scenarios, and a temporary-home installation smoke test.
+    Next weekly review: compare the final installed commit with the reported fetched default branch after authorized merges.
+    Count blocked refreshes separately. An open instruction PR is not evidence that a device or existing session changed.
+- **Baseline evidence:** seven instruction contracts failed before the change.
+  The baseline application test restored the old APK after a pass and did not refresh after a merge.
+- **Verification:** the seven contracts pass after the change.
+  Five application cases and three edge cases retain passing builds, enforce refresh safeguards, and report blocked or superseded refreshes.
+  A temporary Copilot home installed the local branch and discovered the core rule and all three plugin skills.
+  These simulations test instructions, not a live device installation.
+- **Independent review:** identified an unsupported attempt to edit a merged PR body.
+  The new reporting-path contract failed first, then passed with the PR-comment procedure.
+- **Rollout:** update the plugin on each execution host and refresh existing sessions.
+  Project procedure changes and monitor state remain separate from this plugin release.
 
 ## 0.4.0 (2026-10-29)
 - **Optional Graphify discovery.**

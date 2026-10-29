@@ -85,7 +85,12 @@ Do this step for each code change, also a small one.
 ## 6. Verify
 Commit all changes first. Do this step after the last commit to the branch, so that all evidence is at the head commit.
 - Run the test tier for each changed area. Read the output.
-- If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, record the result, and restore the device. Ask the owner only when no device is connected or a step needs a sign-in.
+- If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, and record the result.
+  After a passing device test, keep the tested build installed. Restore only test data and device settings through the project's safe procedure.
+  Do not reinstall the pretest or a fixed baseline APK after a pass, also when a monitor grant asks for it.
+  Ask the monitor to correct a conflicting grant before device use. Follow the project recovery procedure after FAIL or BLOCKED.
+  Keep the project's data, version, and uninstall safeguards. Ask the owner only when no device is connected or a step needs a sign-in.
+- Fill in the PR's "Device handoff" section from the final device check. Report the selected keyboard or app separately from the installed test build.
 - For a UI change, take a screenshot of each screen that the device test validates. Keep the screenshots in a folder outside the repo.
 - Note each gap of the test tool, each workaround and its reason, and each unreliable step for the "Test tool feedback" section of the PR body.
 - Write each result as evidence: `<check>: <command or scenario> → <result> at <sha7>`.
@@ -109,6 +114,28 @@ Commit all changes first. Do this step after the last commit to the branch, so t
 - Put all the fixes of a round in one push. Before the push, do steps 4 to 6 for the fixes. Then update the PR body. If a fix changes a validated screen, fill in the "Screenshots" section again.
 - Stop the rounds when a round has no new finding that you must fix. A repeat of a rejected finding is not new. Do not push only to get a clean review. After 2 rounds with fixes, stop, and report each open finding to the owner, with your verdict. The push with the round-2 fixes starts one more review: read it and report its findings, but do not push again.
 - Do not merge.
+
+## After an authorized merge
+This procedure applies when you handle the owner's authorized merge of an app change that needs a device test.
+It does not authorize a merge, a release, or a deploy. Do not wait for a future merge to finish an open PR.
+For a project with no device test, or a change outside its device-test tier, report "not needed" and skip this procedure.
+
+1. Confirm that the PR is merged. Fetch the default branch and select its latest source, including other merged changes.
+   Use the project's safe source-selection and build commands. Do not switch a shared checkout, rebase, or create another worktree.
+   If the profile has no safe procedure, report BLOCKED rather than build the old task branch.
+2. Record the latest fetched default-branch SHA. Build its debug or local test variant through the shared heavy-build lane.
+   Record the source SHA, artifact identity, and installed identity as separate evidence fields.
+   Verify the source and artifact before installation. Never substitute a release or deploy for this local refresh.
+3. Before device use, obtain exclusive device access and record the current device state and app-data backup.
+   Follow the project install, launch, data, and version checks. Do not downgrade, uninstall, clear owner data, or bypass a device grant.
+   A sign-in needs the owner. If any step is blocked, preserve the installed app and report the reason.
+4. Verify the installed identity and launch result. Keep the refreshed build installed after those checks pass.
+   Restore only the test changes through the safe project procedure.
+   Preserve the owner's selected keyboard or app. State its identity separately from the installed test package.
+   Check the remote default branch again. If the default branch has advanced, report the refresh as superseded, not latest.
+5. Post a "Device handoff" PR comment and an owner-facing report with the fetched source SHA, installed version, artifact identity, and launch result.
+   Do not edit the merged PR body. Its device-test evidence describes the pre-merge run.
+   Record a blocked refresh with its reason and the last verified installed identity. Do not claim that a blocked refresh succeeded.
 
 ## 8. Report
 Send the owner one short message:
