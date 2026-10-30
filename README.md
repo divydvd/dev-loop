@@ -11,6 +11,7 @@ A Copilot plugin that lets one session run the full development loop from one li
 | `infra-review` skill | `skills/infra-review/` | The weekly review that improves this plugin and the project profiles. |
 | Check script | `scripts/check.mjs` | Exact checks: the rule size, the frontmatter, the links, and the versions. CI runs it on each PR. |
 | Device handoff tests | `scripts/device-handoff.test.mjs` | Regression checks for passing-build retention, monitor grants, and authorized post-merge refresh instructions. |
+| Work-ledger source | `tools/work-ledger/` | Separate SDK extension with classification corrections, scoped controls, and verified local Maven recovery. Owner installation remains outstanding. The plugin does not load it. |
 
 ## Layers
 1. **Superpowers:** the process skills (brainstorming, plans, TDD, debugging, review).

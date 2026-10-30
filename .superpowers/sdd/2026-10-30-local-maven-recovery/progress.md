@@ -1,0 +1,53 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-10-30-local-maven-recovery.md
+
+- Approval: owner approved the parent plan and directed this bounded implementation.
+- Base: 6b012f61b71ad29bdc9a4e3946914c6bfcccf8fa; selected parent PR #14.
+- Pre-flight: controls produce scoped pause records; policy consumes those records. Maven additionally requires descriptor fingerprints.
+- Ruling: reuse `guard maven off/on` with existing confirmation. Bind configured descriptor identities into the preview and pause.
+- Ruling: permit literal commands only. Reject shell wrappers, compound commands, alternate project selectors, and extra build inputs.
+- Ruling: source verification does not sandbox reviewed Gradle code. Document ignored, global, external, and concurrent inputs explicitly.
+- Task 1: tests written before production changes. No real Gradle, deployment, phone, or live ledger operations.
+- RED: initial Maven tests rejected the unsupported control name.
+- GREEN: 63 focused classification, control, Maven, and transport-contract checks passed.
+- Ruling: reject projects that overlap protected guard paths; a direct publication regression failed before this check.
+- Ruling: require the actual lock wrapper even when literal task text resembles one; the regression failed before the fix.
+- Ruling: deny verified Maven in batched host calls because the existing entry point discards individual wrappers. The transport regression failed first.
+- Source verification hashes tracked bytes rather than relying only on Git stat metadata. Symlinks and submodules fail closed.
+- Portability: hosts without `/usr/bin/lockf` deny Maven publication. Tests assert this denial rather than claiming locking works there.
+- Trust limits: ignored/global/external inputs and concurrent edits are not sandboxed or frozen.
+- Ruling: require every positional task to classify as Maven publication. An unknown extra task regression failed before narrowing the descriptor.
+- Pre-review complete suite: 89 checks passed; the expected stale release-manifest check failed before hash refresh.
+- Regression: passing configuration into controls initially copied it into history; a failing transport assertion led to separating policy context from audit context.
+- Pre-review verification: `node scripts/check.mjs` -> no faults; complete required Node suite -> 91/91 passed.
+- Release manifest refreshed for all 11 maintained implementation modules. Archival `BASELINE.sha256` unchanged.
+- Independent risky-task review: one high finding, launcher traversal through an ignored symlink could select a different executable.
+- Review verification: actual filesystem reads confirmed the escaped executable differed, while policy permitted it before the fix.
+- Final: fixed launcher traversal — regression RED before restricting executable spelling to the canonical absolute or exact ./project-relative pathname.
+- Final: Ruling: parent findings remain owned by the controls layer; merge its tested fixes before final verification.
+- Final: Ruling: installer and actual SDK acceptance remain the next layer; this layer does not claim either.
+- Final: Ruling: arbitrary Gradle sandboxing remains out of scope; the README explicitly names trusted ignored/global/external inputs and concurrent edits.
+- Deferred minors: none.
+- Review fix verification: plugin check had no faults; the complete suite passed 92/92.
+- Parent integration: merged controls head fcb9bf7ef5cb754407aaae2b99a95c08bd37319c. Kept its bounded preview deadline and Maven descriptor fingerprints.
+- Post-merge review: checked confirmation binding, legacy alias routing, batch denial, source enforcement, and unconditional verified-Maven wrapping against the parent.
+- Post-merge suite: `node scripts/check.mjs` -> no faults; required Node suite -> 95/95 passed.
+- Task 1: complete. One independent review finding reproduced and fixed. No deferred findings from that review.
+- Size before automatic fixes: 146 added/deleted production lines relative to the selected parent; tests, documentation, and hashes excluded.
+- Installation/runtime limits: no live guard change, no installer, no real SDK host acceptance, and no additional merge/deployment switches.
+- Finish: final verification runs after this ledger commit; evidence is pinned to the resulting head in the PR.
+- Automatic review round 1: three confirmed findings. Four assertions failed first: singleton batch, replacement-ref source, dangling leaf, and dangling ancestor.
+- Round 1 fixes: refuse every batch-shaped Maven invocation; disable replacement objects in source status; inspect symlinks before missing-path fallback.
+- Parent round 2: ef955c45fd7252168898c15e86038fcb0d331a67 is available for integration before the combined round-1 push.
+- Parent round 2 merged at d349c15. Rechecked its four identity corrections and Maven boundary integration.
+- Round 1 verification: four new failing assertions now pass. Complete merged suite: 102/102; plugin check: no faults.
+- Current size: 149 added/deleted production lines versus parent ef955c4. The baseline manifest remains unchanged.
+- Final evidence will be rerun and pinned after this ledger commit. Round-1 push includes all three fixes and the final parent integration.
+- Owner-directed scope refinement, relayed by the coordinator: keep merge and real deployment approval mandatory.
+- This supersedes earlier notes that treated those switches as outstanding. Shared build locking also remains mandatory.
+- Documentation now identifies only owner installation and real SDK acceptance as remaining work.
+- Automatic review round 2: two confirmed findings. Git pathspec magic accepted an ignored untracked launcher; `..`-prefixed child names bypassed protection overlap.
+- Three real Git/path regressions failed before literal-pathspec tracking and component-aware containment fixed these findings.
+- Round 2 includes the owner-directed mandatory-approval documentation. No additional review request or review-only push is needed.
+- Round 2 verification: all three regressions now pass; complete suite 105/105; plugin check no faults.
+- Final production size: 151 added/deleted lines versus parent ef955c4. All 11 release modules have refreshed hashes.
+- Final automatic review will be read after the round-2 push. No further fix push is allowed under this task's two-round limit.

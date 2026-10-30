@@ -2,6 +2,162 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## Unreleased tooling (2026-10-30)
+- **Require existing candidate source directories before acceptance writes.**
+  - **What:** Reject absent roots and source files before output creation or report invalidation. Remove the missing-source case-fold fallback.
+    Preserve physical identity checks for existing sources, including an empty path's current-directory identity.
+  - **Why:** Final narrow review reproduced a Unicode-normalization alias creating an absent source and output before argument rejection.
+  - **Check:** Six actual-script boundary failures become passing regressions. Trusted-destination stale-report controls and all eighteen Python methods pass.
+- **Invalidate identifiable evidence before full argument validation.**
+  - **What:** Bind one safe output directory before checking other known options.
+    Preserve unrelated layout evidence when the layout is known. Invalid layouts invalidate only the two known report names.
+    Reject ambiguous output identity without changing its possible targets.
+    Check physical source identity before creating a destination or invalidating reports through a filesystem alias.
+  - **Why:** Independent final review reproduced malformed `--source` leaving a previous success report unchanged.
+    Its final package review also reproduced case aliases bypassing lexical source isolation.
+  - **Check:** Actual-script regressions cover missing values, invalid choices, option order, unknown options, and unsafe/ambiguous destinations.
+    Three alias regressions fail before the identity guard and pass afterward. Fourteen Python methods pass on macOS.
+- **Guard the complete isolated acceptance lifecycle.**
+  - **What:** Include bootstrap in the safe reporting boundary. Initialize ownership before allocation and invalidate previous evidence before work.
+    Publish reports atomically. Close owned servers and terminals, reap children, and verify root identity before directory cleanup.
+  - **Why:** Final review reproduced a bootstrap exception that exposed a formatted path and preserved stale success evidence.
+  - **Check:** Actual-script early/late fault injection, Python cleanup regressions, complete Node suites, and both actual SDK layouts.
+- **Prepare a pinned owner installation package.**
+  - **What:** preview by default; bind source, whole installed tree, and optional descriptor additions to reviewed integrity pins.
+    Preserve unrelated configuration and files. Reject unsupported source, symlinks, conflicting scopes, and concurrent drift.
+    Stage privately outside discovery. Preserve the original and provide pinned rollback with rename-failure recovery.
+    Keep merge and real deployment approval mandatory, as the owner explicitly chose.
+  - **Why:** the approved guard stack needs an owner-controlled installation layer, not an unauthorized live edit.
+    Isolated transaction tests cover complete backup/restore, code validation before imports, scope pins, CLI confirmation, and failures.
+    Independent review exposed external-scope shadowing, incoming rollback drift, discoverable temporary staging, and symlinked ledger paths.
+    Eight failing regressions now cover the corrections.
+    CI exposed Node 22 dropping nested directory modes during recursive copy.
+    A local Node 22 reproduction confirmed the mismatch.
+    Staging now validates copied bytes and types before restoring pinned directory modes and rechecking the complete tree.
+    Automatic review exposed physical path aliases, ambiguous ledger identity, overlay drift, and incomplete failure cleanup.
+    Regressions reproduce the installation and process failures without touching live state.
+    Staging now compares the complete tree with the pinned original plus approved writes.
+    Failed lifecycle runs stop their owned descendants before restart or directory removal and retain a failed result.
+    A second review exposed optimized-Python integrity bypass, configuration case/read races, and omitted special permission bits.
+    Regressions reproduce those failures. Effective external scopes now require a pin and validation even without additions.
+    Node 22 also stripped special file bits during copying; a separate reproduction showed mode `4600` becoming `0600`.
+    Checked staging now restores every pinned permission mode before the complete identity comparison.
+    Final review found that rewriting a read-only configuration failed after a successful preview.
+    The owner authorized one additional bounded cycle for this finding.
+    No-addition installs now keep the copied configuration untouched.
+    Approved additions replace it from a separate private file with the original permission bits.
+    A later review found the same fault in read-only runtime modules.
+    The owner approved one bounded root permission cycle.
+    Runtime and configuration now share private exclusive writes and descriptor-based permission restoration.
+    Private staged directories receive temporary write access, with full checks before and after restoring pinned modes.
+    Non-root tests cover read-only files, nested directories, executable/special bits, rollback, and injected failures.
+    macOS and Linux refuse cross-parent moves of a read-only installation root.
+    Preview rejects this unsupported state without permission changes.
+    Actual CLI/SDK tests check both user and project discovery layouts, with zero model requests.
+    Each layout starts from a real pinned installer transaction in disposable state.
+    They verify native tools/hooks, child replacement, exit, restart, and persisted synthetic notes; they do not prove desktop reload.
+    Final review found that JSON escaping could prevent private path redaction in retained evidence.
+    The owner approved a bounded evidence correction.
+    Redaction now processes structured strings before serialization.
+    Regressions cover Unicode, quotes, backslashes, newlines, nested keys/values, and unchanged input evidence.
+    Retained reports also omit environment values, including unrelated private path prefixes in `PATH`.
+    A later review reproduced private filenames already escaped by exception formatting.
+    The owner approved a bounded safe-diagnostics correction.
+    Failure reports now retain only fixed steps, allowed exception types, numeric codes, and failed checks.
+    Successful evidence excludes raw host logs, process command lines, and arbitrary SDK diagnostic fields.
+    Real exception, subprocess, timeout, observer, cleanup, and report-write regressions cover the retained boundaries.
+    Cleanup and reporting faults remain explicit failures; uncertain process cleanup preserves disposable state.
+    Read-only source review and PR approval do not grant installation permission.
+  - **Check:** run `node scripts/check.mjs` and
+    `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
+    Verify `PACKAGE.sha256` and `SOURCE.sha256`; preserve `BASELINE.sha256`.
+    See `tools/work-ledger/INSTALL.md` for owner-only commands and lifecycle evidence limits.
+    The separate parent correction covers protected-path aliases and three confirmed owner-control defects.
+    Its integration does not grant installation permission.
+    The live guard, configuration, ledger, and owner sessions remain unchanged.
+- **Resolve protected Maven paths before granting the local exception.**
+  - **What:** retain lexical overlap checks and compare canonical project and protected directory identities in both directions.
+    Explicitly deny protected-path resolution failures. Preserve normal ledger initialization and all other Maven checks.
+  - **Why:** PR #15's final automatic review found a protected ledger symlink targeting ignored project build data.
+    Real Git/filesystem regressions reproduced unsafe permissions for root aliases, ancestor aliases, enclosing roots, and broken paths.
+    Controls cover ledger and extension paths, lexical protection, project aliases, and valid nonoverlapping startup.
+    Independent review found case aliases on macOS; two failing regressions led to directory ancestry checks using filesystem identity.
+  - **Check:** run `node scripts/check.mjs` and
+    `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
+    Refresh `SOURCE.sha256`; preserve `BASELINE.sha256`.
+    This is one owner-approved correction cycle above #15, not installation or a live operational fix.
+- **Correct three confirmed owner-control defects in the same approved cycle.**
+  - **What:** retain enforcement for ambiguous tilde paths. Exclude PR option values from GitHub repository extraction.
+    Respect `--` boundaries. Preserve direct legacy restore commands with case and whitespace variants.
+  - **Why:** #14's final review found foreign pause selection through quoted tildes and title values.
+    It also found that new control routing rejected `guards ON` and `guard  on`.
+    Policy, classification, and disposable runtime regressions failed before these corrections.
+    Runtime checks preserve the rejection of agent, quoted, forwarded, and automatic messages.
+    Independent review found the missing attachment option; two failing regressions led to consuming `--attach` values as well.
+  - **Check:** use the same required suite and source-manifest checks as the Maven correction.
+    The owner explicitly added these three defects to this single correction cycle. No extra review budget or installation is authorized.
+- **Add descriptor-bound local Maven recovery in maintained source.**
+  - **What:** reuse the confirmed repository/session controls for a narrow Maven pause.
+    Bind the canonical project, full reviewed SHA, tracked launcher, literal command, and build-local destination.
+    Reject unverified publication. Preserve real deployment checks, source protection, and the shared build lock.
+  - **Why:** the owner requested a bounded recovery path after the Maven false positive in issue #11.
+    New tests failed because Maven had no configurable recovery path.
+    Real Git fixtures cover hidden index flags, untracked source, byte changes, scope changes, symlinks, and expiry.
+    Entry-point tests exposed discarded batch wrappers; a separate regression exposed lock-like task text.
+    Both paths now preserve locking or deny the command.
+    Independent review found executable traversal through ignored symlinks. A real filesystem regression failed before exact launcher spelling blocked it.
+    Automatic review found singleton batches, Git replacement refs, and dangling destination links.
+    Transport, Git, and filesystem regressions reproduced these gaps before the fixes.
+    The second automatic review found Git pathspec magic and dot-prefixed containment gaps.
+    Three real Git/path regressions failed before literal tracking and component-aware containment fixed them.
+    The owner's final scope decision keeps merge and real deployment approval mandatory, not configurable.
+  - **Check:** run `node scripts/check.mjs` and
+    `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
+    Refresh `SOURCE.sha256`; preserve `BASELINE.sha256`.
+    Only owner installation and disposable real SDK acceptance remain for the requested recovery path.
+    Reviewed Gradle code is trusted, not sandboxed. The live guard remains unchanged.
+- **Add partial scoped owner controls in maintained source.**
+  - **What:** preview and separately confirm temporary pauses for six independent checks.
+    Preserve repository-bound session scope, 30-minute defaults, absolute expiry, status, and shared audit records.
+    Preserve merge and deployment approval, unverified Maven blocks, source protection, and the shared Gradle lock.
+  - **Why:** the owner requested narrower recovery controls after a Maven task incorrectly requested Play approval in issue #11.
+    Six helper tests and five policy tests failed before implementation.
+    An isolated entry-point contract failed before owner-message integration.
+    Added regressions cover unknown action paths, push destinations, and API repositories.
+    Independent review found enclosing-shell context and literal URL rewriting could transfer a pause to another repository.
+    Both findings have failing-then-passing regressions; uncertain contexts now retain enforcement.
+    Automatic review added five confirmed regressions: pipeline/background context, review defaults, attached Gradle directories, legacy aliases, and short-preview deadlines.
+    The fixes retain enforcement for uncertain directories and preserve accurate confirmation windows.
+    The second automatic round added four identity regressions: PR URL hosts, empty Git `-C`, symlink/parent paths, and implicit `gh` defaults.
+    Canonical PR URLs and explicit `gh` repositories are required for review pauses; parent-traversal paths retain enforcement.
+  - **Check:** run `node scripts/check.mjs` and
+    `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
+    Verify the maintained release with `SOURCE.sha256`; keep `BASELINE.sha256` unchanged.
+    Next weekly review: require reviewed local-only Maven verification and actual isolated SDK host acceptance before owner installation.
+    This is partial acceptance. Remaining per-guard controls and the owner installer are separate; the live guard is unchanged.
+- **Correct publication classification in maintained source.**
+  - **What:** classify generated Maven publication tasks as Maven and App Distribution uploads as Firebase.
+    Preserve Play approval, configuration checks, and the shared Gradle lane.
+    Keep Maven publication blocked until its build source and destination are verified.
+    Do not trust `KitTest` or `MavenLocal` names as proof of local-only execution.
+  - **Why:** issue #11 records Maven tasks and Firebase uploads incorrectly requesting Play Store approval.
+    Fifteen narrow regressions failed against the baseline.
+    Independent review found non-word names could evade Maven classification.
+    Nine added regressions reproduced this boundary; all 27 classification checks pass after the correction.
+  - **Check:** run `node scripts/check.mjs` and
+    `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
+    Verify current source with `SOURCE.sha256`; preserve `BASELINE.sha256`.
+    Next weekly review: confirm scoped source/destination verification before any local Maven exception.
+    Controls and owner installation remain separate. The live guard is unchanged.
+- **Preserve the work-ledger baseline.**
+  - **What:** maintain the separate SDK extension under `tools/work-ledger/`, with provenance hashes, helper tests, and CI coverage.
+    All nine implementation files are unchanged. No plugin runtime behavior or live installation changes.
+  - **Why:** issue #11 records false deployment blocks and missing maintained source.
+    The owner approved this location and a source-only exception to the 400-line PR limit.
+  - **Check:** run `node scripts/check.mjs` and `node --test tools/work-ledger/*.test.mjs`.
+    Verify the original import against `BASELINE.sha256`.
+    Next weekly review: require separate tested fixes and an owner installation handoff before claiming the incident is resolved.
+
 ## 0.5.0 (2026-10-29)
 - **Project-based UI component reuse.**
   - **What:** UI work inspects existing components, design tokens, and current usage before the mockup or implementation.
