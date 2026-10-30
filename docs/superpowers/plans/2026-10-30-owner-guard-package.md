@@ -170,6 +170,19 @@ The scope is one bounded correction and one push. Merge and live installation re
 - **Size estimate:** No production runtime change; only the fixture, its tests, and directly related documentation change.
 - **Stop conditions:** One correction push. Unpublished automatic text uses the already-authorized independent final-review alternative.
 
+## Authorized follow-up: existing candidate source
+
+The coordinator relayed the owner's request: "SO why are you not fixing it? I mean i am not able to understand what is blocking us and it is taking so long".
+This resumes the known correction with one focused pre-push review and one correction push.
+
+- **Goal:** Reject unsupported candidate roots before any output mutation, without guessing filesystem normalization rules.
+- **Done when:** Each supplied candidate source exists and is a directory before output creation, report invalidation, or temporary-root allocation.
+- **Done when:** Missing plain/Unicode-alias sources and source files fail explicitly without changing destination bytes, modes, or directory entries.
+- **Done when:** Existing-source physical identity checks remain active. Valid existing sources preserve trusted-destination stale-report handling.
+- **Required evidence:** Actual-script RED-to-GREEN regressions, one focused independent review, package integrity, both complete Node suites, and both actual SDK layouts.
+- **Size estimate:** No production runtime change. Replace the fixture's missing-source fallback with an existing-directory precondition.
+- **Stop conditions:** One correction push. No merge, installation, issue #11 expansion, new session, or unlimited correction rounds.
+
 ## Conclusion
 This layer prepares an installation package, not an installed correction.
 The owner must separately review private pins, stop affected hosts, install, and verify a fresh host.

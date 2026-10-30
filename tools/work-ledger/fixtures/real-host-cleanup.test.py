@@ -15,6 +15,112 @@ from unittest.mock import Mock, patch
 
 
 class LifecycleCleanup(unittest.TestCase):
+    def test_missing_and_file_sources_do_not_mutate_destinations(self):
+        script = Path(__file__).with_name("real-host-acceptance.py").resolve()
+        for kind in ("missing", "file"):
+            for destination in ("new", "existing"):
+                with self.subTest(kind=kind, destination=destination), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    candidate = root / "candidate"
+                    if kind == "file":
+                        candidate.write_bytes(b"synthetic source file")
+                        candidate.chmod(0o400)
+                    existing = root / "existing"
+                    existing.mkdir(mode=0o700)
+                    previous = existing / "real-host-user.json"
+                    previous.write_text('{"passed":true,"repo_head":"synthetic-old-success"}')
+                    previous.chmod(0o400)
+                    before = (previous.read_bytes(), previous.stat().st_mode, existing.stat().st_mode)
+                    source_before = (candidate.read_bytes(), candidate.stat().st_mode) if candidate.exists() else None
+                    entries = sorted(root.iterdir())
+                    result = subprocess.run(
+                        [sys.executable, str(script), "--source", str(candidate),
+                         "--output", str(root / destination), "--unexpected"],
+                        env={"PATH": os.defpath, "HOME": str(root)}, capture_output=True, text=True, timeout=15)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(sorted(root.iterdir()), entries)
+                    self.assertEqual((previous.read_bytes(), previous.stat().st_mode, existing.stat().st_mode), before)
+                    self.assertEqual(sorted(path.name for path in existing.iterdir()), ["real-host-user.json"])
+                    if source_before is None:
+                        self.assertFalse(candidate.exists())
+                    else:
+                        self.assertEqual((candidate.read_bytes(), candidate.stat().st_mode), source_before)
+                    evidence = json.loads(result.stderr)
+                    self.assertFalse(evidence["passed"])
+                    self.assertIn(False, evidence["checks"].values())
+                    self.assertEqual(result.stdout, "")
+                    self.assertNotIn(str(root), result.stderr)
+
+    def test_missing_source_unicode_alias_does_not_create_destination(self):
+        script = Path(__file__).with_name("real-host-acceptance.py").resolve()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent = root / "Caf\u00e9"
+            parent.mkdir(mode=0o700)
+            alias = root / "Cafe\u0301"
+            if not alias.exists() or not parent.samefile(alias):
+                self.skipTest("Filesystem does not expose a Unicode normalization alias.")
+            before = parent.stat().st_mode
+            result = subprocess.run(
+                [sys.executable, str(script), "--source", str(parent / "future-source"),
+                 "--output", str(alias / "future-source/new-proof"), "--unexpected"],
+                env={"PATH": os.defpath, "HOME": str(root)}, capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(list(parent.iterdir()), [])
+            self.assertEqual(parent.stat().st_mode, before)
+            self.assertFalse(json.loads(result.stderr)["passed"])
+            self.assertEqual(result.stdout, "")
+            self.assertNotIn(str(root), result.stderr)
+
+    def test_existing_sources_preserve_trusted_destination_invalidation(self):
+        script = Path(__file__).with_name("real-host-acceptance.py").resolve()
+        for layout in ("user", "project"):
+            with self.subTest(layout=layout), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                candidate = root / "source"
+                candidate.mkdir(mode=0o500)
+                output = root / "proof"
+                output.mkdir(mode=0o700)
+                old = '{"passed":true,"repo_head":"synthetic-old-success"}'
+                for name in ("user", "project"):
+                    report = output / f"real-host-{name}.json"
+                    report.write_text(old)
+                    report.chmod(0o400)
+                before = candidate.stat().st_mode
+                args = ["--source", str(candidate), "--output", str(output)]
+                if layout == "project":
+                    args = ["--output", str(output), "--source", str(candidate)]
+                result = subprocess.run(
+                    [sys.executable, str(script), *args, "--layout", layout, "--unexpected"],
+                    env={"PATH": os.defpath, "HOME": str(root)}, capture_output=True, text=True, timeout=15)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(list(candidate.iterdir()), [])
+                self.assertEqual(candidate.stat().st_mode, before)
+                evidence = json.loads((output / f"real-host-{layout}.json").read_text())
+                self.assertFalse(evidence["passed"])
+                self.assertTrue(evidence["checks"]["report_invalidated"])
+                other = output / f"real-host-{'project' if layout == 'user' else 'user'}.json"
+                self.assertEqual(other.read_text(), old)
+                self.assertEqual(other.stat().st_mode & 0o7777, 0o400)
+                self.assertEqual(sorted(path.name for path in output.iterdir()),
+                                 ["real-host-project.json", "real-host-user.json"])
+                self.assertNotIn(str(root), result.stdout + result.stderr)
+
+    def test_empty_source_value_checks_current_directory_identity(self):
+        script = Path(__file__).with_name("real-host-acceptance.py").resolve()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            before = root.stat().st_mode
+            result = subprocess.run(
+                [sys.executable, str(script), "--source=", "--output", str(root / "proof"), "--unexpected"],
+                cwd=root, env={"PATH": os.defpath, "HOME": str(root)}, capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(list(root.iterdir()), [])
+            self.assertEqual(root.stat().st_mode, before)
+            self.assertFalse(json.loads(result.stderr)["passed"])
+            self.assertEqual(result.stdout, "")
+            self.assertNotIn(str(root), result.stderr)
+
     def test_case_alias_source_destinations_remain_untouched(self):
         source = Path(__file__).with_name("real-host-acceptance.py").resolve()
         for name in ("new-proof", "existing-proof"):

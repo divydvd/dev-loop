@@ -3,6 +3,11 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## Unreleased tooling (2026-10-30)
+- **Require existing candidate source directories before acceptance writes.**
+  - **What:** Reject absent roots and source files before output creation or report invalidation. Remove the missing-source case-fold fallback.
+    Preserve physical identity checks for existing sources, including an empty path's current-directory identity.
+  - **Why:** Final narrow review reproduced a Unicode-normalization alias creating an absent source and output before argument rejection.
+  - **Check:** Six actual-script boundary failures become passing regressions. Trusted-destination stale-report controls and all eighteen Python methods pass.
 - **Invalidate identifiable evidence before full argument validation.**
   - **What:** Bind one safe output directory before checking other known options.
     Preserve unrelated layout evidence when the layout is known. Invalid layouts invalidate only the two known report names.

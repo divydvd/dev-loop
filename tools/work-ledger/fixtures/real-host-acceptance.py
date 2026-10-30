@@ -13,6 +13,7 @@ import select
 import shutil
 import signal
 import socket
+import stat
 import struct
 import subprocess
 import sys
@@ -406,19 +407,15 @@ def bootstrap():
     SOURCE = default_source
     requested_output = Path(pending.output[0])
     OUTPUT = requested_output.resolve()
-    sources = [SOURCE, *(Path(value).resolve() for value in (pending.source or []) if value)]
+    sources = [SOURCE, *(Path(value).resolve() for value in (pending.source or []) if value is not None)]
     if any(part.lower() == "extensions" for part in (*requested_output.parts, *OUTPUT.parts)) or any(
             OUTPUT == source or source in OUTPUT.parents for source in sources):
         parser.error("Use an artifact directory outside source and extension discovery.")
     source_identities = set()
     for source in sources:
-        try:
-            identity = source.stat()
-        except FileNotFoundError:
-            parts = tuple(part.casefold() for part in source.parts)
-            if tuple(part.casefold() for part in OUTPUT.parts[:len(parts)]) == parts:
-                parser.error("Evidence output overlaps an unresolved source.")
-            continue
+        identity = source.stat()
+        if not stat.S_ISDIR(identity.st_mode):
+            parser.error("Candidate source must be an existing directory.")
         source_identities.add((identity.st_dev, identity.st_ino))
     for ancestor in (OUTPUT, *OUTPUT.parents):
         try:

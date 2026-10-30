@@ -320,7 +320,9 @@ It then fails through safe metadata; it never uses an invalid layout as a filena
 Use complete option names. Argument errors never start a host.
 Unsupported arguments or output paths fail with safe metadata. Unsafe output paths remain untouched.
 Source overlap checks compare filesystem identity before creating output directories or invalidating reports.
-This rejects existing case aliases and conservatively rejects case aliases of a source that does not yet exist.
+Each candidate source must already exist and be a directory. Missing roots and source files fail before any output write.
+The fixture does not infer the identity of nonexistent sources from case or Unicode normalization.
+An empty `--source=` value means the current directory, as in Python's `Path`, and receives the same identity checks.
 Reports use exclusive temporary files and atomic replacement. A publication failure removes owned report files.
 Cleanup checks the disposable root's filesystem identity before changing its permissions or removing it.
 An uncertain identity preserves the directory and records a failed cleanup check.
