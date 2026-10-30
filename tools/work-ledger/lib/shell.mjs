@@ -326,7 +326,7 @@ export function commandsOf(src, depth = 0) {
   if (depth > 4) return result;
   for (const c of splitCommands(src, depth)) {
     const { argv, inline } = unwrap(c.argv);
-    if (argv.length) result.push({ argv, redirects: c.redirects, raw: c.raw, heredoc: c.heredoc, nested: c.nested || depth > 0 });
+    if (argv.length) result.push({ argv, redirects: c.redirects, raw: c.raw, heredoc: c.heredoc, nested: c.nested || depth > 0, wrapped: argv[0] !== c.argv[0] });
     else if (c.redirects.length) result.push({ argv: [], redirects: c.redirects, raw: c.raw, heredoc: c.heredoc, nested: c.nested || depth > 0 });
     for (const code of inline) for (const r of commandsOf(code, depth + 1)) result.push({ ...r, nested: true });
   }

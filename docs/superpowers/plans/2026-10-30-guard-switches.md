@@ -49,6 +49,20 @@ In particular, `gradle-lane` is not configurable, and the original broad `deploy
 The confirmation flow previews a pending switch before activation; the request alone does not pause enforcement.
 Each confirmed session pause also records its repository, so changing repositories cannot carry the exception elsewhere.
 
+### Partial controls layer
+
+The bounded controls layer exposes `rebase`, `amend`, `force-push`, `push-main`, `review-limit`, and `test-cache`.
+Requests use `guard <check> off [in repository|session] [for 30m]` or `guard <check> on [in repository|session]`.
+A request previews the full change and supplies an exact, separate confirmation command.
+Confirmation binds the random token, check, state, scope, repository, session, and absolute expiry.
+Repository scope and 30 minutes remain the defaults.
+`guards status` reports supported switches separately from non-configurable protections.
+
+This layer is partial acceptance, not completion of the owner's per-guard request.
+Merge/deploy controls, reviewed local-only Maven recovery, an owner installer, and real disposable SDK host acceptance remain outstanding.
+The loader-based startup/reload tests establish the extension contract only, not a real host.
+Unverified Maven remains blocked. No live guard installation or modification is authorized.
+
 The following command grammar is a design sketch, not an installed interface.
 
 | Command | Proposed effect |

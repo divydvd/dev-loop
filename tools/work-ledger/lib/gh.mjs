@@ -97,6 +97,17 @@ export function makeLookups({ gh = findGh(), git = findBinary("git") || "/usr/bi
       const out = await gitOut(cwd, ["status", "--porcelain"]);
       return out === null ? null : out.length > 0;
     },
+    async scopeRepo(cwd, remote) {
+      const target = remote || "origin";
+      if (!/^[\w.-]+$/.test(target) || target.startsWith("-")) return null;
+      const urls = await gitOut(cwd, ["remote", "get-url", ...(remote !== undefined ? ["--push", "--all"] : []), target]);
+      if (!urls) return null;
+      const repos = urls.split("\n").map((url) => {
+        const m = url.match(/^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?$/);
+        return m ? m[1].toLowerCase() : null;
+      });
+      return repos.every((r) => r && r === repos[0]) ? repos[0] : null;
+    },
     async remoteRepo(cwd) {
       const url = await gitOut(cwd, ["remote", "get-url", "origin"]);
       if (!url) return null;

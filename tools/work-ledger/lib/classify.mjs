@@ -67,15 +67,19 @@ function splitOnce(a) {
 function gitFindings(argv, ctx, out) {
   let i = 1;
   let cwd = ctx.cwd;
+  let unknownRepo = false;
   while (i < argv.length && argv[i].startsWith("-")) {
     const a = argv[i];
     if (a === "-C") { cwd = resolveCd(cwd, argv[i + 1]); i += 2; continue; }
-    if (a === "-c" || a === "--git-dir" || a === "--work-tree" || a === "--namespace" || a === "--config-env") { i += 2; continue; }
+    if (a.startsWith("-C")) { cwd = resolveCd(cwd, a.slice(2)); i++; continue; }
+    if (/^(-c|--git-dir|--work-tree|--namespace|--config-env)(=|$)/.test(a) || /^-c./.test(a)) {
+      unknownRepo = true; i += a.includes("=") || /^-c./.test(a) ? 1 : 2; continue;
+    }
     i++;
   }
   const sub = argv[i];
   const args = argv.slice(i + 1);
-  const base = { cwd, raw: ctx.raw };
+  const base = { cwd, raw: ctx.raw, unknownRepo };
   if (sub === "push") return pushFindings(args, base, out);
   if (sub === "rebase") {
     if (!args.some((a) => a === "--abort" || a === "--quit" || a === "--show-current-patch")) out.push({ rule: "rebase", ...base, detail: "git rebase" });
@@ -124,6 +128,7 @@ function pushFindings(args, base, out) {
     pos.push(a);
   }
   if (dry) return;
+  base = { ...base, remote: pos[0] || null, unknownRepo: base.unknownRepo || !pos[0] || args.some((a) => /^--repo(=|$)/.test(a)) };
   const refs = pos.slice(1);
   let implicit = refs.length === 0 && !all && !tags;
   for (const r of refs) {
@@ -151,7 +156,7 @@ function ghFindings(argv, ctx, out, opts) {
     if (/^-R[\w./:-]+$/.test(a)) { repo = a.slice(2); continue; }
     rest.push(a);
   }
-  const base = { cwd: ctx.cwd, raw: ctx.raw, repo: normRepo(repo) };
+  const base = { cwd: ctx.cwd, raw: ctx.raw, repo: normRepo(repo), unknownRepo: !!repo && !/^(?:[\w.-]+\/[\w.-]+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?)$/.test(repo) };
   const [group, sub, ...args] = rest;
   if (group === "pr" && sub === "merge") {
     let prRef = null, matchHead = null;
@@ -224,14 +229,22 @@ function ghApi(args, base, ctx, out, opts) {
     if (/^--(raw-)?field=/.test(a)) { fields.push(splitOnce(a)[1]); continue; }
     if (/^-[fF].+/.test(a)) { fields.push(a.slice(2)); continue; }
     if (a === "--input") { input = true; k++; continue; }
-    if (["-H", "--header", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview"].includes(a)) { k++; continue; }
+    if (/^--hostname(=|$)/.test(a)) {
+      const host = a.includes("=") ? splitOnce(a)[1] : args[++k];
+      if (host !== "github.com") base = { ...base, unknownRepo: true };
+      continue;
+    }
+    if (["-H", "--header", "-q", "--jq", "-t", "--template", "--cache", "-p", "--preview"].includes(a)) { k++; continue; }
     if (a.startsWith("-")) continue;
     if (endpoint === null) endpoint = a;
   }
   if (!endpoint) return;
   if (!method) method = fields.length || input ? "POST" : "GET";
   const field = (name) => { const f = fields.find((x) => x.startsWith(name + "=")); return f === undefined ? null : f.slice(name.length + 1); };
-  const ep = endpoint.replace(/^https?:\/\/api\.github\.com\//, "").replace(/^\//, "").split("?")[0];
+  if (/^https?:\/\//.test(endpoint) && !endpoint.startsWith("https://api.github.com/")) base = { ...base, unknownRepo: true };
+  const ep = endpoint.replace(/^https?:\/\/[^/]+\//, "").replace(/^\//, "").split("?")[0];
+  const actionRepo = ep.match(/^repos\/([^/]+)\/([^/]+)\//);
+  if (actionRepo) base = { ...base, repo: /[{}]/.test(actionRepo[0]) ? null : `${actionRepo[1]}/${actionRepo[2]}`, unknownRepo: base.unknownRepo || /[{}]/.test(actionRepo[0]) };
   const repoOf = (o, r) => (o.startsWith("{") || r.startsWith("{") ? base.repo : `${o}/${r}`);
   const write = method !== "GET" && method !== "HEAD";
   let m;

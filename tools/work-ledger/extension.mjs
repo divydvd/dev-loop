@@ -11,6 +11,7 @@ import { makeLookups } from "./lib/gh.mjs";
 import { cleanOwnerTextInfo, planOwnerMessage, applyPlan, hasWork, addPending } from "./lib/grants.mjs";
 import { prRefs } from "./lib/approvals.mjs";
 import { formatUnit, recordEvidence, EVIDENCE_KINDS, short, findUnit } from "./lib/units.mjs";
+import { directGuardText, parseGuardCommand, applyGuardCommand, guardStatus } from "./lib/guard-switches.mjs";
 
 const EXT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return {}; } };
@@ -28,6 +29,7 @@ const RULES = `${TAG} Guards are ON. They block these actions:
 - Deploys and config changes without typed approval ("deploy firebase", "push the build on playstore").
 - A second Copilot review request for the same head commit, or more than ${config.reviewCap} rounds per PR ("review again #N" allows 1 more).
 - Gradle runs share one lane across sessions. A passing test or lint run is cached per clean commit.
+Owner controls: "guards status" shows supported temporary pauses. Each change needs a separate direct confirmation. A pause is not action approval.
 A denied call tells you what to do next. Use work_ledger_get for PR status and work_ledger_record to save evidence (exact SHA required).`;
 const RULES_SHORT = `${TAG} Guards are ON: merges and deploys need the owner's typed approval; no force push, rebase, amend, or push to main; 1 Copilot review per head commit. A denied call tells you what to do next.`;
 
@@ -175,6 +177,14 @@ async function onUserMessage(e) {
   firstUserId ||= e.id;
   const d = e.data || {};
   if (e.id === firstUserId || d.source || d.isAutopilotContinuation) return;
+  const control = directGuardText(e, firstUserId);
+  if (control && !/^guards (on|off)$/.test(control)) {
+    const context = { owner: true, repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId(), messageId: e.id, legacyDisabled: ledger.isDisabled() };
+    const result = ledger.update((data) => applyGuardCommand(data, parseGuardCommand(control), context));
+    ledger.history({ type: "guard.control", ...context, command: control, result: result.text });
+    log(`${TAG} ${result.text}`);
+    return;
+  }
   const { text, dropped } = cleanOwnerTextInfo(d.content);
   if (dropped) log(`${TAG} Part of this message was too long for the guard to read approvals from. To approve, type a short message, for example "merge #301".`, "warning");
   if (!text) return;
@@ -187,6 +197,7 @@ async function onUserMessage(e) {
   if (plan.guards) {
     ledger.setDisabled(plan.guards === "off", `owner in session ${mySessionId()}`);
     log(`${TAG} Guards are ${plan.guards.toUpperCase()} for all sessions.${plan.guards === "off" ? ' Type "guards on" to turn them back on.' : ""}`, plan.guards === "off" ? "warning" : undefined);
+    if (plan.guards === "on") log(`${TAG} ${guardStatus(ledger.read(), { repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId() })}`);
   }
   const heads = new Map();
   await Promise.all(plan.merges.map(async (m) => { heads.set(`${m.repo}#${m.pr}`, m.repo ? await lookups.prHead(m.repo, m.pr) : null); }));
@@ -239,7 +250,7 @@ session = await joinSession({
       handler: async ({ pr, repo } = {}) => {
         try {
           const data = ledger.read();
-          const guards = ledger.isDisabled() ? "Guards: OFF" : "Guards: ON";
+          const guards = `${ledger.isDisabled() ? "Guards: OFF (legacy global control overrides individual state)" : "Guards: ON"}\n${guardStatus(data, { repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId() })}`;
           if (pr) {
             const r = repo || await repoFor(cwdNow);
             const h = await lookups.prHead(r, Number(pr));

@@ -6,6 +6,7 @@ import { classify, deployTargetForWorkflow } from "./classify.mjs";
 import { commandsOf, basename, shQuote } from "./shell.mjs";
 import { activeApprovals } from "./store.mjs";
 import { sameSha, sameRepo, short, findUnit, passingRuns } from "./units.mjs";
+import { effectiveGuardState } from "./guard-switches.mjs";
 
 export const TAG = "[work-ledger]";
 const LOCKF = "/usr/bin/lockf";
@@ -133,6 +134,22 @@ async function resolvePr(f, repo, cwd, deps) {
   return null;
 }
 
+// Unlike legacy approval lookup, a pause never falls back to defaultRepo.
+async function guardPaused(guard, f, ctx, res) {
+  const { deps, sessionId, cwd } = ctx;
+  if (f.unknownRepo || /[()]|\b(?:GIT_\w+|GH_\w+|GITHUB_\w+|HOME|PATH|XDG_\w+|BASH_ENV|ENV|ZDOTDIR)=/.test(ctx.command)) return false;
+  const commands = commandsOf(ctx.command);
+  if (commands.some((c) => c.nested || c.wrapped || c.redirects.length ||
+      !["git", "gh", "gradlew", "gradle", "cd", "firebase", "gcloud", "fastlane"].includes(basename(c.argv[0] || "")) ||
+      (basename(c.argv[0] || "") === "git" && c.argv.some((a) => ["config", "remote", "worktree", "init", "clone"].includes(a))) ||
+      (basename(c.argv[0] || "") === "gh" && c.argv.includes("repo")))) return false;
+  const dir = f.cwd === undefined ? cwd : f.cwd;
+  const repo = f.repo || (dir && await deps.lookups.scopeRepo(dir, f.remote));
+  if (effectiveGuardState(deps.data, guard, repo, sessionId, deps.now).enabled) return false;
+  res.notes.push(`${guard} enforcement paused for ${repo}; this is not action approval.`);
+  return true;
+}
+
 /** Insert --match-head-commit after the single "pr merge" in the command. */
 export function injectMatchHead(cmd, sha) {
   const hits = [...String(cmd).matchAll(/\bpr\s+merge\b/g)];
@@ -209,8 +226,9 @@ async function onReview(f, ctx, res) {
   const grant = approvalsFor(deps.data, deps.now, (a) => a.kind === "review" && a.pr === pr && sameRepo(a.repo, r))[0];
   const cap = deps.config.reviewCap ?? 3;
   const pending = { kind: "review", sessionId, repo: r, pr, sha: head };
-  if (!grant && atHead.length) return deny(res, `A Copilot review was already requested for #${pr} at head ${short(head)}. Wait for it, fix its findings in a new commit, then request again. For an extra review of the same commit, ask the owner to type "review again #${pr}".`, pending);
-  if (!grant && reviews.length >= cap) return deny(res, `#${pr} already had ${reviews.length} Copilot review rounds (cap ${cap}). Fix the open findings yourself and report to the owner. For one more round, ask the owner to type "review again #${pr}".`, pending);
+  const paused = await guardPaused("review-limit", { ...f, repo: r }, ctx, res);
+  if (!paused && !grant && atHead.length) return deny(res, `A Copilot review was already requested for #${pr} at head ${short(head)}. Wait for it, fix its findings in a new commit, then request again. For an extra review of the same commit, ask the owner to type "review again #${pr}".`, pending);
+  if (!paused && !grant && reviews.length >= cap) return deny(res, `#${pr} already had ${reviews.length} Copilot review rounds (cap ${cap}). Fix the open findings yourself and report to the owner. For one more round, ask the owner to type "review again #${pr}".`, pending);
   res.post.push({ kind: "review", repo: r, pr, sha: head, grantId: grant?.id || null });
   return res;
 }
@@ -241,7 +259,7 @@ async function onGradle(f, ctx, res) {
   const [head, dirty] = await Promise.all([deps.lookups.gitHead(dir), deps.lookups.gitDirty(dir)]);
   if (!head || dirty !== false) return null;
   const hit = passingRuns(deps.data, head).filter((v) => v.tasks === key).at(-1);
-  if (hit && !/\bWORK_LEDGER_RERUN=1\b/.test(ctx.command)) {
+  if (hit && !/\bWORK_LEDGER_RERUN=1\b/.test(ctx.command) && !await guardPaused("test-cache", f, ctx, res)) {
     deny(res, `Gradle "${key}" already passed at commit ${short(head)} (clean tree) ${Math.max(1, Math.round((deps.now - Date.parse(hit.at)) / 60000))} min ago. Reuse that result and do not run it again. If a re-run is truly needed, prefix the command with WORK_LEDGER_RERUN=1.`);
     return null;
   }
@@ -282,7 +300,10 @@ export async function decide(call, deps) {
       const t = wf ? deployTargetForWorkflow(wf, deps.config.deployWorkflows || undefined) : null;
       if (t) return onDeploy(t, `workflow ${wf}`, ctx, res);
     }
-    if (/push_files|create_or_update_file|delete_file/.test(n) && /^(main|master)$/.test(String(args.branch ?? ""))) return deny(res, "Do not write to main. Push to a feature branch and open a PR.");
+    if (/push_files|create_or_update_file|delete_file/.test(n) && /^(main|master)$/.test(String(args.branch ?? ""))) {
+      const repo = args.owner && args.repo ? `${args.owner}/${args.repo}` : args.repository;
+      if (!repo || !await guardPaused("push-main", { repo }, ctx, res)) return deny(res, "Do not write to main. Push to a feature branch and open a PR.");
+    }
     return res;
   }
 
@@ -293,6 +314,8 @@ export async function decide(call, deps) {
   const { findings } = classify(cmd, { cwd, deployWorkflows: deps.config.deployWorkflows || undefined });
   const gradle = [];
   for (const f of findings) {
+    if (["rebase", "amend", "force-push", "push-main", "push-implicit"].includes(f.rule) &&
+        await guardPaused(f.rule === "push-implicit" ? "push-main" : f.rule, f, ctx, res)) continue;
     switch (f.rule) {
       case "rebase": deny(res, `History rewrite is not allowed (${f.detail}). Use git merge (for example git pull --no-rebase, or git merge origin/main) and push new commits.`); break;
       case "amend": deny(res, "git commit --amend is not allowed. Make a new commit instead."); break;

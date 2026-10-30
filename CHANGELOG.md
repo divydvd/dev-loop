@@ -3,6 +3,21 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## Unreleased tooling (2026-10-30)
+- **Add partial scoped owner controls in maintained source.**
+  - **What:** preview and separately confirm temporary pauses for six independent checks.
+    Preserve repository-bound session scope, 30-minute defaults, absolute expiry, status, and shared audit records.
+    Preserve merge and deployment approval, unverified Maven blocks, source protection, and the shared Gradle lock.
+  - **Why:** the owner requested narrower recovery controls after a Maven task incorrectly requested Play approval in issue #11.
+    Six helper tests and five policy tests failed before implementation.
+    An isolated entry-point contract failed before owner-message integration.
+    Added regressions cover unknown action paths, push destinations, and API repositories.
+    Independent review found enclosing-shell context and literal URL rewriting could transfer a pause to another repository.
+    Both findings have failing-then-passing regressions; uncertain contexts now retain enforcement.
+  - **Check:** run `node scripts/check.mjs` and
+    `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
+    Verify the maintained release with `SOURCE.sha256`; keep `BASELINE.sha256` unchanged.
+    Next weekly review: require reviewed local-only Maven verification and actual isolated SDK host acceptance before owner installation.
+    This is partial acceptance. Remaining per-guard controls and the owner installer are separate; the live guard is unchanged.
 - **Correct publication classification in maintained source.**
   - **What:** classify generated Maven publication tasks as Maven and App Distribution uploads as Firebase.
     Preserve Play approval, configuration checks, and the shared Gradle lane.
