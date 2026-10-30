@@ -29,3 +29,9 @@
 - Deferred minors: none.
 - Review fix verification: plugin check had no faults; the complete suite passed 92/92.
 - Parent integration: merged controls head fcb9bf7ef5cb754407aaae2b99a95c08bd37319c. Kept its bounded preview deadline and Maven descriptor fingerprints.
+- Post-merge review: checked confirmation binding, legacy alias routing, batch denial, source enforcement, and unconditional verified-Maven wrapping against the parent.
+- Post-merge suite: `node scripts/check.mjs` -> no faults; required Node suite -> 95/95 passed.
+- Task 1: complete. One independent review finding reproduced and fixed. No deferred findings from that review.
+- Size: 146 added/deleted production lines relative to the selected parent; tests, documentation, and hashes excluded.
+- Installation/runtime limits: no live guard change, no installer, no real SDK host acceptance, and no additional merge/deployment switches.
+- Finish: final verification runs after this ledger commit; evidence is pinned to the resulting head in the PR.
