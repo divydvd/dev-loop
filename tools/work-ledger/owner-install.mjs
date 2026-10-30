@@ -263,7 +263,17 @@ export async function prepareInstallation(request, options = {}) {
       expected.set(file, [file, "file", expected.get(file)?.[2] ?? 0o600, digest(bytes)]);
     }
     writeRelease(staged, files);
-    if (config) fs.writeFileSync(path.join(staged, "config.json"), config, { mode: 0o600 });
+    if (input.additions.length) {
+      const configFile = path.join(work, "approved-config.json");
+      const fd = fs.openSync(configFile, "wx", 0o600);
+      try {
+        fs.writeFileSync(fd, config);
+        fs.fchmodSync(fd, before.entries.find(entry => entry[0] === "config.json")?.[2] ?? 0o600);
+      } finally {
+        fs.closeSync(fd);
+      }
+      fs.renameSync(configFile, path.join(staged, "config.json"));
+    }
     const prepared = installationSnapshot(staged);
     const ordered = entries => [...entries].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
     if (identity(ordered(prepared.entries)) !== identity(ordered(expected.values()))) fail("Staged code integrity or preserved installation changed during overlay.");

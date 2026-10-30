@@ -68,6 +68,19 @@ The CLI pins the request or rollback receipt itself with SHA-256.
 - [ ] Push once and open the stacked PR. Observe checks and automatic review.
 - [ ] Report source SHA, manifest identity, simulation versus actual-host evidence, owner-only steps, and blockers.
 
+## Authorized follow-up: read-only configuration
+
+The owner approved one additional bounded fix-and-review cycle on #17 after both normal correction rounds.
+The scope is the confirmed read-only configuration failure, with permission preservation.
+No live installation or further correction cycle is authorized.
+
+- Preserve the copied configuration without rewriting it when there are no descriptor additions.
+- Stage approved additions in a separate private file and preserve the original permission bits.
+- Verify non-root preview, installation, and rollback with modes `0400`, `0444`, and `04400`.
+- Retain overlay drift and failure recovery checks.
+- Rerun the required Node suites, manifest checks, and both actual CLI/SDK layouts at the pushed commit.
+- Read the final automatic review. Report any new confirmed finding without another push.
+
 ## Conclusion
 This layer prepares an installation package, not an installed correction.
 The owner must separately review private pins, stop affected hosts, install, and verify a fresh host.

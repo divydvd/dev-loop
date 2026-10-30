@@ -111,7 +111,9 @@ EXT = EXTENSIONS / "work-ledger"
 EXT.mkdir(parents=True)
 shutil.copy2(SOURCE / "extension.mjs", EXT / "extension.mjs")
 shutil.copytree(SOURCE / "lib", EXT / "lib")
-(EXT / "config.json").write_text(json.dumps({"defaultRepo": "example/acceptance", "debug": True}))
+CONFIG_BYTES = json.dumps({"defaultRepo": "example/acceptance", "debug": True}).encode()
+(EXT / "config.json").write_bytes(CONFIG_BYTES)
+(EXT / "config.json").chmod(0o400)
 NODE = shutil.which("node")
 if not NODE:
     parser.error("Node.js is required for the disposable owner-installer transaction.")
@@ -397,6 +399,8 @@ try:
     new_notes = (RESULT["ledger_after_restart"] or {}).get("units", {}).get("example/acceptance#1", {}).get("notes", [])
     RESULT["checks"] = {
         "owner_installer_applied_to_disposable_extension": INSTALL_RESULT["installed"] is True,
+        "read_only_configuration_preserved": (EXT / "config.json").read_bytes() == CONFIG_BYTES
+            and (EXT / "config.json").stat().st_mode & 0o7777 == 0o400,
         "three_real_joined_sessions": len(completions) == 3 and len({event["sessionId"] for event in completions}) == 3,
         "both_maintained_tools_offered_each_session": len(metadata) == 3 and all(
             {tool["name"] for tool in event["metadata"]["tools"]} == {"work_ledger_get", "work_ledger_record"} for event in metadata),

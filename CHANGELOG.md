@@ -23,7 +23,11 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Regressions reproduce those failures. Effective external scopes now require a pin and validation even without additions.
     Node 22 also stripped special file bits during copying; a separate reproduction showed mode `4600` becoming `0600`.
     Checked staging now restores every pinned permission mode before the complete identity comparison.
-    Actual CLI/SDK tests pass fourteen assertions in both user and project discovery layouts, with zero model requests.
+    Final review found that rewriting a read-only configuration failed after a successful preview.
+    The owner authorized one additional bounded cycle for this finding.
+    No-addition installs now keep the copied configuration untouched.
+    Approved additions replace it from a separate private file with the original permission bits.
+    Actual CLI/SDK tests pass fifteen assertions in both user and project discovery layouts, with zero model requests.
     Each layout starts from a real pinned installer transaction in disposable state.
     They verify native tools/hooks, child replacement, exit, restart, and persisted synthetic notes; they do not prove desktop reload.
     Read-only source review and PR approval do not grant installation permission.

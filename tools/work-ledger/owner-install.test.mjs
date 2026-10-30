@@ -526,9 +526,9 @@ for (const kind of ["configuration", "unrelated-file", "new-file", "directory-mo
     const f = await fixture(t), write = fs.writeFileSync;
     t.mock.method(fs, "writeFileSync", (file, bytes, ...args) => {
       write(file, bytes, ...args);
-      if (file.endsWith("/staged/config.json")) {
+      if (file.endsWith("/staged/extension.mjs")) {
         const staged = path.dirname(file);
-        if (kind === "configuration") write(file, '{"reviewCap":99}');
+        if (kind === "configuration") write(path.join(staged, "config.json"), '{"reviewCap":99}');
         if (kind === "unrelated-file") write(path.join(staged, "owner-notes/keep.txt"), "not approved");
         if (kind === "new-file") write(path.join(staged, "unexpected.txt"), "not approved");
         if (kind === "directory-mode") fs.chmodSync(path.join(staged, "owner-notes"), 0o755);
@@ -631,4 +631,68 @@ test("special file permissions survive installation and remain part of the snaps
   f.request.installedHash = changed;
   await f.run();
   assert.equal(fs.statSync(file).mode & 0o7777, 0o4600);
+});
+
+for (const mode of [0o400, 0o444, 0o4400]) {
+  for (const additions of [false, true]) {
+    test(`a non-root owner preserves config mode ${mode.toString(8)} with additions=${additions}`, async t => {
+      assert.notEqual(process.getuid(), 0, "This regression must run as a non-root owner.");
+      const f = await fixture(t);
+      const scope = additions ? await descriptor(f) : null;
+      const configFile = path.join(f.installed, "config.json");
+      fs.chmodSync(configFile, mode);
+      f.request.installedHash = f.installationSnapshot(f.installed).hash;
+      const preview = await f.prepareInstallation(f.request);
+      assert.equal(preview.validated, true);
+      assert.equal(fs.statSync(configFile).mode & 0o7777, mode);
+      const result = await f.run();
+      assert.equal(fs.statSync(configFile).mode & 0o7777, mode);
+      const bytes = fs.readFileSync(configFile, "utf8");
+      if (additions) {
+        assert.deepEqual(JSON.parse(bytes), { ...JSON.parse(f.originalConfig), localMavenScopes: [scope] });
+      } else {
+        assert.equal(bytes, f.originalConfig);
+      }
+      await f.rollbackInstallation(result.receipt, {
+        execute: true, hostsStopped: true, confirmation: `rollback ${hash(JSON.stringify(result.receipt))}`,
+      });
+      assert.equal(f.installationSnapshot(f.installed).hash, f.request.installedHash);
+      assert.equal(fs.statSync(configFile).mode & 0o7777, mode);
+    });
+  }
+}
+
+test("configuration staging failure leaves the read-only original unchanged", async t => {
+  const f = await fixture(t);
+  await descriptor(f);
+  fs.chmodSync(path.join(f.installed, "config.json"), 0o400);
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  const write = fs.writeFileSync;
+  t.mock.method(fs, "writeFileSync", (file, ...args) => {
+    if (typeof file === "number") throw new Error("configuration staging failed");
+    return write(file, ...args);
+  });
+  await assert.rejects(f.run(), /configuration staging failed/);
+  assert.equal(f.installationSnapshot(f.installed).hash, f.request.installedHash);
+});
+
+test("private configuration replacement cannot redirect permission changes through a symlink", async t => {
+  const f = await fixture(t);
+  await descriptor(f);
+  fs.chmodSync(path.join(f.installed, "config.json"), 0o400);
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  const outside = path.join(f.root, "outside.txt"), open = fs.openSync;
+  fs.writeFileSync(outside, "do not change", { mode: 0o644 });
+  t.mock.method(fs, "openSync", (file, ...args) => {
+    const fd = open(file, ...args);
+    if (typeof file === "string" && file.endsWith("/approved-config.json")) {
+      fs.unlinkSync(file);
+      fs.symlinkSync(outside, file);
+    }
+    return fd;
+  });
+  await assert.rejects(f.run(), /symlink/i);
+  assert.equal(fs.readFileSync(outside, "utf8"), "do not change");
+  assert.equal(fs.statSync(outside).mode & 0o7777, 0o644);
+  assert.equal(f.installationSnapshot(f.installed).hash, f.request.installedHash);
 });

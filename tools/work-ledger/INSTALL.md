@@ -104,6 +104,8 @@ Relative ledger paths are unsupported because the host working directory is unkn
 ### Optional descriptor additions
 
 Omit `scopesFile` and `scopesHash` to preserve configuration bytes exactly.
+Without additions, the installer does not rewrite the staged configuration, including a read-only file.
+Approved additions use a separate private file and preserve the original permission bits before replacement.
 To add reviewed descriptors, supply a separate private JSON file:
 
 ```json
@@ -275,8 +277,9 @@ Offline mode disables GitHub services under the CLI contract.
 A loopback model endpoint rejects requests; both tested layouts recorded zero provider requests.
 This is not packet-level proof for every network destination.
 
-Both layouts passed fourteen assertions.
+Both layouts passed fifteen assertions.
 The owner installer first applies its pinned transaction to each disposable extension directory.
+The disposable configuration is read-only. Its bytes and permission bits remain unchanged.
 The unmodified maintained entry joined through the CLI's actual SDK resolver.
 A separate test observer used native SDK metadata and tool APIs, without a model prompt.
 The real host registered both maintained tools and invoked the maintained pre-tool hook.
@@ -289,7 +292,7 @@ It stops remaining owned children and verifies shutdown before another host or d
 An error stops the acceptance run and leaves a sanitized failed result.
 If cleanup cannot verify shutdown, it preserves the disposable directory.
 The script verifies source and copied runtime hashes after each run.
-Its sanitized JSON evidence records the exact source SHA, code hashes, commands, process identities, and fourteen assertion results.
+Its sanitized JSON evidence records the exact source SHA, code hashes, commands, process identities, and fifteen assertion results.
 It excludes ledger contents and raw tool results, including the synthetic records used for the persistence assertions.
 
 The exact foreground host options were:
