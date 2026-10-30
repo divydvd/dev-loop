@@ -10,11 +10,16 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Keep merge and real deployment approval mandatory, as the owner explicitly chose.
   - **Why:** the approved guard stack needs an owner-controlled installation layer, not an unauthorized live edit.
     Isolated transaction tests cover complete backup/restore, code validation before imports, scope pins, CLI confirmation, and failures.
+    Independent review exposed external-scope shadowing, incoming rollback drift, discoverable temporary staging, and symlinked ledger paths.
+    Eight failing regressions now cover the corrections.
+    Actual CLI/SDK tests pass thirteen assertions in both user and project discovery layouts, with zero model requests.
+    They verify native tools/hooks, child replacement, exit, restart, and persisted synthetic notes; they do not prove desktop reload.
     Read-only source review and PR approval do not grant installation permission.
   - **Check:** run `node scripts/check.mjs` and
     `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
     Verify `PACKAGE.sha256` and `SOURCE.sha256`; preserve `BASELINE.sha256`.
     See `tools/work-ledger/INSTALL.md` for owner-only commands and lifecycle evidence limits.
+    Installation readiness remains blocked pending parent policy/control findings and their separate disposition.
     The live guard, configuration, ledger, and owner sessions remain unchanged.
 - **Add descriptor-bound local Maven recovery in maintained source.**
   - **What:** reuse the confirmed repository/session controls for a narrow Maven pause.

@@ -242,6 +242,9 @@ Their test-only loader replaces the SDK transport, not the extension, policy, or
 The tests also use real Git repositories with synthetic remotes.
 No test executes Gradle, deploys, calls GitHub, uses a phone, spends AI credits, or reads the live ledger.
 The wrapper check inspects the lock command without executing it.
+The separate [real-host acceptance procedure](INSTALL.md#actual-isolated-cli-evidence) uses the actual bundled SDK in disposable CLI hosts.
+It verifies discovery, native tools and hooks, foreground replacement, shutdown, and persisted synthetic notes without a model prompt.
+It does not establish desktop reload or installation readiness.
 
 To check the original import, run this command from this directory:
 

@@ -9,6 +9,8 @@
 - **Size estimate:** 320–390 production lines. Tests, documentation, and acceptance scripts are separate.
 - **Stop conditions:** Missing provenance, unsafe installation, three failed fixes, or unsupported real-host startup after distinct safe attempts.
 - **Base:** `divydvd-verified-local-maven-exception`, initially `2c1772af440456bf2cfb3dac9704e943e613da81` (#15).
+- **Updated base decision:** The package PR targets the canonical protected-path correction layer above #15.
+  The coordinator will provide its pushed branch and SHA. Do not select another base without that handoff.
 - **Risk:** Installer replacement of approval enforcement. The approved stack and explicit assignment authorize preparation, not installation.
 
 ## Abstract
@@ -46,13 +48,13 @@ The shared build lock and source protection remain active.
 The request pins candidate release manifest, complete installed snapshot, optional descriptor file, and explicit paths.
 The CLI pins the request or rollback receipt itself with SHA-256.
 
-- [ ] Write failing tests for preview, explicit confirmation, complete backup, scope validation, and all listed failure cases.
-- [ ] Run `node --test tools/work-ledger/owner-install.test.mjs`; confirm missing installer behavior.
-- [ ] Implement a private stage outside discovery, reviewed code overlay, scope additions, drift rechecks, and reversible renames.
-- [ ] Run the installer tests; expect all pass.
+- [x] Write failing tests for preview, explicit confirmation, complete backup, scope validation, and all listed failure cases.
+- [x] Run `node --test tools/work-ledger/owner-install.test.mjs`; confirm missing installer behavior.
+- [x] Implement a private stage outside discovery, reviewed code overlay, scope additions, drift rechecks, and reversible renames.
+- [x] Run the installer tests; expect all pass.
 - [ ] Establish actual CLI/SDK lifecycle using only disposable state and no inference.
-- [ ] Get independent review of the transaction and host evidence.
-- [ ] Fix confirmed findings with regressions.
+- [x] Get independent review of the transaction.
+- [x] Fix confirmed findings with regressions.
 - [ ] Document exact owner commands, source identity, recovery paths, and host limits.
 
 ## Task 2: Final integration and PR

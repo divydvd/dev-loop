@@ -14,6 +14,8 @@ Use the package only after the parent correction receives separate review and ve
 
 ## Safety boundary
 
+The transaction tests run on macOS with Node.js 26.12.1.
+The installer requires POSIX ownership and permission modes; Windows is not a supported installation target.
 Do not install while an affected extension host runs.
 An extension host is the CLI process that loads an extension and its SDK child process.
 The installer cannot identify or stop every desktop, terminal, remote, or background host.
@@ -234,7 +236,64 @@ This documentation does not establish desktop-app reload behavior.
 Runtime contract tests use a fixture SDK transport.
 Installer tests use real private filesystems and Git repositories.
 Neither establishes actual SDK-host startup.
-The lifecycle evidence below must distinguish a real host from those simulations.
+The separate real-host acceptance below does establish actual CLI/SDK lifecycle behavior.
+
+### Actual isolated CLI evidence
+
+The tested host is Copilot CLI `1.0.102-0.unstable.r40141230562.g130d689` on macOS arm64.
+Its bundled extension runtime reports Node.js `24.22.1`.
+The native binary SHA-256 is `ce1fb3c2159e3712fd634db3f7840280e3026615e9eb604dcd9ed58a55ad3fd5`.
+The acceptance script verifies that binary identity, including a cached copy.
+It downloads the public platform package only when the isolated tooling directory lacks that binary.
+The archive also has a pinned SHA-512 integrity value.
+Python 3.12 or later and a POSIX pseudoterminal are required.
+
+Run these commands from the repository root:
+
+```sh
+python3 tools/work-ledger/fixtures/real-host-acceptance.py \
+  --output /ABSOLUTE/PRIVATE/host-proof --layout user
+python3 tools/work-ledger/fixtures/real-host-acceptance.py \
+  --output /ABSOLUTE/PRIVATE/host-proof --layout project
+```
+
+The artifact directory must deny group and other access.
+The script creates disposable `HOME`, `COPILOT_HOME`, XDG directories, Git configuration, and `WORK_LEDGER_DIR`.
+It never copies credentials, owner configuration, or live ledger data.
+It sets `WORK_LEDGER_GH=/usr/bin/false` and starts no Gradle command.
+An environment allowlist excludes authentication tokens and API keys.
+Offline mode disables GitHub services under the CLI contract.
+A loopback model endpoint rejects requests; both tested layouts recorded zero provider requests.
+This is not packet-level proof for every network destination.
+
+Both layouts passed thirteen assertions.
+The unmodified maintained entry joined through the CLI's actual SDK resolver.
+A separate test observer used native SDK metadata and tool APIs, without a model prompt.
+The real host registered both maintained tools and invoked the maintained pre-tool hook.
+It recorded only synthetic notes, never approvals or validation claims.
+The observer saw those notes survive foreground replacement and a complete host restart.
+The host replaced the extension child process and stopped old children.
+All exits returned zero, with no observed child left running.
+The script verifies source and copied runtime hashes after each run.
+Its sanitized JSON evidence records the exact source SHA, code hashes, commands, process identities, and thirteen assertion results.
+
+The exact foreground host options were:
+
+```sh
+"<PINNED-ISOLATED-CLI>" --no-auto-update --no-custom-instructions --disable-builtin-mcps \
+  --no-remote --no-remote-export --disable-client-telemetry --experimental \
+  --log-level debug --log-dir "<DISPOSABLE>/logs" -C "<DISPOSABLE>/workspace" \
+  --no-mouse --screen-reader
+```
+
+This CLI build requires `--experimental` for extension discovery.
+The script accepts only disposable folder trust and one-session extension consent.
+It enters no user prompt.
+It sends `/clear` and `/exit` only inside its own disposable CLI.
+Do not use these as desktop-app instructions.
+An earlier ACP check created sessions but did not load extensions; ACP creation is not lifecycle acceptance.
+The real-host check does not exercise every owner-message or enforcement rule.
+Those behaviors retain their separate Node and transport-contract tests.
 
 ### Desktop owner handoff
 
