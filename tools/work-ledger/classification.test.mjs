@@ -14,6 +14,10 @@ const mavenTasks = [
   "publishToMavenLocal",
   "publishLibraryPublicationToRemoteRepository",
   "publishAllPublicationsToLocalRepository",
+  "publishMavenPublicationToKit-TestRepository",
+  "publishAllPublicationsToKit-TestRepository",
+  "publishMaven-javaPublicationToMavenLocal",
+  "publishMaven.javaPublicationToKit.TestRepository",
 ];
 
 function deployments(command) {
@@ -53,6 +57,13 @@ test("Firebase App Distribution uses Firebase approval, not Play approval", asyn
   const result = await decision(command, ["firebase"]);
   assert.equal(result.deny, null);
   assert.equal(result.post[0].target, "firebase");
+});
+
+test("Firebase upload variants with non-word names retain approval enforcement", async () => {
+  const command = "./gradlew :app:appDistributionUploadDemo-debug";
+  assert.deepEqual(deployments(command).map((f) => f.target), ["firebase"]);
+  assert.match((await decision(command, ["play"])).deny, /deploy firebase/);
+  assert.equal((await decision(command, ["firebase"])).deny, null);
 });
 
 test("Play publishing and promotion still require Play approval", async () => {

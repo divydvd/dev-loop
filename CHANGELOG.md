@@ -9,7 +9,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Keep Maven publication blocked until its build source and destination are verified.
     Do not trust `KitTest` or `MavenLocal` names as proof of local-only execution.
   - **Why:** issue #11 records Maven tasks and Firebase uploads incorrectly requesting Play Store approval.
-    Fifteen narrow regressions failed against the baseline; all 18 classification checks pass after the correction.
+    Fifteen narrow regressions failed against the baseline.
+    Independent review found non-word names could evade Maven classification.
+    Nine added regressions reproduced this boundary; all 27 classification checks pass after the correction.
   - **Check:** run `node scripts/check.mjs` and
     `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
     Verify current source with `SOURCE.sha256`; preserve `BASELINE.sha256`.

@@ -305,8 +305,8 @@ function gradleFindings(argv, ctx, out) {
   for (const task of tasks) {
     const name = task.slice(task.lastIndexOf(":") + 1);
     let target;
-    if (/^appDistributionUpload\w*$/i.test(name)) target = "firebase";
-    else if (/^(publishToMavenLocal|publish\w+PublicationToMavenLocal|publish\w+PublicationTo\w+Repository|publishAllPublicationsTo\w+Repository)$/i.test(name)) target = "maven";
+    if (/^appDistributionUpload/i.test(name)) target = "firebase";
+    else if (/^(publishToMavenLocal|publish.+PublicationToMavenLocal|publish.+PublicationTo.+Repository|publishAllPublicationsTo.+Repository)$/i.test(name)) target = "maven";
     else if (/^(publish|promote)\w*/i.test(name)) target = "play";
     if (target) out.push({ rule: "deploy", target, cwd, raw: ctx.raw, detail: `Gradle task ${task}` });
   }
