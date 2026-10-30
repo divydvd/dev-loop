@@ -101,6 +101,33 @@ test("review-limit pause never uses the legacy default repository as action iden
   assert.ok((await f.call("gh pr edit 1 -R example/other --add-reviewer @copilot")).deny);
 });
 
+test("positional PR URLs must name the canonical host before receiving a pause", async () => {
+  const f = fixture();
+  f.pause("review-limit");
+  f.data.units[`${repo}#1`] = { repo, pr: 1, reviews: [{ sha }] };
+  for (const url of [
+    "https://notgithub.com/example/project/pull/1",
+    "https://github.com.evil.example/example/project/pull/1",
+    "https://evil.example/github.com/example/project/pull/1",
+  ]) assert.ok((await f.call(`gh pr edit ${url} --add-reviewer @copilot`)).deny, url);
+  assert.equal((await f.call("gh pr edit https://github.com/example/project/pull/1 --add-reviewer @copilot")).deny, null);
+});
+
+test("empty Git -C preserves the action directory instead of selecting the home repository", async () => {
+  const f = fixture();
+  f.pause("rebase");
+  assert.ok((await f.call("git -C '' rebase topic", "/other")).deny);
+  assert.equal((await f.call("git -C '' rebase topic", "/project")).deny, null);
+});
+
+test("an origin pause cannot bypass limits for gh's implicit selected repository", async () => {
+  const f = fixture();
+  f.pause("review-limit");
+  f.data.units[`${repo}#1`] = { repo, pr: 1, reviews: [{ sha }] };
+  assert.ok((await f.call("gh pr edit 1 --add-reviewer @copilot")).deny);
+  assert.equal((await f.call(`gh pr edit 1 -R ${repo} --add-reviewer @copilot`)).deny, null);
+});
+
 test("attached Gradle project directories cannot inherit the session repository's cache pause", async () => {
   const f = fixture();
   f.data.validations.push({ sha, tasks: "test", at: new Date(now).toISOString(), exit: 0, dirty: false });

@@ -118,7 +118,11 @@ Nested shells, command wrappers, redirects, and compounds with unknown commands 
 Pipelines, background jobs, and `cd` compounds retain enforcement because their action directory is not verified.
 Use a verified `git -C` path or a Gradle project-directory option instead.
 Review-limit pauses require an independently resolved action repository, even when legacy approval lookup uses a default repository.
+They also require an explicit `-R`/`--repo` or a canonical `https://github.com/.../pull/...` URL.
+An implicit `gh` repository can differ from `origin`, so it never receives this layer's review-limit pause.
 Gradle scope recognizes both separated and attached `-p` and `--project-dir` values.
+Paths containing a `..` segment retain enforcement because lexical normalization can hide a symlink's physical destination.
+An empty Git `-C` keeps the previous directory, as Git requires.
 Do not treat syntactic shell context as verified action identity.
 API commands with an unknown repository or another host retain enforcement.
 Other hosts can share these records only through the same persistent `WORK_LEDGER_DIR`.
