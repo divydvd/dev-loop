@@ -310,6 +310,14 @@ They do not retain formatted exceptions, stack traces, subprocess output, transc
 Successful reports retain controlled commands, numeric process identities, and offered tool names, not raw process command lines or SDK metadata.
 Cleanup failures make the report fail. Uncertain process cleanup preserves the disposable directory.
 Report-write failures emit safe metadata and exit with failure, without printing the original exception.
+One lifecycle boundary covers argument validation, bootstrap, host execution, reporting, and cleanup.
+The fixture initializes ownership state before creating directories, servers, child processes, or terminal descriptors.
+It removes the previous layout report before substantive work in a validated private output directory.
+Unsupported arguments or output paths fail with safe metadata. Unsafe output paths remain untouched.
+Reports use exclusive temporary files and atomic replacement. A publication failure removes owned report files.
+Cleanup checks the disposable root's filesystem identity before changing its permissions or removing it.
+An uncertain identity preserves the directory and records a failed cleanup check.
+Actual-script fault tests cover cache/archive handling, reads/writes, installer errors/timeouts, allocation, reporting, and owned-resource cleanup.
 Do not share a disposable directory preserved after uncertain cleanup; it can contain raw local diagnostics.
 
 The exact foreground host options were:

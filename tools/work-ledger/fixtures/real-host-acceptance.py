@@ -23,179 +23,14 @@ import time
 import urllib.request
 import uuid
 
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parent.parent)
-parser.add_argument("--output", type=Path, required=True, help="Private acceptance artifact directory, outside discovery")
-parser.add_argument("--layout", choices=("user", "project"), default="user")
-ARGS = parser.parse_args()
-SOURCE = ARGS.source.resolve()
-OUTPUT = ARGS.output.resolve()
-if "extensions" in OUTPUT.parts or OUTPUT == SOURCE or SOURCE in OUTPUT.parents:
-    parser.error("Use an artifact directory outside source and extension discovery.")
-OUTPUT.mkdir(parents=True, exist_ok=True, mode=0o700)
-if OUTPUT.stat().st_mode & 0o077:
-    parser.error("Artifact directory must deny group and other access.")
-ROOT = OUTPUT / ("host-acceptance-" + uuid.uuid4().hex)
-ROOT.mkdir(mode=0o700)
-VERSION = "1.0.102-0.unstable.r40141230562.g130d689"
-TOOLING = OUTPUT / "host-acceptance-tooling"
-CLI = str(TOOLING / "package/copilot")
-if not Path(CLI).exists():
-    TOOLING.mkdir(exist_ok=True, mode=0o700)
-    archive = TOOLING / "copilot.tgz"
-    url = f"https://registry.npmjs.org/@github/copilot-darwin-arm64/-/copilot-darwin-arm64-{VERSION}.tgz"
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open(url, timeout=60) as response, archive.open("wb") as target:
-        shutil.copyfileobj(response, target)
-    integrity = base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
-    if integrity != "FI4VpxHoCGfTS4U5g9Dpt5QXwomfUXiLPC9vFdnp7Vpvkm620UhBhQv0HkIiJwUSx0u0Uv+yU2Sn+KO1j8G+Tw==":
-        raise RuntimeError("CLI archive integrity mismatch; extraction refused.")
-    with tarfile.open(archive) as package:
-        package.extractall(TOOLING, filter="data")
-if hashlib.sha256(Path(CLI).read_bytes()).hexdigest() != "ce1fb3c2159e3712fd634db3f7840280e3026615e9eb604dcd9ed58a55ad3fd5":
-    raise RuntimeError("CLI binary integrity mismatch; execution refused.")
-ENV = {
-    "PATH": "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-    "HOME": str(ROOT / "home"),
-    "COPILOT_HOME": str(ROOT / "copilot"),
-    "XDG_CONFIG_HOME": str(ROOT / "xdg-config"),
-    "XDG_CACHE_HOME": str(ROOT / "xdg-cache"),
-    "XDG_DATA_HOME": str(ROOT / "xdg-data"),
-    "XDG_STATE_HOME": str(ROOT / "xdg-state"),
-    "TMPDIR": str(ROOT / "scratch"),
-    "WORK_LEDGER_DIR": str(ROOT / "ledger"),
-    "WORK_LEDGER_GH": "/usr/bin/false",
-    "COPILOT_OFFLINE": "true",
-    "COPILOT_MODEL": "acceptance-no-inference",
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_CONFIG_GLOBAL": "/dev/null",
-    "GH_CONFIG_DIR": str(ROOT / "gh"),
-    "GH_PROMPT_DISABLED": "1",
-    "GH_NO_UPDATE_NOTIFIER": "1",
-    "TERM": "xterm-256color",
-    "NO_COLOR": "1",
-    "LANG": "en_US.UTF-8",
-}
-PROVIDER_REQUESTS = []
+ARGS = SOURCE = OUTPUT = ROOT = PROVIDER = PROVIDER_THREAD = ROOT_ID = None
+ROOT_CREATED = REPORT_READY = HELP_ONLY = False
+RESULT = {"commands": [], "interactive_runs": [], "passed": False, "checks": {}}
 
 
-class RejectInference(http.server.BaseHTTPRequestHandler):
-    def reject(self):
-        PROVIDER_REQUESTS.append({"method": self.command})
-        self.send_response(503)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(b'{"error":"inference forbidden in acceptance"}')
-
-    do_GET = reject
-    do_POST = reject
-    do_PUT = reject
-    do_DELETE = reject
-
-    def log_message(self, *_):
-        pass
-
-
-PROVIDER = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RejectInference)
-threading.Thread(target=PROVIDER.serve_forever, daemon=True).start()
-with socket.create_connection(PROVIDER.server_address, timeout=2):
-    pass
-ENV["COPILOT_PROVIDER_BASE_URL"] = f"http://127.0.0.1:{PROVIDER.server_port}/v1"
-for key in ("HOME", "COPILOT_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME",
-            "XDG_DATA_HOME", "XDG_STATE_HOME", "TMPDIR", "WORK_LEDGER_DIR", "GH_CONFIG_DIR"):
-    Path(ENV[key]).mkdir(parents=True, exist_ok=True, mode=0o700)
-WORKSPACE = ROOT / "workspace"
-WORKSPACE.mkdir()
-EXTENSIONS = Path(ENV["COPILOT_HOME"]) / "extensions" if ARGS.layout == "user" else WORKSPACE / ".github/extensions"
-EXT = EXTENSIONS / "work-ledger"
-EXT.mkdir(parents=True)
-shutil.copy2(SOURCE / "extension.mjs", EXT / "extension.mjs")
-shutil.copytree(SOURCE / "lib", EXT / "lib")
-CONFIG_BYTES = json.dumps({"defaultRepo": "example/acceptance", "debug": True}).encode()
-(EXT / "config.json").write_bytes(CONFIG_BYTES)
-(EXT / "config.json").chmod(0o400)
-(EXT / "extension.mjs").chmod(0o400)
-for module in (EXT / "lib").glob("*.mjs"):
-    module.chmod(0o444)
-(EXT / "lib").chmod(0o555)
-NODE = shutil.which("node")
-if not NODE:
-    parser.error("Node.js is required for the disposable owner-installer transaction.")
-installer = [NODE, str(SOURCE / "owner-install.mjs")]
-snapshot = json.loads(subprocess.check_output([*installer, "--inspect", str(EXT)], env=ENV, text=True))
-request = {
-    "candidate": str(SOURCE), "installed": str(EXT), "backupParent": str(ROOT / "owner-backups"),
-    "sourceHash": hashlib.sha256((SOURCE / "SOURCE.sha256").read_bytes()).hexdigest(),
-    "installedHash": snapshot["hash"],
-    "ledgerConfigHash": "absent",
-}
-request_file = ROOT / "request.json"
-request_bytes = json.dumps(request).encode()
-request_file.write_bytes(request_bytes)
-request_pin = hashlib.sha256(request_bytes).hexdigest()
-INSTALL_RESULT = json.loads(subprocess.check_output([
-    *installer, "--request", str(request_file), "--sha256", request_pin,
-    "--install", "--hosts-stopped", "--confirm", f"install {request_pin}",
-], env=ENV, text=True))
-OBSERVER = EXT.parent / "zz-acceptance-observer"
-OBSERVER.mkdir()
-(OBSERVER / "extension.mjs").write_text(r'''
-import fs from "node:fs";
-import path from "node:path";
-import { joinSession } from "@github/copilot-sdk/extension";
-const output = path.join(path.dirname(process.env.WORK_LEDGER_DIR), "observer.jsonl");
-const emit = event => fs.appendFileSync(output, JSON.stringify({
-  at: new Date().toISOString(), pid: process.pid, ppid: process.ppid, ...event
-}) + "\n");
-process.on("SIGTERM", () => { emit({ type: "sigterm" }); process.exit(0); });
-process.on("exit", code => emit({ type: "exit", code }));
-try {
-  const session = await joinSession();
-  emit({ type: "joined", sessionId: session.sessionId });
-  let metadata;
-  for (let i = 0; i < 80; i++) {
-    metadata = await session.rpc.tools.getCurrentMetadata();
-    if (JSON.stringify(metadata).includes("work_ledger_record")) break;
-    await new Promise(resolve => setTimeout(resolve, 250));
-  }
-  emit({ type: "metadata", sessionId: session.sessionId, metadata: {
-    ...metadata, tools: (metadata.tools || []).filter(tool => /^work_ledger_/.test(tool.name))
-  } });
-  if (!JSON.stringify(metadata).includes("work_ledger_record")) throw new Error("maintained tools not offered");
-  const before = await session.rpc.tools.execute({ name: "work_ledger_get", arguments: { repo: "example/acceptance", pr: 1 } });
-  emit({ type: "get-before", sessionId: session.sessionId, result: before });
-  const result = await session.rpc.tools.execute({
-    name: "work_ledger_record",
-    arguments: { repo: "example/acceptance", pr: 1, kind: "note",
-      evidence: "Synthetic lifecycle marker. No test, review, device, approval, or deployment claim." }
-  });
-  emit({ type: "record", sessionId: session.sessionId, result });
-  const after = await session.rpc.tools.execute({ name: "work_ledger_get", arguments: { repo: "example/acceptance", pr: 1 } });
-  emit({ type: "complete", sessionId: session.sessionId, result: after });
-} catch {
-  emit({ type: "error", errorType: "Error" });
-}
-''')
-HASHES = {str(p.relative_to(SOURCE)): hashlib.sha256(p.read_bytes()).hexdigest()
-          for p in [SOURCE / "extension.mjs", *sorted((SOURCE / "lib").glob("*.mjs"))]}
-FLAGS = ["--no-auto-update", "--no-custom-instructions", "--disable-builtin-mcps",
-         "--no-remote", "--no-remote-export", "--disable-client-telemetry", "--experimental",
-         "--log-level", "debug", "--log-dir", str(ROOT / "logs"), "-C", str(WORKSPACE)]
-RESULT = {
-    "source_sha256": HASHES, "environment": {key: "<SET>" for key in ENV}, "layout": ARGS.layout,
-    "fixture_installation": INSTALL_RESULT,
-    "repo_head": subprocess.check_output(
-        ["/usr/bin/git", "rev-parse", "HEAD"], cwd=SOURCE.parent.parent, env=ENV, text=True).strip(),
-    "native_cli_sha256": hashlib.sha256(Path(CLI).read_bytes()).hexdigest(),
-    "version": subprocess.check_output([CLI, "--no-auto-update", "--version"], env=ENV, text=True).strip(),
-    "commands": [], "interactive_runs": [],
-    "limits": [
-        "Real CLI host only; not desktop reload acceptance.",
-        "No user prompt, authentication, deployment, Gradle, or inference request.",
-        "Synthetic configuration enables debug; /usr/bin/false blocks GitHub lookups.",
-        "Observer instrumentation uses the bundled real SDK, not a fixture transport.",
-    ],
-}
+class SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, _message):
+        raise ValueError("Invalid acceptance arguments.")
 
 
 def sanitize(value):
@@ -214,7 +49,8 @@ def sanitize(value):
 def failure_info(error, step):
     allowed = (Exception, OSError, FileNotFoundError, PermissionError, IsADirectoryError,
                NotADirectoryError, ProcessLookupError, TimeoutError, RuntimeError,
-               ValueError, TypeError, KeyError, subprocess.CalledProcessError, subprocess.TimeoutExpired)
+               ValueError, TypeError, KeyError, KeyboardInterrupt, SystemExit,
+               subprocess.CalledProcessError, subprocess.TimeoutExpired)
     if step not in ("interactive", "acceptance", "provider-shutdown", "process-cleanup",
                     "disposable-cleanup", "report-write", "host-shutdown"):
         raise ValueError("Invalid acceptance failure step.")
@@ -267,46 +103,102 @@ def retained_evidence(result):
 
 
 def write_report():
-    result_file = OUTPUT / f"real-host-{ARGS.layout}.json"
+    temporary, created = None, False
     try:
-        result_file.write_text(json.dumps(retained_evidence(RESULT), indent=2) + "\n")
-    except Exception as error:
-        print(json.dumps({"passed": False, "checks": {"report_written": False},
-                          "error": failure_info(error, "report-write")}), file=sys.stderr)
+        if not REPORT_READY:
+            RESULT.setdefault("checks", {})["report_invalidated"] = False
+            print(json.dumps(retained_evidence(RESULT)), file=sys.stderr)
+            return
+        result_file = OUTPUT / f"real-host-{ARGS.layout}.json"
+        temporary = OUTPUT / (".real-host-" + uuid.uuid4().hex + ".tmp")
+        with temporary.open("x", encoding="utf-8") as file:
+            created = True
+            file.write(json.dumps(retained_evidence(RESULT), indent=2) + "\n")
+        os.replace(temporary, result_file)
+        print(json.dumps({"layout": ARGS.layout, "checks": RESULT.get("checks", {}),
+                          "passed": RESULT["passed"]}, indent=2))
+    except BaseException as error:
+        failure = {"passed": False, "checks": {"report_written": False},
+                   "error": failure_info(error, "report-write")}
+        for path in ([temporary] if created else []) + ([result_file] if REPORT_READY else []):
+            try:
+                path.unlink(missing_ok=True)
+            except BaseException as cleanup:
+                failure["checks"]["report_removed"] = False
+                failure.setdefault("failures", []).append(failure_info(cleanup, "report-write"))
+        try:
+            print(json.dumps(failure), file=sys.stderr)
+        except BaseException as reporting:
+            failure["checks"]["failure_report_emitted"] = False
+            failure.setdefault("failures", []).append(failure_info(reporting, "report-write"))
+            try:
+                os.write(2, json.dumps(failure).encode() + b"\n")
+            except BaseException:
+                raise SystemExit(1) from None
         raise SystemExit(1) from None
 
 
 def finish_report():
-    try:
-        PROVIDER.shutdown()
-        PROVIDER.server_close()
-    except Exception as error:
-        RESULT["passed"] = False
-        RESULT.setdefault("checks", {})["provider_shutdown"] = False
-        RESULT["provider_error"] = failure_info(error, "provider-shutdown")
+    if PROVIDER is not None:
+        operations = ([PROVIDER.shutdown] if PROVIDER_THREAD is not None and PROVIDER_THREAD.is_alive() else [])
+        operations.append(PROVIDER.server_close)
+        if PROVIDER_THREAD is not None and PROVIDER_THREAD.ident is not None:
+            operations.append(lambda: PROVIDER_THREAD.join(timeout=2))
+        for operation in operations:
+            try:
+                operation()
+            except BaseException as error:
+                RESULT["passed"] = False
+                RESULT.setdefault("checks", {})["provider_shutdown"] = False
+                RESULT["provider_error"] = failure_info(error, "provider-shutdown")
+                RESULT.setdefault("cleanup_errors", []).append(RESULT["provider_error"])
+        if PROVIDER_THREAD is not None and PROVIDER_THREAD.is_alive():
+            RESULT["provider_error"] = failure_info(RuntimeError(), "provider-shutdown")
+            RESULT.setdefault("cleanup_errors", []).append(RESULT["provider_error"])
+        if "provider_error" in RESULT:
+            RESULT["passed"] = False
+            RESULT.setdefault("checks", {})["provider_shutdown"] = False
     survivors, uncertain = [], False
     for run in RESULT["interactive_runs"]:
+        if run.get("pid") is None:
+            continue
         try:
             stop_owned(run["pid"], run["_owned"])
             survivors.extend(owned_processes(run["pid"], run["_owned"]))
-        except Exception as error:
+            if not run.get("_reaped", True):
+                os.waitpid(run["pid"], 0)
+                run["_reaped"] = True
+        except BaseException as error:
             RESULT["passed"] = False
             RESULT.setdefault("checks", {})["cleanup_completed"] = False
             RESULT["cleanup_error"] = failure_info(error, "process-cleanup")
             RESULT.setdefault("cleanup_errors", []).append(RESULT["cleanup_error"])
             uncertain = True
+        finally:
+            if run.get("_terminal") is not None:
+                try:
+                    os.close(run["_terminal"])
+                except BaseException as error:
+                    RESULT["passed"] = False
+                    RESULT.setdefault("checks", {})["cleanup_completed"] = False
+                    RESULT.setdefault("cleanup_errors", []).append(failure_info(error, "process-cleanup"))
+                run["_terminal"] = None
     RESULT["directory_retained_for_survivors"] = bool(survivors) or uncertain
-    if not RESULT["directory_retained_for_survivors"]:
+    if ROOT_CREATED and not RESULT["directory_retained_for_survivors"]:
         try:
+            current = ROOT.lstat()
+            if ROOT.is_symlink() or ROOT_ID != (current.st_dev, current.st_ino):
+                raise RuntimeError("Owned disposable root identity changed.")
             for directory, _, _ in os.walk(ROOT):
                 folder = Path(directory)
                 folder.chmod(folder.stat().st_mode | 0o700)
             shutil.rmtree(ROOT)
-        except Exception as error:
+        except BaseException as error:
             RESULT["passed"] = False
             RESULT.setdefault("checks", {})["cleanup_completed"] = False
             RESULT["cleanup_error"] = failure_info(error, "disposable-cleanup")
             RESULT.setdefault("cleanup_errors", []).append(RESULT["cleanup_error"])
+            RESULT["directory_retained_for_survivors"] = True
     write_report()
 
 
@@ -339,7 +231,7 @@ def alive(pid):
 
 def owned_processes(root, seen):
     output = subprocess.check_output(
-        ["/bin/ps", "-axo", "pid=,ppid=,pgid=,lstart=,stat=,command="], env=ENV, text=True)
+        ["/bin/ps", "-axo", "pid=,ppid=,pgid=,lstart=,stat=,command="], env=ENV, text=True, stderr=subprocess.PIPE)
     entries = []
     for line in output.splitlines():
         fields = line.split(None, 9)
@@ -379,14 +271,22 @@ def interactive(replace):
     base = sum(event["type"] == "complete" for event in observer_events())
     args = [CLI, *FLAGS, "--no-mouse", "--screen-reader"]
     RESULT["commands"].append(args)
-    child, terminal = pty.fork()
-    if child == 0:
-        os.chdir(WORKSPACE)
-        fcntl.ioctl(1, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 140, 0, 0))
-        os.execve(CLI, args, ENV)
-    transcript = bytearray()
-    run = {"pid": child, "replace": replace, "input": [], "snapshots": [], "_owned": {}}
+    run = {"pid": None, "replace": replace, "input": [], "snapshots": [], "_owned": {},
+           "_terminal": None, "_reaped": False}
     RESULT["interactive_runs"].append(run)
+    run["pid"], run["_terminal"] = pty.fork()
+    child, terminal = run["pid"], run["_terminal"]
+    if child == 0:
+        try:
+            os.chdir(WORKSPACE)
+            fcntl.ioctl(1, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 140, 0, 0))
+            os.execve(CLI, args, ENV)
+        except BaseException as error:
+            try:
+                os.write(2, json.dumps({"passed": False, "error": failure_info(error, "host-shutdown")}).encode())
+            finally:
+                os._exit(127)
+    transcript = bytearray()
     approvals, folder_trust = 0, False
 
     def send(value):
@@ -464,12 +364,15 @@ def interactive(replace):
             drain(0.25)
             exited, status = os.waitpid(child, os.WNOHANG)
             if exited:
+                run["_reaped"] = True
                 break
         run["shutdown"] = "slash-exit" if exited else "forced-sigterm"
         if not exited:
             stop_owned(child, run["_owned"])
             _, status = os.waitpid(child, 0)
+            run["_reaped"] = True
         os.close(terminal)
+        run["_terminal"] = None
         run["exit_status"] = status
         run["transcript"] = transcript.decode(errors="replace")
         run["survivors_after_exit"] = owned_processes(child, run["_owned"])
@@ -482,7 +385,206 @@ def interactive(replace):
         raise RuntimeError("Interactive lifecycle failed.")
 
 
+def bootstrap():
+    global ARGS, SOURCE, OUTPUT, ROOT, PROVIDER, PROVIDER_THREAD, ROOT_ID
+    global ROOT_CREATED, REPORT_READY, ENV, CLI, WORKSPACE, EXT, CONFIG_BYTES
+    global INSTALL_RESULT, HASHES, FLAGS, PROVIDER_REQUESTS
+    parser = SafeArgumentParser(description=__doc__, prog="real-host-acceptance.py")
+    parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parent.parent)
+    parser.add_argument("--output", type=Path, required=True, help="Private acceptance artifact directory, outside discovery")
+    parser.add_argument("--layout", choices=("user", "project"), default="user")
+    ARGS, unknown = parser.parse_known_args()
+    SOURCE = ARGS.source.resolve()
+    OUTPUT = ARGS.output.resolve()
+    if "extensions" in (part.lower() for part in OUTPUT.parts) or OUTPUT == SOURCE or SOURCE in OUTPUT.parents:
+        parser.error("Use an artifact directory outside source and extension discovery.")
+    OUTPUT.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if OUTPUT.stat().st_mode & 0o077:
+        parser.error("Artifact directory must deny group and other access.")
+    result_file = OUTPUT / f"real-host-{ARGS.layout}.json"
+    result_file.unlink(missing_ok=True)
+    REPORT_READY = True
+    RESULT["layout"] = ARGS.layout
+    if unknown:
+        parser.error("Unsupported arguments.")
+    ROOT = OUTPUT / ("host-acceptance-" + uuid.uuid4().hex)
+    ROOT.mkdir(mode=0o700)
+    ROOT_CREATED = True
+    identity = ROOT.lstat()
+    ROOT_ID = (identity.st_dev, identity.st_ino)
+    VERSION = "1.0.102-0.unstable.r40141230562.g130d689"
+    TOOLING = OUTPUT / "host-acceptance-tooling"
+    CLI = str(TOOLING / "package/copilot")
+    if not Path(CLI).exists():
+        TOOLING.mkdir(exist_ok=True, mode=0o700)
+        archive = TOOLING / "copilot.tgz"
+        url = f"https://registry.npmjs.org/@github/copilot-darwin-arm64/-/copilot-darwin-arm64-{VERSION}.tgz"
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(url, timeout=60) as response, archive.open("wb") as target:
+            shutil.copyfileobj(response, target)
+        integrity = base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
+        if integrity != "FI4VpxHoCGfTS4U5g9Dpt5QXwomfUXiLPC9vFdnp7Vpvkm620UhBhQv0HkIiJwUSx0u0Uv+yU2Sn+KO1j8G+Tw==":
+            raise RuntimeError("CLI archive integrity mismatch; extraction refused.")
+        with tarfile.open(archive) as package:
+            package.extractall(TOOLING, filter="data")
+    if hashlib.sha256(Path(CLI).read_bytes()).hexdigest() != "ce1fb3c2159e3712fd634db3f7840280e3026615e9eb604dcd9ed58a55ad3fd5":
+        raise RuntimeError("CLI binary integrity mismatch; execution refused.")
+    ENV = {
+        "PATH": "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": str(ROOT / "home"),
+        "COPILOT_HOME": str(ROOT / "copilot"),
+        "XDG_CONFIG_HOME": str(ROOT / "xdg-config"),
+        "XDG_CACHE_HOME": str(ROOT / "xdg-cache"),
+        "XDG_DATA_HOME": str(ROOT / "xdg-data"),
+        "XDG_STATE_HOME": str(ROOT / "xdg-state"),
+        "TMPDIR": str(ROOT / "scratch"),
+        "WORK_LEDGER_DIR": str(ROOT / "ledger"),
+        "WORK_LEDGER_GH": "/usr/bin/false",
+        "COPILOT_OFFLINE": "true",
+        "COPILOT_MODEL": "acceptance-no-inference",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GH_CONFIG_DIR": str(ROOT / "gh"),
+        "GH_PROMPT_DISABLED": "1",
+        "GH_NO_UPDATE_NOTIFIER": "1",
+        "TERM": "xterm-256color",
+        "NO_COLOR": "1",
+        "LANG": "en_US.UTF-8",
+    }
+    PROVIDER_REQUESTS = []
+
+
+    class RejectInference(http.server.BaseHTTPRequestHandler):
+        def reject(self):
+            PROVIDER_REQUESTS.append({"method": self.command})
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"error":"inference forbidden in acceptance"}')
+
+        do_GET = reject
+        do_POST = reject
+        do_PUT = reject
+        do_DELETE = reject
+
+        def log_message(self, *_):
+            pass
+
+
+    def serve_provider():
+        try:
+            PROVIDER.serve_forever()
+        except BaseException as error:
+            RESULT["provider_error"] = failure_info(error, "provider-shutdown")
+            RESULT.setdefault("cleanup_errors", []).append(RESULT["provider_error"])
+
+    PROVIDER = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RejectInference)
+    PROVIDER_THREAD = threading.Thread(target=serve_provider, daemon=True)
+    PROVIDER_THREAD.start()
+    with socket.create_connection(PROVIDER.server_address, timeout=2):
+        pass
+    ENV["COPILOT_PROVIDER_BASE_URL"] = f"http://127.0.0.1:{PROVIDER.server_port}/v1"
+    for key in ("HOME", "COPILOT_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME",
+                "XDG_DATA_HOME", "XDG_STATE_HOME", "TMPDIR", "WORK_LEDGER_DIR", "GH_CONFIG_DIR"):
+        Path(ENV[key]).mkdir(parents=True, exist_ok=True, mode=0o700)
+    WORKSPACE = ROOT / "workspace"
+    WORKSPACE.mkdir()
+    EXTENSIONS = Path(ENV["COPILOT_HOME"]) / "extensions" if ARGS.layout == "user" else WORKSPACE / ".github/extensions"
+    EXT = EXTENSIONS / "work-ledger"
+    EXT.mkdir(parents=True)
+    shutil.copy2(SOURCE / "extension.mjs", EXT / "extension.mjs")
+    shutil.copytree(SOURCE / "lib", EXT / "lib")
+    CONFIG_BYTES = json.dumps({"defaultRepo": "example/acceptance", "debug": True}).encode()
+    (EXT / "config.json").write_bytes(CONFIG_BYTES)
+    (EXT / "config.json").chmod(0o400)
+    (EXT / "extension.mjs").chmod(0o400)
+    for module in (EXT / "lib").glob("*.mjs"):
+        module.chmod(0o444)
+    (EXT / "lib").chmod(0o555)
+    NODE = shutil.which("node")
+    if not NODE:
+        parser.error("Node.js is required for the disposable owner-installer transaction.")
+    installer = [NODE, str(SOURCE / "owner-install.mjs")]
+    snapshot = json.loads(subprocess.check_output(
+        [*installer, "--inspect", str(EXT)], env=ENV, text=True, stderr=subprocess.PIPE))
+    request = {
+        "candidate": str(SOURCE), "installed": str(EXT), "backupParent": str(ROOT / "owner-backups"),
+        "sourceHash": hashlib.sha256((SOURCE / "SOURCE.sha256").read_bytes()).hexdigest(),
+        "installedHash": snapshot["hash"],
+        "ledgerConfigHash": "absent",
+    }
+    request_file = ROOT / "request.json"
+    request_bytes = json.dumps(request).encode()
+    request_file.write_bytes(request_bytes)
+    request_pin = hashlib.sha256(request_bytes).hexdigest()
+    INSTALL_RESULT = json.loads(subprocess.check_output([
+        *installer, "--request", str(request_file), "--sha256", request_pin,
+        "--install", "--hosts-stopped", "--confirm", f"install {request_pin}",
+    ], env=ENV, text=True, stderr=subprocess.PIPE))
+    OBSERVER = EXT.parent / "zz-acceptance-observer"
+    OBSERVER.mkdir()
+    (OBSERVER / "extension.mjs").write_text(r'''
+    import fs from "node:fs";
+    import path from "node:path";
+    import { joinSession } from "@github/copilot-sdk/extension";
+    const output = path.join(path.dirname(process.env.WORK_LEDGER_DIR), "observer.jsonl");
+    const emit = event => fs.appendFileSync(output, JSON.stringify({
+      at: new Date().toISOString(), pid: process.pid, ppid: process.ppid, ...event
+    }) + "\n");
+    process.on("SIGTERM", () => { emit({ type: "sigterm" }); process.exit(0); });
+    process.on("exit", code => emit({ type: "exit", code }));
+    try {
+      const session = await joinSession();
+      emit({ type: "joined", sessionId: session.sessionId });
+      let metadata;
+      for (let i = 0; i < 80; i++) {
+        metadata = await session.rpc.tools.getCurrentMetadata();
+        if (JSON.stringify(metadata).includes("work_ledger_record")) break;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      emit({ type: "metadata", sessionId: session.sessionId, metadata: {
+        ...metadata, tools: (metadata.tools || []).filter(tool => /^work_ledger_/.test(tool.name))
+      } });
+      if (!JSON.stringify(metadata).includes("work_ledger_record")) throw new Error("maintained tools not offered");
+      const before = await session.rpc.tools.execute({ name: "work_ledger_get", arguments: { repo: "example/acceptance", pr: 1 } });
+      emit({ type: "get-before", sessionId: session.sessionId, result: before });
+      const result = await session.rpc.tools.execute({
+        name: "work_ledger_record",
+        arguments: { repo: "example/acceptance", pr: 1, kind: "note",
+          evidence: "Synthetic lifecycle marker. No test, review, device, approval, or deployment claim." }
+      });
+      emit({ type: "record", sessionId: session.sessionId, result });
+      const after = await session.rpc.tools.execute({ name: "work_ledger_get", arguments: { repo: "example/acceptance", pr: 1 } });
+      emit({ type: "complete", sessionId: session.sessionId, result: after });
+    } catch {
+      emit({ type: "error", errorType: "Error" });
+    }
+    ''')
+    HASHES = {str(p.relative_to(SOURCE)): hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in [SOURCE / "extension.mjs", *sorted((SOURCE / "lib").glob("*.mjs"))]}
+    FLAGS = ["--no-auto-update", "--no-custom-instructions", "--disable-builtin-mcps",
+             "--no-remote", "--no-remote-export", "--disable-client-telemetry", "--experimental",
+             "--log-level", "debug", "--log-dir", str(ROOT / "logs"), "-C", str(WORKSPACE)]
+    RESULT.update({
+        "source_sha256": HASHES, "environment": {key: "<SET>" for key in ENV}, "layout": ARGS.layout,
+        "fixture_installation": INSTALL_RESULT,
+        "repo_head": subprocess.check_output(
+            ["/usr/bin/git", "rev-parse", "HEAD"], cwd=SOURCE.parent.parent, env=ENV, text=True, stderr=subprocess.PIPE).strip(),
+        "native_cli_sha256": hashlib.sha256(Path(CLI).read_bytes()).hexdigest(),
+        "version": subprocess.check_output(
+            [CLI, "--no-auto-update", "--version"], env=ENV, text=True, stderr=subprocess.PIPE).strip(),
+        "commands": [], "interactive_runs": [],
+        "limits": [
+            "Real CLI host only; not desktop reload acceptance.",
+            "No user prompt, authentication, deployment, Gradle, or inference request.",
+            "Synthetic configuration enables debug; /usr/bin/false blocks GitHub lookups.",
+            "Observer instrumentation uses the bundled real SDK, not a fixture transport.",
+        ],
+    })
+
+
 try:
+    bootstrap()
     interactive(replace=True)
     ledger_path = ROOT / "ledger/ledger.json"
     RESULT["ledger_before_restart"] = json.loads(ledger_path.read_text()) if ledger_path.exists() else None
@@ -532,13 +634,15 @@ try:
     RESULT["provider_requests"] = PROVIDER_REQUESTS
     RESULT["passed"] = all(RESULT["checks"].values())
     RESULT["synthetic_note_counts"] = {"before_restart": len(old_notes), "after_restart": len(new_notes)}
-except Exception as error:
-    RESULT["passed"] = False
-    RESULT.setdefault("checks", {})["acceptance_completed"] = False
-    RESULT["error"] = failure_info(error, "acceptance")
+except BaseException as error:
+    if isinstance(error, SystemExit) and error.code == 0:
+        HELP_ONLY = True
+    else:
+        RESULT["passed"] = False
+        RESULT.setdefault("checks", {})["acceptance_completed"] = False
+        RESULT["error"] = failure_info(error, "acceptance")
 finally:
-    finish_report()
-print(json.dumps({"layout": ARGS.layout, "checks": RESULT.get("checks", {}),
-                  "passed": RESULT["passed"]}, indent=2))
-if not RESULT.get("passed"):
+    if not HELP_ONLY:
+        finish_report()
+if not HELP_ONLY and not RESULT.get("passed"):
     raise SystemExit(1)

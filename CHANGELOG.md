@@ -3,6 +3,11 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## Unreleased tooling (2026-10-30)
+- **Guard the complete isolated acceptance lifecycle.**
+  - **What:** Include bootstrap in the safe reporting boundary. Initialize ownership before allocation and invalidate previous evidence before work.
+    Publish reports atomically. Close owned servers and terminals, reap children, and verify root identity before directory cleanup.
+  - **Why:** Final review reproduced a bootstrap exception that exposed a formatted path and preserved stale success evidence.
+  - **Check:** Actual-script early/late fault injection, Python cleanup regressions, complete Node suites, and both actual SDK layouts.
 - **Prepare a pinned owner installation package.**
   - **What:** preview by default; bind source, whole installed tree, and optional descriptor additions to reviewed integrity pins.
     Preserve unrelated configuration and files. Reject unsupported source, symlinks, conflicting scopes, and concurrent drift.

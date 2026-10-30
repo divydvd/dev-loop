@@ -143,6 +143,19 @@ The coordinator requires one audit of all retained failure paths, not more escap
 - **Size estimate:** No production runtime change; only the acceptance fixture, tests, and directly related documentation change.
 - **Stop conditions:** Report new confirmed findings after this bounded correction without another source push.
 
+## Authorized follow-up: complete bootstrap lifecycle
+
+The owner selected "Approve one bounded bootstrap correction and one push (Recommended)" after review `5713180124`.
+
+- **Goal:** Put bootstrap and host execution inside one safe reporting and cleanup boundary.
+- **Done when:** Arguments, paths, cache/archive integrity, source/configuration reads, installer subprocesses, allocation, and reporting cannot bypass that boundary.
+- **Done when:** Owned-resource state exists before allocation. Prior success evidence is invalidated before substantive work.
+- **Done when:** Failures emit only safe types/codes and failed checks, return nonzero, and clean only known-owned resources.
+- **Done when:** Failed report writes cannot leave a valid success report from the current attempt.
+- **Required evidence:** Actual-script early/late fault injection, resource cleanup, independent review, both complete Node suites, and both actual SDK layouts.
+- **Size estimate:** No production runtime change. Only fixtures, tests, and directly related documentation change.
+- **Stop conditions:** One correction push. Report any new confirmed finding afterward without another source change.
+
 ## Conclusion
 This layer prepares an installation package, not an installed correction.
 The owner must separately review private pins, stop affected hosts, install, and verify a fresh host.
