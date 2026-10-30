@@ -32,9 +32,13 @@
 - Post-merge review: checked confirmation binding, legacy alias routing, batch denial, source enforcement, and unconditional verified-Maven wrapping against the parent.
 - Post-merge suite: `node scripts/check.mjs` -> no faults; required Node suite -> 95/95 passed.
 - Task 1: complete. One independent review finding reproduced and fixed. No deferred findings from that review.
-- Size: 146 added/deleted production lines relative to the selected parent; tests, documentation, and hashes excluded.
+- Size before automatic fixes: 146 added/deleted production lines relative to the selected parent; tests, documentation, and hashes excluded.
 - Installation/runtime limits: no live guard change, no installer, no real SDK host acceptance, and no additional merge/deployment switches.
 - Finish: final verification runs after this ledger commit; evidence is pinned to the resulting head in the PR.
 - Automatic review round 1: three confirmed findings. Four assertions failed first: singleton batch, replacement-ref source, dangling leaf, and dangling ancestor.
 - Round 1 fixes: refuse every batch-shaped Maven invocation; disable replacement objects in source status; inspect symlinks before missing-path fallback.
 - Parent round 2: ef955c45fd7252168898c15e86038fcb0d331a67 is available for integration before the combined round-1 push.
+- Parent round 2 merged at d349c15. Rechecked its four identity corrections and Maven boundary integration.
+- Round 1 verification: four new failing assertions now pass. Complete merged suite: 102/102; plugin check: no faults.
+- Current size: 149 added/deleted production lines versus parent ef955c4. The baseline manifest remains unchanged.
+- Final evidence will be rerun and pinned after this ledger commit. Round-1 push includes all three fixes and the final parent integration.
