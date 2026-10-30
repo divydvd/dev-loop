@@ -43,6 +43,7 @@ The owner then approved these refinements and directed implementation:
 - Match any Maven exception narrowly to reviewed local-only publication. Genuine deployment protections remain active.
 - Fix deployment classification in a separate change.
 - Prepare tested source for owner installation. Never modify the live guard.
+- Final owner scope decision: keep merge and real deployment approval mandatory. These gates and the shared build lock are not configurable.
 
 These refinements supersede conflicting details in the original proposal below.
 In particular, `gradle-lane` is not configurable, and the original broad `deploy` examples are not an approved Maven recovery mechanism.
@@ -59,11 +60,15 @@ Repository scope and 30 minutes remain the defaults.
 `guards status` reports supported switches separately from non-configurable protections.
 
 This layer is partial acceptance, not completion of the owner's per-guard request.
-Merge/deploy controls, reviewed local-only Maven recovery, an owner installer, and real disposable SDK host acceptance remain outstanding.
+At the controls-layer handoff, reviewed local-only Maven recovery, an owner installer, and real disposable SDK host acceptance remained outstanding.
+The dependent Maven layer now implements reviewed local-only recovery in maintained source.
+Owner installation and real disposable SDK acceptance remain outstanding.
+Merge and real deployment approval remain mandatory, not future switches.
 The loader-based startup/reload tests establish the extension contract only, not a real host.
 Unverified Maven remains blocked. No live guard installation or modification is authorized.
 
-The following command grammar is a design sketch, not an installed interface.
+The following command grammar is a historical design sketch, not an installed interface.
+The final owner decision rejects its deployment switches and blanket deployment pauses.
 
 | Command | Proposed effect |
 | --- | --- |

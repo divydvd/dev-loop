@@ -39,7 +39,7 @@ function expandHome(s) {
 }
 function under(p, dir) {
   const rel = path.relative(dir, p);
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
 function argPath(arg, cwd) {
   let a = String(arg);

@@ -96,7 +96,7 @@ export function makeLookups({ gh = findGh(), git = findBinary("git") || "/usr/bi
     gitHead: (cwd) => gitOut(cwd, ["rev-parse", "HEAD"]),
     gitRoot: (cwd) => gitOut(cwd, ["rev-parse", "--show-toplevel"]),
     async gitTracked(cwd, file) {
-      return (await gitOut(cwd, ["ls-files", "--error-unmatch", "--", file])) !== null;
+      return (await gitOut(cwd, ["--literal-pathspecs", "ls-files", "--error-unmatch", "--", file])) !== null;
     },
     async gitReviewedClean(cwd) {
       const [status, flags, entries] = await Promise.all([
