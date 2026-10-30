@@ -63,9 +63,9 @@ The CLI pins the request or rollback receipt itself with SHA-256.
 **Produces:** An open PR against the selected parent and exact head evidence.
 
 - [x] Incorporate relayed parent updates with a merge, never a rebase.
-- [ ] Commit and run `node scripts/check.mjs`.
-- [ ] Run `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
-- [ ] Push once and open the stacked PR. Observe checks and automatic review.
+- [x] Commit and run `node scripts/check.mjs`.
+- [x] Run `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
+- [x] Push once and open the stacked PR. Observe checks and automatic review.
 - [ ] Report source SHA, manifest identity, simulation versus actual-host evidence, owner-only steps, and blockers.
 
 ## Authorized follow-up: read-only configuration
@@ -80,6 +80,30 @@ No live installation or further correction cycle is authorized.
 - Retain overlay drift and failure recovery checks.
 - Rerun the required Node suites, manifest checks, and both actual CLI/SDK layouts at the pushed commit.
 - Read the final automatic review. Report any new confirmed finding without another push.
+
+## Authorized follow-up: shared staged-write permissions
+
+The owner approved one bounded root permission cycle after review `5712261733`.
+The non-root reproduction confirms that preview accepts a runtime module with mode `0400`, but installation fails with `EACCES`.
+The active installation remains unchanged.
+
+- **Goal:** Use one approved-write path for configuration and runtime files, including private read-only directories.
+- **Done when:** Files with modes `0400` and `0444` install and roll back without changing their pinned permissions.
+- **Done when:** Installation roots and nested directories with modes `0500` and `0555` retain their exact permissions.
+- **Required evidence:** Non-root regressions, executable/special mode preservation, injected failures, independent review, required suites, and both actual hosts.
+- **Size estimate:** Fewer than 390 production lines for the complete installer.
+- **Stop conditions:** Report new confirmed findings after this cycle without another source push.
+
+Replace approved files from private exclusive files, rather than rewriting copied read-only files.
+Grant temporary owner write access only to required private staging directories.
+Check the full temporary tree before restoring pinned directory modes.
+Check the final tree again before replacement.
+Fail explicitly during preview for unreadable installation states.
+Never change permissions in the active installation.
+macOS rejects cross-parent directory moves when the moved root is read-only.
+A disposable filesystem probe confirms same-parent success and cross-parent `EACCES` at mode `0555`.
+Preview therefore refuses read-only macOS roots explicitly; Linux tests exercise successful read-only root replacement and rollback.
+The successful macOS matrix retains a writable root and tests read-only files and nested directories.
 
 ## Conclusion
 This layer prepares an installation package, not an installed correction.

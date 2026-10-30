@@ -198,11 +198,26 @@ async function configuration(request, input, stage) {
   return additions.length ? Buffer.from(JSON.stringify({ ...config, localMavenScopes: [...existing, ...additions] }, null, 2) + "\n") : original;
 }
 
-function writeRelease(directory, files) {
+function setMode(file, mode) {
+  canonical(file);
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try { fs.fchmodSync(fd, mode); }
+  finally { fs.closeSync(fd); }
+}
+
+function writeApprovedFiles(directory, files, expected = new Map(), work = directory) {
   for (const [file, bytes] of files) {
     const target = path.join(directory, file);
+    canonical(path.dirname(target));
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(target, bytes, { mode: 0o600 });
+    const temporary = path.join(work, "approved-bytes");
+    const fd = fs.openSync(temporary, "wx", 0o600);
+    try {
+      fs.writeFileSync(fd, bytes);
+      fs.fchmodSync(fd, expected.get(file)?.[2] ?? 0o600);
+    } finally { fs.closeSync(fd); }
+    if (digest(read(temporary)) !== digest(bytes)) fail("Approved staged file integrity changed.");
+    fs.renameSync(temporary, target);
   }
 }
 
@@ -228,6 +243,10 @@ export async function prepareInstallation(request, options = {}) {
   privateParent(request.backupParent, [request.candidate, request.installed]);
   const before = installationSnapshot(request.installed);
   if (before.hash !== request.installedHash) fail("Installed snapshot changed since review.");
+  if (process.platform === "darwin") {
+    try { fs.accessSync(request.installed, fs.constants.W_OK); }
+    catch (error) { throw new Error("macOS cross-parent backup requires a writable installation root; preview refuses unsupported permissions.", { cause: error }); }
+  }
   const { hashes, files } = release(request.candidate, request.sourceHash);
   supportedInstalled(before, hashes);
   const input = configurationInput(request, before);
@@ -238,7 +257,7 @@ export async function prepareInstallation(request, options = {}) {
   const scratch = fs.mkdtempSync(path.join(temporary, "guard-validate-"));
   fs.chmodSync(scratch, 0o700);
   try {
-    writeRelease(scratch, files);
+    writeApprovedFiles(scratch, files);
     const config = await configuration(request, input, scratch);
     unchanged(request.installed, before.hash);
     input.recheck();
@@ -254,29 +273,31 @@ export async function prepareInstallation(request, options = {}) {
     // Node 22 can omit directory modes and special file bits. Verify bytes/types before restoring them.
     const content = entries => entries.map(entry => entry[1] === "directory" ? entry.slice(0, 2) : [entry[0], entry[1], entry[2] & 0o777, entry[3]]);
     if (identity(content(copied.entries)) !== identity(content(before.entries))) fail("Copied installation changed during staging.");
-    for (const [file, , mode] of before.entries) fs.chmodSync(path.join(staged, file), mode);
+    for (const [file, , mode] of before.entries) setMode(path.join(staged, file), mode);
     unchanged(staged, before.hash);
     const expected = new Map(before.entries.map(entry => [entry[0], entry]));
     const approvedFiles = new Map(files);
-    if (config) approvedFiles.set("config.json", config);
+    if (input.additions.length) approvedFiles.set("config.json", config);
     for (const [file, bytes] of approvedFiles) {
       expected.set(file, [file, "file", expected.get(file)?.[2] ?? 0o600, digest(bytes)]);
     }
-    writeRelease(staged, files);
-    if (input.additions.length) {
-      const configFile = path.join(work, "approved-config.json");
-      const fd = fs.openSync(configFile, "wx", 0o600);
-      try {
-        fs.writeFileSync(fd, config);
-        fs.fchmodSync(fd, before.entries.find(entry => entry[0] === "config.json")?.[2] ?? 0o600);
-      } finally {
-        fs.closeSync(fd);
-      }
-      fs.renameSync(configFile, path.join(staged, "config.json"));
+    const writable = before.entries.filter(([file, type]) => type === "directory"
+      && [...approvedFiles.keys()].some(target => !file || target.startsWith(`${file}/`)));
+    const during = new Map(expected);
+    for (const [file, type, mode] of writable) {
+      setMode(path.join(staged, file), mode | 0o700);
+      during.set(file, [file, type, mode | 0o700]);
     }
-    const prepared = installationSnapshot(staged);
     const ordered = entries => [...entries].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-    if (identity(ordered(prepared.entries)) !== identity(ordered(expected.values()))) fail("Staged code integrity or preserved installation changed during overlay.");
+    const verify = expected => {
+      const observed = installationSnapshot(staged);
+      if (identity(ordered(observed.entries)) !== identity(ordered(expected.values()))) fail("Staged code integrity or preserved installation changed during overlay.");
+      return observed;
+    };
+    writeApprovedFiles(staged, approvedFiles, expected, work);
+    verify(during);
+    for (const [file, , mode] of writable.reverse()) setMode(path.join(staged, file), mode);
+    const prepared = verify(expected);
     const installedHash = prepared.hash;
     const receipt = { installed: request.installed, backup, originalHash: before.hash, installedHash, sourceHash: request.sourceHash };
     const receiptFile = path.join(work, "receipt.json");

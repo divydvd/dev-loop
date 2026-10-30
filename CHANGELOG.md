@@ -27,7 +27,13 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     The owner authorized one additional bounded cycle for this finding.
     No-addition installs now keep the copied configuration untouched.
     Approved additions replace it from a separate private file with the original permission bits.
-    Actual CLI/SDK tests pass fifteen assertions in both user and project discovery layouts, with zero model requests.
+    A later review found the same fault in read-only runtime modules.
+    The owner approved one bounded root permission cycle.
+    Runtime and configuration now share private exclusive writes and descriptor-based permission restoration.
+    Private staged directories receive temporary write access, with full checks before and after restoring pinned modes.
+    Non-root tests cover read-only files, nested directories, executable/special bits, rollback, and injected failures.
+    macOS refuses cross-parent moves of a read-only installation root; preview rejects this unsupported state without permission changes.
+    Actual CLI/SDK tests check both user and project discovery layouts, with zero model requests.
     Each layout starts from a real pinned installer transaction in disposable state.
     They verify native tools/hooks, child replacement, exit, restart, and persisted synthetic notes; they do not prove desktop reload.
     Read-only source review and PR approval do not grant installation permission.

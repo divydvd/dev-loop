@@ -114,6 +114,10 @@ shutil.copytree(SOURCE / "lib", EXT / "lib")
 CONFIG_BYTES = json.dumps({"defaultRepo": "example/acceptance", "debug": True}).encode()
 (EXT / "config.json").write_bytes(CONFIG_BYTES)
 (EXT / "config.json").chmod(0o400)
+(EXT / "extension.mjs").chmod(0o400)
+for module in (EXT / "lib").glob("*.mjs"):
+    module.chmod(0o444)
+(EXT / "lib").chmod(0o555)
 NODE = shutil.which("node")
 if not NODE:
     parser.error("Node.js is required for the disposable owner-installer transaction.")
@@ -401,6 +405,9 @@ try:
         "owner_installer_applied_to_disposable_extension": INSTALL_RESULT["installed"] is True,
         "read_only_configuration_preserved": (EXT / "config.json").read_bytes() == CONFIG_BYTES
             and (EXT / "config.json").stat().st_mode & 0o7777 == 0o400,
+        "read_only_runtime_and_directory_preserved": (EXT / "extension.mjs").stat().st_mode & 0o7777 == 0o400
+            and (EXT / "lib").stat().st_mode & 0o7777 == 0o555
+            and all(module.stat().st_mode & 0o7777 == 0o444 for module in (EXT / "lib").glob("*.mjs")),
         "three_real_joined_sessions": len(completions) == 3 and len({event["sessionId"] for event in completions}) == 3,
         "both_maintained_tools_offered_each_session": len(metadata) == 3 and all(
             {tool["name"] for tool in event["metadata"]["tools"]} == {"work_ledger_get", "work_ledger_record"} for event in metadata),
@@ -452,6 +459,9 @@ finally:
     result_file = OUTPUT / f"real-host-{ARGS.layout}.json"
     result_file.write_text(json.dumps(sanitize(RESULT), indent=2) + "\n")
     if not survivors:
+        for directory, _, _ in os.walk(ROOT):
+            folder = Path(directory)
+            folder.chmod(folder.stat().st_mode | 0o700)
         shutil.rmtree(ROOT)
 if not RESULT.get("passed"):
     raise SystemExit(1)

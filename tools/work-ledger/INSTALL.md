@@ -15,6 +15,10 @@ Verify the whole stack's checks and review before a separate owner installation 
 
 The transaction tests run on macOS with Node.js 26.12.1 and 22.23.4.
 The installer requires POSIX ownership and permission modes; Windows is not a supported installation target.
+All installed files and directories must be readable and traversable by the owner.
+Read-only configuration, runtime files, and nested directories are supported.
+On macOS, the installation root must also be writable for the cross-parent backup rename.
+Preview refuses a read-only macOS root without changing its permissions.
 Do not install while an affected extension host runs.
 An extension host is the CLI process that loads an extension and its SDK child process.
 The installer cannot identify or stop every desktop, terminal, remote, or background host.
@@ -105,7 +109,7 @@ Relative ledger paths are unsupported because the host working directory is unkn
 
 Omit `scopesFile` and `scopesHash` to preserve configuration bytes exactly.
 Without additions, the installer does not rewrite the staged configuration, including a read-only file.
-Approved additions use a separate private file and preserve the original permission bits before replacement.
+All approved runtime and configuration writes use separate private files with the original permission bits.
 To add reviewed descriptors, supply a separate private JSON file:
 
 ```json
@@ -196,6 +200,9 @@ The installer stages the whole extension directory before overlaying the reviewe
 It writes a private receipt before replacement.
 It rechecks the full tree and code hashes before the final renames.
 For older Node copy behavior, it verifies copied bytes and types before restoring pinned directory permission modes.
+Only private staging directories receive temporary owner write access.
+The installer checks their temporary modes and all file contents before restoring their pinned modes.
+It then checks the complete final tree. It never changes active installation permissions.
 It also rechecks the incoming tree after moving the outgoing installation.
 The original directory moves intact to the transaction's `original` directory.
 No backup or stage is placed in an extension discovery directory.
@@ -279,7 +286,9 @@ This is not packet-level proof for every network destination.
 
 Both layouts passed fifteen assertions.
 The owner installer first applies its pinned transaction to each disposable extension directory.
-The disposable configuration is read-only. Its bytes and permission bits remain unchanged.
+The disposable configuration and runtime files are read-only.
+The nested runtime directory is also read-only.
+Their bytes and permission bits remain unchanged across installation and host restart.
 The unmodified maintained entry joined through the CLI's actual SDK resolver.
 A separate test observer used native SDK metadata and tool APIs, without a model prompt.
 The real host registered both maintained tools and invoked the maintained pre-tool hook.

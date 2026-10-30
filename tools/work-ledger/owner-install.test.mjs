@@ -14,7 +14,16 @@ const fileHash = file => hash(fs.readFileSync(file));
 async function fixture(t) {
   const api = await import("./owner-install.mjs");
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "guard-owner-")));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  t.after(() => {
+    function writableDirectories(directory) {
+      fs.chmodSync(directory, fs.statSync(directory).mode | 0o700);
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (entry.isDirectory()) writableDirectories(path.join(directory, entry.name));
+      }
+    }
+    writableDirectories(root);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   const candidate = path.join(root, "candidate");
   const installed = path.join(root, "home", "extensions", "work-ledger");
   fs.cpSync(source, candidate, { recursive: true });
@@ -268,10 +277,10 @@ export async function load(url, context, next) {
 
 test("staged code corruption cannot replace the original", async t => {
   const f = await fixture(t);
-  const write = fs.writeFileSync;
-  t.mock.method(fs, "writeFileSync", (file, bytes, ...args) => {
-    write(file, bytes, ...args);
-    if (file.endsWith("/staged/lib/policy.mjs")) write(file, "// corrupt\n", { flag: "a" });
+  const rename = fs.renameSync;
+  t.mock.method(fs, "renameSync", (from, to) => {
+    rename(from, to);
+    if (to.endsWith("/staged/lib/policy.mjs")) fs.appendFileSync(to, "// corrupt\n");
   });
   await assert.rejects(f.run(), /staged code integrity/i);
   assert.equal(f.installationSnapshot(f.installed).hash, f.request.installedHash);
@@ -352,7 +361,7 @@ test("a staged configuration edit after snapshot is rejected", async t => {
   const write = fs.writeFileSync;
   t.mock.method(fs, "writeFileSync", (file, bytes, ...args) => {
     write(file, bytes, ...args);
-    if (file.endsWith("/receipt.json")) {
+    if (typeof file === "string" && file.endsWith("/receipt.json")) {
       fs.appendFileSync(path.join(path.dirname(file), "staged/config.json"), "\n");
     }
   });
@@ -523,14 +532,14 @@ test("configured dataDir expands tilde without expanding environment paths", asy
 
 for (const kind of ["configuration", "unrelated-file", "new-file", "directory-mode"]) {
   test(`rejects unapproved ${kind} edits during the staged overlay`, async t => {
-    const f = await fixture(t), write = fs.writeFileSync;
-    t.mock.method(fs, "writeFileSync", (file, bytes, ...args) => {
-      write(file, bytes, ...args);
-      if (file.endsWith("/staged/extension.mjs")) {
-        const staged = path.dirname(file);
-        if (kind === "configuration") write(path.join(staged, "config.json"), '{"reviewCap":99}');
-        if (kind === "unrelated-file") write(path.join(staged, "owner-notes/keep.txt"), "not approved");
-        if (kind === "new-file") write(path.join(staged, "unexpected.txt"), "not approved");
+    const f = await fixture(t), rename = fs.renameSync;
+    t.mock.method(fs, "renameSync", (from, to) => {
+      rename(from, to);
+      if (to.endsWith("/staged/extension.mjs")) {
+        const staged = path.dirname(to);
+        if (kind === "configuration") fs.writeFileSync(path.join(staged, "config.json"), '{"reviewCap":99}');
+        if (kind === "unrelated-file") fs.writeFileSync(path.join(staged, "owner-notes/keep.txt"), "not approved");
+        if (kind === "new-file") fs.writeFileSync(path.join(staged, "unexpected.txt"), "not approved");
         if (kind === "directory-mode") fs.chmodSync(path.join(staged, "owner-notes"), 0o755);
       }
     });
@@ -662,21 +671,27 @@ for (const mode of [0o400, 0o444, 0o4400]) {
   }
 }
 
-test("configuration staging failure leaves the read-only original unchanged", async t => {
+test("approved staging failure leaves the read-only original unchanged", async t => {
   const f = await fixture(t);
   await descriptor(f);
   fs.chmodSync(path.join(f.installed, "config.json"), 0o400);
   f.request.installedHash = f.installationSnapshot(f.installed).hash;
-  const write = fs.writeFileSync;
+  const write = fs.writeFileSync, open = fs.openSync;
+  let stagedFd;
+  t.mock.method(fs, "openSync", (file, ...args) => {
+    const fd = open(file, ...args);
+    if (typeof file === "string" && file.startsWith(f.request.backupParent) && file.endsWith("/approved-bytes")) stagedFd = fd;
+    return fd;
+  });
   t.mock.method(fs, "writeFileSync", (file, ...args) => {
-    if (typeof file === "number") throw new Error("configuration staging failed");
+    if (file === stagedFd) throw new Error("configuration staging failed");
     return write(file, ...args);
   });
   await assert.rejects(f.run(), /configuration staging failed/);
   assert.equal(f.installationSnapshot(f.installed).hash, f.request.installedHash);
 });
 
-test("private configuration replacement cannot redirect permission changes through a symlink", async t => {
+test("private approved replacement cannot redirect permission changes through a symlink", async t => {
   const f = await fixture(t);
   await descriptor(f);
   fs.chmodSync(path.join(f.installed, "config.json"), 0o400);
@@ -685,7 +700,7 @@ test("private configuration replacement cannot redirect permission changes throu
   fs.writeFileSync(outside, "do not change", { mode: 0o644 });
   t.mock.method(fs, "openSync", (file, ...args) => {
     const fd = open(file, ...args);
-    if (typeof file === "string" && file.endsWith("/approved-config.json")) {
+    if (typeof file === "string" && file.startsWith(f.request.backupParent) && file.endsWith("/approved-bytes")) {
       fs.unlinkSync(file);
       fs.symlinkSync(outside, file);
     }
@@ -696,3 +711,95 @@ test("private configuration replacement cannot redirect permission changes throu
   assert.equal(fs.statSync(outside).mode & 0o7777, 0o644);
   assert.equal(f.installationSnapshot(f.installed).hash, f.request.installedHash);
 });
+
+for (const fileMode of [0o400, 0o444, 0o4555]) {
+  for (const directoryMode of [0o500, 0o555, 0o1500]) {
+    for (const additions of [false, true]) {
+      test(`non-root install/rollback preserves files=${fileMode.toString(8)} directories=${directoryMode.toString(8)} additions=${additions}`, async t => {
+        assert.notEqual(process.getuid(), 0, "This regression must run as a non-root owner.");
+        const f = await fixture(t);
+        const scope = additions ? await descriptor(f) : null;
+        const configFile = path.join(f.installed, "config.json");
+        fs.chmodSync(configFile, fileMode);
+        for (const entry of f.installationSnapshot(f.installed).entries) {
+          if (entry[0].endsWith(".mjs")) fs.chmodSync(path.join(f.installed, entry[0]), fileMode);
+        }
+        for (const relative of ["owner-notes", "lib"]) fs.chmodSync(path.join(f.installed, relative), directoryMode);
+        if (process.platform !== "darwin") fs.chmodSync(f.installed, directoryMode);
+        const before = f.installationSnapshot(f.installed);
+        f.request.installedHash = before.hash;
+        assert.equal((await f.prepareInstallation(f.request)).validated, true);
+        assert.deepEqual(f.installationSnapshot(f.installed), before);
+        const result = await f.run();
+        const expected = before.entries.map(entry => entry[0] === "config.json" && additions
+          ? [...entry.slice(0, 3), hash(JSON.stringify({ ...JSON.parse(f.originalConfig), localMavenScopes: [scope] }, null, 2) + "\n")]
+          : entry);
+        assert.deepEqual(f.installationSnapshot(f.installed).entries, expected);
+        assert.deepEqual(f.installationSnapshot(result.receipt.backup), before);
+        await f.rollbackInstallation(result.receipt, {
+          execute: true, hostsStopped: true, confirmation: `rollback ${hash(JSON.stringify(result.receipt))}`,
+        });
+        assert.deepEqual(f.installationSnapshot(f.installed), before);
+      });
+    }
+  }
+}
+
+for (const kind of ["file", "directory"]) {
+  test(`preview rejects an unreadable ${kind} without creating a backup`, async t => {
+    assert.notEqual(process.getuid(), 0);
+    const f = await fixture(t);
+    fs.chmodSync(path.join(f.installed, kind === "file" ? "lib/policy.mjs" : "lib"), kind === "file" ? 0o200 : 0o100);
+    await assert.rejects(f.prepareInstallation(f.request), { code: "EACCES" });
+    assert.equal(fs.existsSync(f.request.backupParent), false);
+  });
+}
+
+if (process.platform === "darwin") {
+  for (const mode of [0o500, 0o555, 0o1500]) {
+    test(`macOS preview refuses root mode ${mode.toString(8)} before any staging or installation`, async t => {
+      assert.notEqual(process.getuid(), 0);
+      const f = await fixture(t);
+      fs.chmodSync(f.installed, mode);
+      const before = f.installationSnapshot(f.installed);
+      f.request.installedHash = before.hash;
+      await assert.rejects(f.prepareInstallation(f.request), /cross-parent.*writable installation root/i);
+      await assert.rejects(f.run(), /cross-parent.*writable installation root/i);
+      assert.deepEqual(f.installationSnapshot(f.installed), before);
+      assert.equal(fs.existsSync(f.request.backupParent), false);
+    });
+  }
+}
+
+for (const failure of ["write", "rename", "directory-drift"]) {
+  test(`a ${failure} failure preserves the read-only original bytes and modes`, async t => {
+    const f = await fixture(t);
+    await descriptor(f);
+    fs.chmodSync(path.join(f.installed, "config.json"), 0o400);
+    fs.chmodSync(path.join(f.installed, "lib/policy.mjs"), 0o444);
+    fs.chmodSync(path.join(f.installed, "lib"), 0o500);
+    if (process.platform !== "darwin") fs.chmodSync(f.installed, 0o555);
+    const before = f.installationSnapshot(f.installed);
+    f.request.installedHash = before.hash;
+    const write = fs.writeFileSync, rename = fs.renameSync, open = fs.openSync;
+    let stagedFd;
+    t.mock.method(fs, "openSync", (file, ...args) => {
+      const fd = open(file, ...args);
+      if (typeof file === "string" && file.startsWith(f.request.backupParent) && file.endsWith("/approved-bytes")) stagedFd = fd;
+      return fd;
+    });
+    t.mock.method(fs, "writeFileSync", (file, ...args) => {
+      if (failure === "write" && file === stagedFd) throw new Error("approved write failed");
+      return write(file, ...args);
+    });
+    t.mock.method(fs, "renameSync", (from, to) => {
+      if (failure === "rename" && from.endsWith("/staged")) throw new Error("installation rename failed");
+      rename(from, to);
+      if (failure === "directory-drift" && to.endsWith("/staged/extension.mjs")) {
+        fs.chmodSync(path.join(path.dirname(to), "lib"), 0o777);
+      }
+    });
+    await assert.rejects(f.run(), /approved write failed|installation rename failed|changed|drift|integrity/i);
+    assert.deepEqual(f.installationSnapshot(f.installed), before);
+  });
+}
