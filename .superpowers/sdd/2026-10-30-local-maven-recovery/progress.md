@@ -20,3 +20,10 @@
 - Regression: passing configuration into controls initially copied it into history; a failing transport assertion led to separating policy context from audit context.
 - Pre-review verification: `node scripts/check.mjs` -> no faults; complete required Node suite -> 91/91 passed.
 - Release manifest refreshed for all 11 maintained implementation modules. Archival `BASELINE.sha256` unchanged.
+- Independent risky-task review: one high finding, launcher traversal through an ignored symlink could select a different executable.
+- Review verification: actual filesystem reads confirmed the escaped executable differed, while policy permitted it before the fix.
+- Final: fixed launcher traversal — regression RED before restricting executable spelling to the canonical absolute or exact ./project-relative pathname.
+- Final: Ruling: parent findings remain owned by the controls layer; merge its tested fixes before final verification.
+- Final: Ruling: installer and actual SDK acceptance remain the next layer; this layer does not claim either.
+- Final: Ruling: arbitrary Gradle sandboxing remains out of scope; the README explicitly names trusted ignored/global/external inputs and concurrent edits.
+- Deferred minors: none.

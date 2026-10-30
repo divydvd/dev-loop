@@ -257,3 +257,19 @@ test("a descriptor cannot add an unknown non-Maven task", async t => {
   if (p.confirmation) f.control(p.confirmation, { ...f.context, messageId: "confirm" });
   assert.ok((await f.run(f.scope.command)).deny);
 });
+
+test("launcher traversal through an ignored symlink cannot select untracked executable bytes", async t => {
+  const f = fixture(t);
+  const outside = path.join(f.tmp, "outside");
+  fs.mkdirSync(path.join(outside, "a", "b"), { recursive: true });
+  fs.writeFileSync(path.join(outside, "gradlew"), "# outside launcher, never executed\n");
+  fs.mkdirSync(path.join(f.cwd, "build"));
+  fs.symlinkSync(path.join(outside, "a", "b"), path.join(f.cwd, "build", "alias"));
+  const executable = "./build/alias/../../gradlew";
+  assert.equal(fs.readFileSync(`${f.cwd}/${executable}`, "utf8"), "# outside launcher, never executed\n");
+  assert.equal(f.git("status", "--porcelain"), "", "the malicious path is ignored, not a dirty source");
+  f.scope.command = f.command.replace("./gradlew", executable);
+  const preview = f.control("guard maven off");
+  if (preview.confirmation) f.control(preview.confirmation, { ...f.context, messageId: "confirm" });
+  assert.ok((await f.run(f.scope.command)).deny);
+});

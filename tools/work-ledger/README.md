@@ -156,6 +156,7 @@ A task name or property name alone does not establish that fact.
 The destination must be a canonical path strictly inside `<cwd>/build/`.
 The launcher must be an explicit, tracked `gradlew` pathname inside the project, outside `build/`.
 Nested launchers are supported. PATH-based launchers are not supported.
+Use the canonical absolute launcher or its exact `./project-relative` pathname without `..` or redundant path components.
 The project must be the Git root. The source must have that exact clean SHA.
 The verifier rejects untracked files that Git does not ignore, staged changes, modified tracked bytes, and hidden index flags.
 It overrides Git settings that hide untracked files or rely on filesystem monitor results.

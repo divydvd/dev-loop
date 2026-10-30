@@ -12,6 +12,7 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Real Git fixtures cover hidden index flags, untracked source, byte changes, scope changes, symlinks, and expiry.
     Entry-point tests exposed discarded batch wrappers; a separate regression exposed lock-like task text.
     Both paths now preserve locking or deny the command.
+    Independent review found executable traversal through ignored symlinks. A real filesystem regression failed before exact launcher spelling blocked it.
   - **Check:** run `node scripts/check.mjs` and
     `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
     Refresh `SOURCE.sha256`; preserve `BASELINE.sha256`.

@@ -20,7 +20,8 @@ export function localScopeProblem(s) {
   if (typeof s.command !== "string" || !/^[a-zA-Z0-9_./:= -]+$/.test(s.command)) return "use one literal command without shell operations or quotes";
   const commands = splitCommands(s.command);
   const argv = commands[0]?.argv || [];
-  if (commands.length !== 1 || argv.join(" ") !== s.command || !argv[0]?.includes("/") || path.resolve(s.cwd, argv[0]) !== s.launcher) return "the command must use the exact explicit launcher pathname";
+  if (commands.length !== 1 || argv.join(" ") !== s.command ||
+      ![s.launcher, `./${path.relative(s.cwd, s.launcher)}`].includes(argv[0])) return "use the canonical absolute launcher or its exact ./project-relative pathname without traversal";
   const properties = argv.filter(a => a.startsWith("-PkitRepository="));
   if (properties.length !== 1 || properties[0] !== `-PkitRepository=${s.destination}`) return "name the exact local -PkitRepository destination";
   if (argv.slice(1).some(a => a.startsWith("-") && a !== properties[0] && !["--offline", "--no-daemon", "--console=plain", "--stacktrace"].includes(a))) return "alternate build inputs and unknown options are not supported";
