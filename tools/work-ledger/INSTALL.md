@@ -7,10 +7,9 @@ Preview validates reviewed inputs without changing the installation, configurati
 Installation replaces the extension directory only after an explicit confirmation.
 PR approval is not installation permission.
 
-**Installation readiness is blocked by a parent policy finding.**
-The Maven layer currently permits a protected ledger path through a symlink.
-This layer does not repair that policy finding or authorize installation.
-Use the package only after the parent correction receives separate review and verification.
+**Installation remains unauthorized.**
+The integrated parent correction addresses protected-path aliases and three confirmed owner-control defects.
+Verify the whole stack's checks and review before a separate owner installation decision.
 
 ## Safety boundary
 

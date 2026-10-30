@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { emptyLedger } from "./lib/store.mjs";
 import { decide, DEFAULT_CONFIG } from "./lib/policy.mjs";
@@ -118,6 +120,36 @@ test("empty Git -C preserves the action directory instead of selecting the home 
   f.pause("rebase");
   assert.ok((await f.call("git -C '' rebase topic", "/other")).deny);
   assert.equal((await f.call("git -C '' rebase topic", "/project")).deny, null);
+});
+
+test("quoted and escaped tilde paths cannot select a foreign repository's pause", async () => {
+  const f = fixture();
+  const homeProject = path.join(os.homedir(), "project");
+  f.deps.lookups.scopeRepo = async cwd => cwd === homeProject ? repo : "example/other";
+  f.pause("rebase");
+  f.pause("test-cache");
+  f.data.validations.push({ sha, tasks: "test", at: new Date(now).toISOString(), exit: 0, dirty: false });
+  for (const arg of ["'~/project'", '"~/project"', "\\~/project", "'~'/project"]) {
+    for (const command of [
+      `git -C ${arg} rebase topic`, `git -C${arg} rebase topic`,
+      `./gradlew -p ${arg} test`, `./gradlew --project-dir=${arg} test`,
+    ]) assert.ok((await f.call(command)).deny, command);
+  }
+});
+
+test("GitHub option values cannot supply the review pause repository", async () => {
+  const f = fixture();
+  f.pause("review-limit");
+  f.data.units[`${repo}#1`] = { repo, pr: 1, reviews: [{ sha }] };
+  for (const option of ["--title", "-t", "--body", "--body-file", "--add-label", "--milestone", "--attach"]) {
+    const command = `gh pr edit 1 --add-reviewer @copilot ${option} '--repo=${repo}'`;
+    assert.ok((await f.call(command)).deny, command);
+  }
+  assert.ok((await f.call(`gh pr edit 1 --add-reviewer @copilot --title '-R${repo}'`)).deny);
+  assert.ok((await f.call(`gh pr edit 1 --add-reviewer @copilot --title --repo ${repo}`)).deny);
+  assert.ok((await f.call(`gh pr edit 1 --add-reviewer @copilot -- --repo=${repo}`)).deny);
+  assert.equal((await f.call(`gh pr edit 1 --title '--repo=example/other' --add-reviewer @copilot -R ${repo}`)).deny, null);
+  assert.equal((await f.call(`gh pr edit 1 --attach '--repo=example/other' --add-reviewer @copilot -R ${repo}`)).deny, null);
 });
 
 test("an origin pause cannot bypass limits for gh's implicit selected repository", async () => {

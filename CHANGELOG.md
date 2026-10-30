@@ -20,8 +20,30 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
     Verify `PACKAGE.sha256` and `SOURCE.sha256`; preserve `BASELINE.sha256`.
     See `tools/work-ledger/INSTALL.md` for owner-only commands and lifecycle evidence limits.
-    Installation readiness remains blocked pending parent policy/control findings and their separate disposition.
+    The separate parent correction covers protected-path aliases and three confirmed owner-control defects.
+    Its integration does not grant installation permission.
     The live guard, configuration, ledger, and owner sessions remain unchanged.
+- **Resolve protected Maven paths before granting the local exception.**
+  - **What:** retain lexical overlap checks and compare canonical project and protected directory identities in both directions.
+    Explicitly deny protected-path resolution failures. Preserve normal ledger initialization and all other Maven checks.
+  - **Why:** PR #15's final automatic review found a protected ledger symlink targeting ignored project build data.
+    Real Git/filesystem regressions reproduced unsafe permissions for root aliases, ancestor aliases, enclosing roots, and broken paths.
+    Controls cover ledger and extension paths, lexical protection, project aliases, and valid nonoverlapping startup.
+    Independent review found case aliases on macOS; two failing regressions led to directory ancestry checks using filesystem identity.
+  - **Check:** run `node scripts/check.mjs` and
+    `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
+    Refresh `SOURCE.sha256`; preserve `BASELINE.sha256`.
+    This is one owner-approved correction cycle above #15, not installation or a live operational fix.
+- **Correct three confirmed owner-control defects in the same approved cycle.**
+  - **What:** retain enforcement for ambiguous tilde paths. Exclude PR option values from GitHub repository extraction.
+    Respect `--` boundaries. Preserve direct legacy restore commands with case and whitespace variants.
+  - **Why:** #14's final review found foreign pause selection through quoted tildes and title values.
+    It also found that new control routing rejected `guards ON` and `guard  on`.
+    Policy, classification, and disposable runtime regressions failed before these corrections.
+    Runtime checks preserve the rejection of agent, quoted, forwarded, and automatic messages.
+    Independent review found the missing attachment option; two failing regressions led to consuming `--attach` values as well.
+  - **Check:** use the same required suite and source-manifest checks as the Maven correction.
+    The owner explicitly added these three defects to this single correction cycle. No extra review budget or installation is authorized.
 - **Add descriptor-bound local Maven recovery in maintained source.**
   - **What:** reuse the confirmed repository/session controls for a narrow Maven pause.
     Bind the canonical project, full reviewed SHA, tracked launcher, literal command, and build-local destination.

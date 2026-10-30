@@ -24,6 +24,25 @@ function deployments(command) {
   return classify(command, { cwd }).findings.filter((f) => f.rule === "deploy");
 }
 
+test("GitHub repository extraction respects option values and the end-of-options marker", () => {
+  for (const command of [
+    "gh pr edit 1 --add-reviewer @copilot --title '--repo=example/other'",
+    "gh pr edit 1 --add-reviewer @copilot --body '-Rexample/other'",
+    "gh pr edit 1 --add-reviewer @copilot --attach '--repo=example/other'",
+    "gh pr edit 1 --add-reviewer @copilot -- --repo=example/other",
+  ]) {
+    const finding = classify(command, { cwd }).findings.find(f => f.rule === "review-request");
+    assert.ok(finding, command);
+    assert.equal(finding.repo, null, command);
+  }
+  for (const command of [
+    "gh pr edit 1 -- --add-reviewer @copilot -R example/other",
+    "gh pr edit 1 --title '--add-reviewer' @copilot",
+  ]) assert.equal(classify(command, { cwd }).findings.some(f => f.rule === "review-request"), false, command);
+  const merge = classify("gh pr merge 1 --subject '--repo=example/other'", { cwd }).findings.find(f => f.rule === "merge");
+  assert.equal(merge.repo, null);
+});
+
 async function decision(command, targets = []) {
   const data = emptyLedger();
   data.approvals = targets.map((target) => ({

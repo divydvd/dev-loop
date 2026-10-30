@@ -41,6 +41,14 @@ function under(p, dir) {
   const rel = path.relative(dir, p);
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
+function physicallyUnder(file, dir) {
+  const root = fs.statSync(dir, { bigint: true });
+  for (let current = file; ; current = path.dirname(current)) {
+    const entry = fs.statSync(current, { bigint: true });
+    if (entry.dev === root.dev && entry.ino === root.ino) return true;
+    if (path.dirname(current) === current) return false;
+  }
+}
 function argPath(arg, cwd) {
   let a = String(arg);
   const eq = a.match(/^--?[\w-]+=(.+)$/);
@@ -264,6 +272,15 @@ async function onMaven(ctx, res) {
     s.cwd === cwd && s.command === command && state.pauses.some(p => p.mavenScopeIds?.includes(localScopeId(s))));
   if (!scope) return fail("no confirmed descriptor matches the exact project, command, source, launcher, and local destination");
   if ((deps.protectedDirs || []).some(dir => under(scope.cwd, dir) || under(dir, scope.cwd))) return fail("the project overlaps protected guard source or data");
+  try {
+    const project = fs.realpathSync(scope.cwd);
+    for (const dir of deps.protectedDirs || []) {
+      const protectedDir = fs.realpathSync(dir);
+      if (physicallyUnder(project, protectedDir) || physicallyUnder(protectedDir, project)) return fail("the project overlaps protected guard source or data");
+    }
+  } catch (error) {
+    return fail(`protected path verification failed: ${error.message}`);
+  }
   const problem = await localSourceProblem(scope, deps.lookups);
   if (problem) return fail(problem);
   if (!deps.config.gradleLane || !deps.lockFile || !fs.existsSync(LOCKF)) return fail("the shared Gradle build lock is unavailable");

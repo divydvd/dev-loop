@@ -9,8 +9,9 @@
 - **Size estimate:** 320–390 production lines. Tests, documentation, and acceptance scripts are separate.
 - **Stop conditions:** Missing provenance, unsafe installation, three failed fixes, or unsupported real-host startup after distinct safe attempts.
 - **Base:** `divydvd-verified-local-maven-exception`, initially `2c1772af440456bf2cfb3dac9704e943e613da81` (#15).
-- **Updated base decision:** The package PR targets the canonical protected-path correction layer above #15.
-  The coordinator will provide its pushed branch and SHA. Do not select another base without that handoff.
+- **Updated base decision:** The package PR targets `divydvd-canonical-protected-maven-paths` above #15,
+  at `0aee657a4dfd46ede37d3e72a7b818db1c0ff485`.
+  The coordinator supplied this exact pushed parent. Do not select another base without an explicit decision.
 - **Risk:** Installer replacement of approval enforcement. The approved stack and explicit assignment authorize preparation, not installation.
 
 ## Abstract
@@ -61,7 +62,7 @@ The CLI pins the request or rollback receipt itself with SHA-256.
 **Consumes:** The installer and lifecycle evidence from task 1.
 **Produces:** An open PR against the selected parent and exact head evidence.
 
-- [ ] Incorporate relayed parent updates with a merge, never a rebase.
+- [x] Incorporate relayed parent updates with a merge, never a rebase.
 - [ ] Commit and run `node scripts/check.mjs`.
 - [ ] Run `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
 - [ ] Push once and open the stacked PR. Observe checks and automatic review.

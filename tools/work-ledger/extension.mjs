@@ -185,7 +185,7 @@ async function onUserMessage(e) {
   const d = e.data || {};
   if (e.id === firstUserId || d.source || d.isAutopilotContinuation) return;
   const control = directGuardText(e, firstUserId);
-  if (control && !/^guards? (on|off)$/.test(control)) {
+  if (control && !/^guards?\s+(on|off)$/i.test(control)) {
     const context = { owner: true, repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId(), messageId: e.id, legacyDisabled: ledger.isDisabled() };
     const result = ledger.update((data) => applyGuardCommand(data, parseGuardCommand(control), { ...context, config }));
     ledger.history({ type: "guard.control", ...context, command: control, result: result.text });

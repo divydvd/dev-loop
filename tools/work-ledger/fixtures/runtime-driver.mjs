@@ -65,6 +65,27 @@ if (process.env.TEST_RELOAD) {
   assert.match(await logged, /Guards are ON/);
   await pre("true");
   assert.equal(fs.existsSync(path.join(process.env.WORK_LEDGER_DIR, "DISABLED")), false);
+  const restoreCount = () => fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "history.jsonl"), "utf8")
+    .trim().split("\n").map(line => JSON.parse(line)).filter(e => e.type === "owner" && e.guards === "on").length;
+  for (const restore of ["guards ON", "guard  on", "GUARDS\tON"]) {
+    const before = restoreCount();
+    await send("guards off");
+    assert.equal(fs.existsSync(path.join(process.env.WORK_LEDGER_DIR, "DISABLED")), true);
+    for (const extra of [
+      { agentId: "agent" },
+      { data: { content: restore, source: "forwarded" } },
+      { data: { content: restore, isAutopilotContinuation: true } },
+    ]) await send(restore, extra);
+    for (const text of [`"${restore}"`, `> ${restore}`, `\`${restore}\``, `<cross_session_message>${restore}</cross_session_message>`]) await send(text);
+    assert.equal(fs.existsSync(path.join(process.env.WORK_LEDGER_DIR, "DISABLED")), true, "non-direct restore must not enable guards");
+    logged = nextLog();
+    await send(restore);
+    assert.match(await logged, /Guards are ON/);
+    await pre("true");
+    assert.equal(fs.existsSync(path.join(process.env.WORK_LEDGER_DIR, "DISABLED")), false, restore);
+    assert.equal(restoreCount(), before + 1, "only the direct restore may change global guard state");
+    assert.match(logs.at(-1), /rebase: paused/, "legacy restore must preserve scoped pauses");
+  }
   const history = fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "history.jsonl"), "utf8");
   assert.match(history, /guard.control/);
   assert.match(history, /enforcement paused/);
