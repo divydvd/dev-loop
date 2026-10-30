@@ -9,13 +9,13 @@ import json
 import os
 from pathlib import Path
 import pty
-import re
 import select
 import shutil
 import signal
 import socket
 import struct
 import subprocess
+import sys
 import tarfile
 import termios
 import threading
@@ -81,7 +81,7 @@ PROVIDER_REQUESTS = []
 
 class RejectInference(http.server.BaseHTTPRequestHandler):
     def reject(self):
-        PROVIDER_REQUESTS.append({"method": self.command, "path": self.path})
+        PROVIDER_REQUESTS.append({"method": self.command})
         self.send_response(503)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -172,8 +172,8 @@ try {
   emit({ type: "record", sessionId: session.sessionId, result });
   const after = await session.rpc.tools.execute({ name: "work_ledger_get", arguments: { repo: "example/acceptance", pr: 1 } });
   emit({ type: "complete", sessionId: session.sessionId, result: after });
-} catch (error) {
-  emit({ type: "error", message: String(error), stack: error.stack });
+} catch {
+  emit({ type: "error", errorType: "Error" });
 }
 ''')
 HASHES = {str(p.relative_to(SOURCE)): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -209,6 +209,105 @@ def sanitize(value):
                                   (str(OUTPUT), "<ARTIFACTS>"), (str(Path.home()), "<USER>")):
         value = value.replace(original, replacement)
     return value
+
+
+def failure_info(error, step):
+    allowed = (Exception, OSError, FileNotFoundError, PermissionError, IsADirectoryError,
+               NotADirectoryError, ProcessLookupError, TimeoutError, RuntimeError,
+               ValueError, TypeError, KeyError, subprocess.CalledProcessError, subprocess.TimeoutExpired)
+    if step not in ("interactive", "acceptance", "provider-shutdown", "process-cleanup",
+                    "disposable-cleanup", "report-write", "host-shutdown"):
+        raise ValueError("Invalid acceptance failure step.")
+    kind = type(error)
+    result = {"step": step, "type": kind.__name__ if kind in allowed else "Exception"}
+    if isinstance(error, OSError) and type(error.errno) is int:
+        result["errno"] = error.errno
+    if isinstance(error, subprocess.CalledProcessError) and type(error.returncode) is int:
+        result["returncode"] = error.returncode
+    return result
+
+
+def retained_evidence(result):
+    failures = [result[key] for key in ("error", "provider_error", "cleanup_error") if key in result]
+    failures.extend(result.get("cleanup_errors", []))
+    failures.extend(run["error"] for run in result.get("interactive_runs", []) if "error" in run)
+    if result.get("passed") is not True or failures:
+        report = {key: result[key] for key in ("repo_head", "layout", "directory_retained_for_survivors") if key in result}
+        report.update({"passed": False, "checks": dict(result.get("checks", {})), "failures": failures})
+        if failures:
+            report["checks"]["no_recorded_failure"] = False
+        return report
+    fields = ("source_sha256", "environment", "layout", "fixture_installation", "repo_head",
+              "native_cli_sha256", "version", "commands", "limits", "checks", "passed",
+              "synthetic_note_counts", "directory_retained_for_survivors", "error",
+              "provider_error", "cleanup_error", "cleanup_errors")
+    report = {key: result[key] for key in fields if key in result}
+    report["provider_requests"] = [
+        {"method": request["method"]} for request in result.get("provider_requests", [])]
+    report["observer_events"] = []
+    for event in result.get("observer_events", []):
+        entry = {key: event[key] for key in ("type", "pid", "ppid", "code", "errorType") if key in event}
+        if event["type"] == "metadata":
+            entry["tool_names"] = [tool["name"] for tool in event["metadata"]["tools"]
+                                   if tool["name"] in ("work_ledger_get", "work_ledger_record")]
+        report["observer_events"].append(entry)
+    report["interactive_runs"] = []
+    for run in result.get("interactive_runs", []):
+        record = {key: run[key] for key in
+                  ("pid", "input", "shutdown", "exit_status", "survivors_after_exit", "error") if key in run}
+        record["snapshots"] = []
+        for snapshot in run.get("snapshots", []):
+            entry = {key: snapshot[key] for key in
+                     ("stage", "observer_pid", "maintained_pid",
+                      "previous_maintained_stopped", "previous_observer_stopped") if key in snapshot}
+            entry["processes"] = [{"pid": process["pid"]} for process in snapshot.get("processes", [])]
+            record["snapshots"].append(entry)
+        report["interactive_runs"].append(record)
+    return sanitize(report)
+
+
+def write_report():
+    result_file = OUTPUT / f"real-host-{ARGS.layout}.json"
+    try:
+        result_file.write_text(json.dumps(retained_evidence(RESULT), indent=2) + "\n")
+    except Exception as error:
+        print(json.dumps({"passed": False, "checks": {"report_written": False},
+                          "error": failure_info(error, "report-write")}), file=sys.stderr)
+        raise SystemExit(1) from None
+
+
+def finish_report():
+    try:
+        PROVIDER.shutdown()
+        PROVIDER.server_close()
+    except Exception as error:
+        RESULT["passed"] = False
+        RESULT.setdefault("checks", {})["provider_shutdown"] = False
+        RESULT["provider_error"] = failure_info(error, "provider-shutdown")
+    survivors, uncertain = [], False
+    for run in RESULT["interactive_runs"]:
+        try:
+            stop_owned(run["pid"], run["_owned"])
+            survivors.extend(owned_processes(run["pid"], run["_owned"]))
+        except Exception as error:
+            RESULT["passed"] = False
+            RESULT.setdefault("checks", {})["cleanup_completed"] = False
+            RESULT["cleanup_error"] = failure_info(error, "process-cleanup")
+            RESULT.setdefault("cleanup_errors", []).append(RESULT["cleanup_error"])
+            uncertain = True
+    RESULT["directory_retained_for_survivors"] = bool(survivors) or uncertain
+    if not RESULT["directory_retained_for_survivors"]:
+        try:
+            for directory, _, _ in os.walk(ROOT):
+                folder = Path(directory)
+                folder.chmod(folder.stat().st_mode | 0o700)
+            shutil.rmtree(ROOT)
+        except Exception as error:
+            RESULT["passed"] = False
+            RESULT.setdefault("checks", {})["cleanup_completed"] = False
+            RESULT["cleanup_error"] = failure_info(error, "disposable-cleanup")
+            RESULT.setdefault("cleanup_errors", []).append(RESULT["cleanup_error"])
+    write_report()
 
 
 def observer_events():
@@ -324,7 +423,7 @@ def interactive(replace):
             events = observer_events()
             errors = [event for event in events if event["type"] == "error"]
             if errors:
-                raise RuntimeError(f"observer error: {errors}")
+                raise RuntimeError("Acceptance observer failed.")
             if sum(event["type"] == "complete" for event in events) >= target:
                 return
         raise TimeoutError("real extension did not finish its no-inference tool checks")
@@ -353,7 +452,7 @@ def interactive(replace):
             ready(base + 2)
             snapshot("replaced")
     except Exception as error:
-        run["error"] = str(error)
+        run["error"] = failure_info(error, "interactive")
     finally:
         try:
             send(b"/exit\r")
@@ -375,12 +474,12 @@ def interactive(replace):
         run["transcript"] = transcript.decode(errors="replace")
         run["survivors_after_exit"] = owned_processes(child, run["_owned"])
         if run["survivors_after_exit"]:
-            run.setdefault("error", "Owned extension children outlived the CLI.")
+            run.setdefault("error", failure_info(RuntimeError(), "host-shutdown"))
             stop_owned(child, run["_owned"])
         if owned_processes(child, run["_owned"]):
             raise RuntimeError("Owned acceptance children remain; do not restart or remove their directory.")
     if "error" in run:
-        raise RuntimeError(run["error"])
+        raise RuntimeError("Interactive lifecycle failed.")
 
 
 try:
@@ -392,11 +491,6 @@ try:
     history_file = ROOT / "ledger/history.jsonl"
     RESULT["ledger_history"] = history_file.read_text() if history_file.exists() else ""
     RESULT["observer_events"] = observer_events()
-    RESULT["host_extension_log"] = [
-        line for log in (ROOT / "logs").glob("*.log")
-        for line in log.read_text(errors="replace").splitlines()
-        if re.search(r"extension|work_ledger|foreground", line, re.I)
-    ]
     history = [json.loads(line) for line in RESULT["ledger_history"].splitlines()]
     completions = [event for event in RESULT["observer_events"] if event["type"] == "complete"]
     before_calls = [event for event in RESULT["observer_events"] if event["type"] == "get-before"]
@@ -438,35 +532,13 @@ try:
     RESULT["provider_requests"] = PROVIDER_REQUESTS
     RESULT["passed"] = all(RESULT["checks"].values())
     RESULT["synthetic_note_counts"] = {"before_restart": len(old_notes), "after_restart": len(new_notes)}
-    print(json.dumps({"layout": ARGS.layout, "checks": RESULT["checks"], "passed": RESULT["passed"]}, indent=2))
 except Exception as error:
     RESULT["passed"] = False
-    RESULT["error"] = str(error)
+    RESULT.setdefault("checks", {})["acceptance_completed"] = False
+    RESULT["error"] = failure_info(error, "acceptance")
 finally:
-    PROVIDER.shutdown()
-    PROVIDER.server_close()
-    survivors = []
-    for run in RESULT["interactive_runs"]:
-        try:
-            stop_owned(run["pid"], run["_owned"])
-        except Exception as error:
-            RESULT["passed"] = False
-            RESULT["cleanup_error"] = str(error)
-        survivors.extend(owned_processes(run["pid"], run.pop("_owned")))
-        run.pop("transcript", None)
-    for field in ("ledger_before_restart", "ledger_after_restart", "ledger_history"):
-        RESULT.pop(field, None)
-    RESULT["observer_events"] = [
-        {key: value for key, value in event.items() if key != "result"}
-        for event in RESULT.get("observer_events", observer_events())
-    ]
-    RESULT["directory_retained_for_survivors"] = bool(survivors)
-    result_file = OUTPUT / f"real-host-{ARGS.layout}.json"
-    result_file.write_text(json.dumps(sanitize(RESULT), indent=2) + "\n")
-    if not survivors:
-        for directory, _, _ in os.walk(ROOT):
-            folder = Path(directory)
-            folder.chmod(folder.stat().st_mode | 0o700)
-        shutil.rmtree(ROOT)
+    finish_report()
+print(json.dumps({"layout": ARGS.layout, "checks": RESULT.get("checks", {}),
+                  "passed": RESULT["passed"]}, indent=2))
 if not RESULT.get("passed"):
     raise SystemExit(1)

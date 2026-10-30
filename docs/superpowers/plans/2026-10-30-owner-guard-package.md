@@ -130,6 +130,19 @@ Current ASCII-path artifacts show no observed leak, but synthetic Unicode paths 
 - **Size estimate:** No production runtime change; the fixture gains five lines.
 - **Stop conditions:** Report new confirmed findings after this bounded correction without another source push.
 
+## Authorized follow-up: safe failure diagnostics
+
+The owner selected "Approve the bounded safe-diagnostics correction (Recommended)" after review `5712876818`.
+The coordinator requires one audit of all retained failure paths, not more escape-pattern replacements.
+
+- **Goal:** Keep failures explicit without retaining arbitrary formatted diagnostics.
+- **Done when:** Failure reports allow only fixed steps, permitted exception types, numeric codes, and existing check results.
+- **Done when:** No exception text, arbitrary attributes, subprocess output, transcripts, or host logs enter retained failure reports.
+- **Done when:** Successful native host evidence, zero-request checks, and verified cleanup remain intact.
+- **Required evidence:** Real exception/timeout cases, observer/cleanup/reporting failures, independent review, package integrity, complete suites, and actual hosts.
+- **Size estimate:** No production runtime change; only the acceptance fixture, tests, and directly related documentation change.
+- **Stop conditions:** Report new confirmed findings after this bounded correction without another source push.
+
 ## Conclusion
 This layer prepares an installation package, not an installed correction.
 The owner must separately review private pins, stop affected hosts, install, and verify a fresh host.

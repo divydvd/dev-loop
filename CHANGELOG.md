@@ -42,6 +42,12 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Redaction now processes structured strings before serialization.
     Regressions cover Unicode, quotes, backslashes, newlines, nested keys/values, and unchanged input evidence.
     Retained reports also omit environment values, including unrelated private path prefixes in `PATH`.
+    A later review reproduced private filenames already escaped by exception formatting.
+    The owner approved a bounded safe-diagnostics correction.
+    Failure reports now retain only fixed steps, allowed exception types, numeric codes, and failed checks.
+    Successful evidence excludes raw host logs, process command lines, and arbitrary SDK diagnostic fields.
+    Real exception, subprocess, timeout, observer, cleanup, and report-write regressions cover the retained boundaries.
+    Cleanup and reporting faults remain explicit failures; uncertain process cleanup preserves disposable state.
     Read-only source review and PR approval do not grant installation permission.
   - **Check:** run `node scripts/check.mjs` and
     `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.

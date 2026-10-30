@@ -305,6 +305,12 @@ Its sanitized JSON evidence records the exact source SHA, code hashes, commands,
 It excludes ledger contents and raw tool results, including the synthetic records used for the persistence assertions.
 Private paths are redacted from structured keys and values before JSON escaping, including Unicode, quotes, and backslashes.
 The retained report lists environment keys, not values; unrelated private paths in `PATH` cannot enter that field.
+Failure reports contain fixed step identifiers, allowed exception types, numeric error codes, and failed checks.
+They do not retain formatted exceptions, stack traces, subprocess output, transcripts, or host log text.
+Successful reports retain controlled commands, numeric process identities, and offered tool names, not raw process command lines or SDK metadata.
+Cleanup failures make the report fail. Uncertain process cleanup preserves the disposable directory.
+Report-write failures emit safe metadata and exit with failure, without printing the original exception.
+Do not share a disposable directory preserved after uncertain cleanup; it can contain raw local diagnostics.
 
 The exact foreground host options were:
 
