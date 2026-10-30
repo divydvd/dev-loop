@@ -225,6 +225,13 @@ export async function prepareInstallation(request, options = {}) {
     fs.chmodSync(work, 0o700);
     const staged = path.join(work, "staged"), backup = path.join(work, "original");
     fs.cpSync(request.installed, staged, { recursive: true, preserveTimestamps: true });
+    const copied = installationSnapshot(staged);
+    // Node 22 can omit nested directory modes. Verify bytes and types before restoring those modes.
+    const content = entries => entries.map(entry => entry[1] === "directory" ? entry.slice(0, 2) : entry);
+    if (identity(content(copied.entries)) !== identity(content(before.entries))) fail("Copied installation changed during staging.");
+    for (const [file, type, mode] of before.entries) {
+      if (type === "directory") fs.chmodSync(path.join(staged, file), mode);
+    }
     unchanged(staged, before.hash);
     writeRelease(staged, files);
     if (config) fs.writeFileSync(path.join(staged, "config.json"), config, { mode: 0o600 });

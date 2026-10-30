@@ -437,3 +437,30 @@ test("external configuration drift before replacement leaves the installation un
   await assert.rejects(f.run(), /configuration.*changed|configuration.*hash/i);
   assert.equal(f.installationSnapshot(f.installed).hash, f.request.installedHash);
 });
+
+test("preserves directory modes when the Node copy operation omits them", async t => {
+  const f = await fixture(t);
+  const copy = fs.cpSync;
+  t.mock.method(fs, "cpSync", (from, to, ...args) => {
+    copy(from, to, ...args);
+    if (from === f.installed) fs.chmodSync(path.join(to, "owner-notes"), 0o755);
+  });
+  const result = await f.run();
+  assert.equal(fs.statSync(path.join(f.installed, "owner-notes")).mode & 0o777, 0o700);
+  assert.equal(f.installationSnapshot(result.receipt.backup).hash, f.request.installedHash);
+});
+
+test("directory mode preservation cannot follow an injected staged symlink", async t => {
+  const f = await fixture(t);
+  const outside = path.join(f.root, "outside"), copy = fs.cpSync;
+  fs.mkdirSync(outside, { mode: 0o755 });
+  t.mock.method(fs, "cpSync", (from, to, ...args) => {
+    copy(from, to, ...args);
+    if (from === f.installed) {
+      fs.rmSync(path.join(to, "owner-notes"), { recursive: true });
+      fs.symlinkSync(outside, path.join(to, "owner-notes"));
+    }
+  });
+  await assert.rejects(f.run(), /symlink/i);
+  assert.equal(fs.statSync(outside).mode & 0o777, 0o755);
+});

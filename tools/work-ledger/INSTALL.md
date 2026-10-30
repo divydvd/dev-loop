@@ -13,7 +13,7 @@ Verify the whole stack's checks and review before a separate owner installation 
 
 ## Safety boundary
 
-The transaction tests run on macOS with Node.js 26.12.1.
+The transaction tests run on macOS with Node.js 26.12.1 and 22.23.4.
 The installer requires POSIX ownership and permission modes; Windows is not a supported installation target.
 Do not install while an affected extension host runs.
 An extension host is the CLI process that loads an extension and its SDK child process.
@@ -185,6 +185,7 @@ The confirmation binds the exact request bytes, package manifest pin, installed 
 The installer stages the whole extension directory before overlaying the reviewed runtime.
 It writes a private receipt before replacement.
 It rechecks the full tree and code hashes before the final renames.
+For older Node copy behavior, it verifies copied bytes and types before restoring pinned directory permission modes.
 It also rechecks the incoming tree after moving the outgoing installation.
 The original directory moves intact to the transaction's `original` directory.
 No backup or stage is placed in an extension discovery directory.

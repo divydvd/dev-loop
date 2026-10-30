@@ -12,6 +12,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Isolated transaction tests cover complete backup/restore, code validation before imports, scope pins, CLI confirmation, and failures.
     Independent review exposed external-scope shadowing, incoming rollback drift, discoverable temporary staging, and symlinked ledger paths.
     Eight failing regressions now cover the corrections.
+    CI exposed Node 22 dropping nested directory modes during recursive copy.
+    A local Node 22 reproduction confirmed the mismatch.
+    Staging now validates copied bytes and types before restoring pinned directory modes and rechecking the complete tree.
     Actual CLI/SDK tests pass fourteen assertions in both user and project discovery layouts, with zero model requests.
     Each layout starts from a real pinned installer transaction in disposable state.
     They verify native tools/hooks, child replacement, exit, restart, and persisted synthetic notes; they do not prove desktop reload.
