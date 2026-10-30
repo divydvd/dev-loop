@@ -6,7 +6,8 @@ This directory preserves the owner's work-ledger SDK extension in maintained sou
 The source now corrects Maven and Firebase publication classification.
 It also adds partial, confirmed owner controls with temporary repository or session scope.
 Verified local Maven recovery uses the same controls and owner-maintained scope descriptors.
-It is not an installation package and does not change the live guard.
+The [owner package](INSTALL.md) adds pinned preview, installation, backup, and rollback.
+Source preparation does not change the live guard.
 
 ## Boundary
 
@@ -34,7 +35,7 @@ Do not update the baseline manifest to hide an implementation change.
 
 The original import retains the defects in [issue #11](https://github.com/divydvd/dev-loop/issues/11).
 The maintained source corrects the classification defects described below.
-The controls below are a partial layer, not completion of the owner's per-guard request.
+The controls below implement the approved subset of individual pauses.
 The existing global owner commands remain separate.
 
 ## Publication classification
@@ -131,7 +132,7 @@ The existing directory lock and atomic rename provide shared persistence; this l
 
 Merge approval, deployment/configuration approval, source protection, and the shared Gradle build lock are **not configurable here**.
 Requests for these names return an explicit error. Unverified Maven remains blocked even during a Maven pause.
-Merge and deployment controls remain an outstanding scope decision, not a permanent exclusion.
+The owner explicitly chose to keep merge and real deployment approval mandatory.
 The Maven name does not provide a blanket exception.
 Play or Firebase approvals still cannot authorize Maven.
 Every recognized finding in a compound command retains its own check.
@@ -219,7 +220,8 @@ Do not put unreviewed build logic in ignored paths.
 The shared lock serializes cooperating builds, not file edits.
 Concurrent source edits after verification, including edits while waiting for the lock, remain a time-of-check risk.
 Use a controlled checkout without concurrent writers for publication.
-Real SDK startup/reload acceptance, owner installation, and additional merge/deployment controls remain separate work.
+Actual host lifecycle evidence and owner-only installation steps appear in [the installation guide](INSTALL.md).
+Merge and real deployment approval remain mandatory.
 
 ## Checks
 
@@ -249,21 +251,21 @@ For a corrected release, check `SOURCE.sha256` instead.
 
 ## Installation boundary
 
-This maintained source has no supported installation command.
-Do not replace an active extension with this directory.
-The loader tests establish startup and reload contracts, not actual SDK host acceptance.
-The next layer must verify a real disposable host and its restart procedure.
+Use the [owner installation guide](INSTALL.md), not a direct copy over an active extension.
+`owner-install.mjs` previews by default.
+Actual installation needs a pinned request, exact confirmation, and an owner attestation that affected hosts stopped.
+The package preserves the whole extension directory and provides a pinned rollback receipt.
+Unknown installed runtime changes and any unreviewed drift cause failure.
+Optional descriptor additions have their own integrity pin and never replace existing scopes.
 
-An isolated host check must use a disposable home and a disposable `WORK_LEDGER_DIR`.
-The check must not load a second host against the live ledger.
-Keep configuration fixtures synthetic.
-Document the tested SDK host version and startup command when that procedure is verified.
-
-The later owner package must preserve configuration and provide backup and rollback.
+`SOURCE.sha256` pins runtime bytes. `PACKAGE.sha256` also pins the installer and owner guides.
+Keep the reviewed manifest hashes independently from the files they describe.
+The installer never edits external ledger data, approvals, or active pause records.
 An owner installation remains separate from source review and PR approval.
+Fixture transport tests do not establish actual SDK-host or desktop reload acceptance.
 
 ## Conclusion
 
-Review this controls layer separately from the preserved baseline and classification correction.
-Verified local Maven recovery, remaining per-guard controls, an owner installer, and real SDK host acceptance remain outstanding.
-The checks cover maintained source only; the original publication remains blocked and the live guard is unchanged.
+Review the installation layer separately from classification and descriptor-bound Maven recovery.
+The owner must authorize installation and verify fresh affected hosts before claiming a live correction.
+Merge and genuine deployment approval, source protection, and the shared build lock remain active.

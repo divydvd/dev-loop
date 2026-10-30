@@ -3,6 +3,19 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## Unreleased tooling (2026-10-30)
+- **Prepare a pinned owner installation package.**
+  - **What:** preview by default; bind source, whole installed tree, and optional descriptor additions to reviewed integrity pins.
+    Preserve unrelated configuration and files. Reject unsupported source, symlinks, conflicting scopes, and concurrent drift.
+    Stage privately outside discovery. Preserve the original and provide pinned rollback with rename-failure recovery.
+    Keep merge and real deployment approval mandatory, as the owner explicitly chose.
+  - **Why:** the approved guard stack needs an owner-controlled installation layer, not an unauthorized live edit.
+    Isolated transaction tests cover complete backup/restore, code validation before imports, scope pins, CLI confirmation, and failures.
+    Read-only source review and PR approval do not grant installation permission.
+  - **Check:** run `node scripts/check.mjs` and
+    `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
+    Verify `PACKAGE.sha256` and `SOURCE.sha256`; preserve `BASELINE.sha256`.
+    See `tools/work-ledger/INSTALL.md` for owner-only commands and lifecycle evidence limits.
+    The live guard, configuration, ledger, and owner sessions remain unchanged.
 - **Add descriptor-bound local Maven recovery in maintained source.**
   - **What:** reuse the confirmed repository/session controls for a narrow Maven pause.
     Bind the canonical project, full reviewed SHA, tracked launcher, literal command, and build-local destination.
