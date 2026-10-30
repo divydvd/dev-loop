@@ -182,7 +182,7 @@ FLAGS = ["--no-auto-update", "--no-custom-instructions", "--disable-builtin-mcps
          "--no-remote", "--no-remote-export", "--disable-client-telemetry", "--experimental",
          "--log-level", "debug", "--log-dir", str(ROOT / "logs"), "-C", str(WORKSPACE)]
 RESULT = {
-    "source_sha256": HASHES, "environment": ENV, "layout": ARGS.layout,
+    "source_sha256": HASHES, "environment": {key: "<SET>" for key in ENV}, "layout": ARGS.layout,
     "fixture_installation": INSTALL_RESULT,
     "repo_head": subprocess.check_output(
         ["/usr/bin/git", "rev-parse", "HEAD"], cwd=SOURCE.parent.parent, env=ENV, text=True).strip(),
@@ -199,11 +199,16 @@ RESULT = {
 
 
 def sanitize(value):
-    text = json.dumps(value)
+    if isinstance(value, dict):
+        return {sanitize(key): sanitize(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [sanitize(item) for item in value]
+    if not isinstance(value, str):
+        return value
     for original, replacement in ((str(ROOT), "<DISPOSABLE>"), (str(SOURCE.parent.parent), "<REPO>"),
                                   (str(OUTPUT), "<ARTIFACTS>"), (str(Path.home()), "<USER>")):
-        text = text.replace(original, replacement)
-    return json.loads(text)
+        value = value.replace(original, replacement)
+    return value
 
 
 def observer_events():

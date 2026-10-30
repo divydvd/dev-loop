@@ -37,6 +37,11 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Actual CLI/SDK tests check both user and project discovery layouts, with zero model requests.
     Each layout starts from a real pinned installer transaction in disposable state.
     They verify native tools/hooks, child replacement, exit, restart, and persisted synthetic notes; they do not prove desktop reload.
+    Final review found that JSON escaping could prevent private path redaction in retained evidence.
+    The owner approved a bounded evidence correction.
+    Redaction now processes structured strings before serialization.
+    Regressions cover Unicode, quotes, backslashes, newlines, nested keys/values, and unchanged input evidence.
+    Retained reports also omit environment values, including unrelated private path prefixes in `PATH`.
     Read-only source review and PR approval do not grant installation permission.
   - **Check:** run `node scripts/check.mjs` and
     `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.

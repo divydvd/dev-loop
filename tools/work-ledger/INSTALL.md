@@ -284,7 +284,7 @@ Offline mode disables GitHub services under the CLI contract.
 A loopback model endpoint rejects requests; both tested layouts recorded zero provider requests.
 This is not packet-level proof for every network destination.
 
-Both layouts passed fifteen assertions.
+Both layouts passed sixteen assertions.
 The owner installer first applies its pinned transaction to each disposable extension directory.
 The disposable configuration and runtime files are read-only.
 The nested runtime directory is also read-only.
@@ -301,8 +301,10 @@ It stops remaining owned children and verifies shutdown before another host or d
 An error stops the acceptance run and leaves a sanitized failed result.
 If cleanup cannot verify shutdown, it preserves the disposable directory.
 The script verifies source and copied runtime hashes after each run.
-Its sanitized JSON evidence records the exact source SHA, code hashes, commands, process identities, and fifteen assertion results.
+Its sanitized JSON evidence records the exact source SHA, code hashes, commands, process identities, and sixteen assertion results.
 It excludes ledger contents and raw tool results, including the synthetic records used for the persistence assertions.
+Private paths are redacted from structured keys and values before JSON escaping, including Unicode, quotes, and backslashes.
+The retained report lists environment keys, not values; unrelated private paths in `PATH` cannot enter that field.
 
 The exact foreground host options were:
 

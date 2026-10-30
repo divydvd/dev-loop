@@ -119,6 +119,17 @@ This decision authorizes one bounded correction push, not installation or active
 - **Size estimate:** Fewer than 360 production lines. No parent runtime change.
 - **Stop conditions:** Report a new confirmed final finding without another source push.
 
+## Authorized follow-up: structured evidence redaction
+
+The owner selected "Approve the bounded evidence-redaction correction (Recommended)" after review `5712733500`.
+Current ASCII-path artifacts show no observed leak, but synthetic Unicode paths reproduce the privacy fault.
+
+- **Goal:** Redact private paths before JSON escaping can change their byte representation.
+- **Done when:** Structured keys and values redact Unicode, quotes, backslashes, and newlines without changing ordinary content or input evidence.
+- **Required evidence:** Failing-then-passing regressions, independent review, package integrity, both complete Node suites, and both actual hosts.
+- **Size estimate:** No production runtime change; the fixture gains five lines.
+- **Stop conditions:** Report new confirmed findings after this bounded correction without another source push.
+
 ## Conclusion
 This layer prepares an installation package, not an installed correction.
 The owner must separately review private pins, stop affected hosts, install, and verify a fresh host.
