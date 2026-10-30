@@ -3,6 +3,18 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## Unreleased tooling (2026-10-30)
+- **Correct publication classification in maintained source.**
+  - **What:** classify generated Maven publication tasks as Maven and App Distribution uploads as Firebase.
+    Preserve Play approval, configuration checks, and the shared Gradle lane.
+    Keep Maven publication blocked until its build source and destination are verified.
+    Do not trust `KitTest` or `MavenLocal` names as proof of local-only execution.
+  - **Why:** issue #11 records Maven tasks and Firebase uploads incorrectly requesting Play Store approval.
+    Fifteen narrow regressions failed against the baseline; all 18 classification checks pass after the correction.
+  - **Check:** run `node scripts/check.mjs` and
+    `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
+    Verify current source with `SOURCE.sha256`; preserve `BASELINE.sha256`.
+    Next weekly review: confirm scoped source/destination verification before any local Maven exception.
+    Controls and owner installation remain separate. The live guard is unchanged.
 - **Preserve the work-ledger baseline.**
   - **What:** maintain the separate SDK extension under `tools/work-ledger/`, with provenance hashes, helper tests, and CI coverage.
     All nine implementation files are unchanged. No plugin runtime behavior or live installation changes.

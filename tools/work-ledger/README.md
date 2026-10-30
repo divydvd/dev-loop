@@ -3,7 +3,8 @@
 ## Abstract
 
 This directory preserves the owner's work-ledger SDK extension in maintained source.
-This first revision is an unchanged baseline, not a corrected release or an installation package.
+The source now corrects Maven and Firebase publication classification.
+It is not an installation package and does not change the live guard.
 
 ## Boundary
 
@@ -29,9 +30,30 @@ These defaults are preserved, not recommended for other owners.
 Update the release manifest when an implementation file changes.
 Do not update the baseline manifest to hide an implementation change.
 
-The import intentionally retains the defects in [issue #11](https://github.com/divydvd/dev-loop/issues/11).
-It does not add individual switches or correct Maven classification.
+The original import retains the defects in [issue #11](https://github.com/divydvd/dev-loop/issues/11).
+The maintained source corrects the classification defects described below.
+It does not add individual switches.
 The existing global owner commands are unchanged.
+
+## Publication classification
+
+Generated `publish<Publication>PublicationToMavenLocal`, `publish<Publication>PublicationTo<Destination>Repository`,
+and `publishAllPublicationsTo<Destination>Repository` tasks have the `maven` target.
+The aggregate `publishToMavenLocal` task also has that target.
+These tasks no longer request Play Store approval.
+
+Maven publication remains blocked until the build source and destination are verified.
+This includes `KitTestRepository` and tasks named `MavenLocal`.
+A task name is not a sandbox and does not prove that the build executes only local actions.
+No destination is trusted because its name contains `Local` or `KitTest`.
+Existing deployment approvals cannot bypass this block.
+The later controls layer must establish a scoped, verified exception for the original local repository publication.
+
+`appDistributionUploadDebug` and other `appDistributionUpload` variants require Firebase approval, not Play approval.
+Play tasks such as `publishReleaseBundle` still require Play approval.
+Other publish and promote names retain the conservative Play check.
+Mixed commands retain separate findings for each recognized target.
+The shared Gradle lane, configuration checks, and genuine deployment checks remain active.
 
 ## Checks
 
@@ -71,5 +93,5 @@ An owner installation remains separate from source review and PR approval.
 
 ## Conclusion
 
-Review this baseline as an unchanged source import with helper checks.
-Do not treat its passing checks as evidence that the reported guard defects are fixed.
+Review the classification change separately from the preserved baseline and the later controls layer.
+The checks cover maintained source only; they do not prove an operational correction in the live guard.

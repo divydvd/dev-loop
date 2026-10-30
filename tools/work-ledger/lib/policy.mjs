@@ -221,6 +221,9 @@ function deployAllowed(data, now, target) {
 
 function onDeploy(target, detail, ctx, res) {
   const { deps, sessionId } = ctx;
+  if (target === "maven") {
+    return deny(res, `Maven publication (${detail}) is blocked: the build source and publication destination are not verified. A task name does not prove local-only execution. Play or Firebase approval does not authorize Maven publication.`);
+  }
   const ok = deployAllowed(deps.data, deps.now, target);
   if (!ok) {
     const say = { play: "push the build on playstore", firebase: "deploy firebase", config: "update the config", crowdin: "upload to crowdin", "github-release": "publish the github release", environment: "deploy firebase", billing: "publish the billing catalog" }[target] || "deploy it";
