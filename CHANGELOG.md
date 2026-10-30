@@ -3,6 +3,20 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## Unreleased tooling (2026-10-30)
+- **Add descriptor-bound local Maven recovery in maintained source.**
+  - **What:** reuse the confirmed repository/session controls for a narrow Maven pause.
+    Bind the canonical project, full reviewed SHA, tracked launcher, literal command, and build-local destination.
+    Reject unverified publication. Preserve real deployment checks, source protection, and the shared build lock.
+  - **Why:** the owner requested a bounded recovery path after the Maven false positive in issue #11.
+    New tests failed because Maven had no configurable recovery path.
+    Real Git fixtures cover hidden index flags, untracked source, byte changes, scope changes, symlinks, and expiry.
+    Entry-point tests exposed discarded batch wrappers; a separate regression exposed lock-like task text.
+    Both paths now preserve locking or deny the command.
+  - **Check:** run `node scripts/check.mjs` and
+    `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
+    Refresh `SOURCE.sha256`; preserve `BASELINE.sha256`.
+    The next layer must package owner installation and verify a disposable real SDK host.
+    Reviewed Gradle code is trusted, not sandboxed. The live guard remains unchanged.
 - **Add partial scoped owner controls in maintained source.**
   - **What:** preview and separately confirm temporary pauses for six independent checks.
     Preserve repository-bound session scope, 30-minute defaults, absolute expiry, status, and shared audit records.

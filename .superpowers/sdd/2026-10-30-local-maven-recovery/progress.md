@@ -1,0 +1,22 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-10-30-local-maven-recovery.md
+
+- Approval: owner approved the parent plan and directed this bounded implementation.
+- Base: 6b012f61b71ad29bdc9a4e3946914c6bfcccf8fa; selected parent PR #14.
+- Pre-flight: controls produce scoped pause records; policy consumes those records. Maven additionally requires descriptor fingerprints.
+- Ruling: reuse `guard maven off/on` with existing confirmation. Bind configured descriptor identities into the preview and pause.
+- Ruling: permit literal commands only. Reject shell wrappers, compound commands, alternate project selectors, and extra build inputs.
+- Ruling: source verification does not sandbox reviewed Gradle code. Document ignored, global, external, and concurrent inputs explicitly.
+- Task 1: tests written before production changes. No real Gradle, deployment, phone, or live ledger operations.
+- RED: initial Maven tests rejected the unsupported control name.
+- GREEN: 63 focused classification, control, Maven, and transport-contract checks passed.
+- Ruling: reject projects that overlap protected guard paths; a direct publication regression failed before this check.
+- Ruling: require the actual lock wrapper even when literal task text resembles one; the regression failed before the fix.
+- Ruling: deny verified Maven in batched host calls because the existing entry point discards individual wrappers. The transport regression failed first.
+- Source verification hashes tracked bytes rather than relying only on Git stat metadata. Symlinks and submodules fail closed.
+- Portability: hosts without `/usr/bin/lockf` deny Maven publication. Tests assert this denial rather than claiming locking works there.
+- Trust limits: ignored/global/external inputs and concurrent edits are not sandboxed or frozen.
+- Ruling: require every positional task to classify as Maven publication. An unknown extra task regression failed before narrowing the descriptor.
+- Pre-review complete suite: 89 checks passed; the expected stale release-manifest check failed before hash refresh.
+- Regression: passing configuration into controls initially copied it into history; a failing transport assertion led to separating policy context from audit context.
+- Pre-review verification: `node scripts/check.mjs` -> no faults; complete required Node suite -> 91/91 passed.
+- Release manifest refreshed for all 11 maintained implementation modules. Archival `BASELINE.sha256` unchanged.

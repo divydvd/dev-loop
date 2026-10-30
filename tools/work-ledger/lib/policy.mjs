@@ -7,6 +7,7 @@ import { commandsOf, basename, shQuote } from "./shell.mjs";
 import { activeApprovals } from "./store.mjs";
 import { sameSha, sameRepo, short, findUnit, passingRuns } from "./units.mjs";
 import { effectiveGuardState } from "./guard-switches.mjs";
+import { configuredMavenScopes, localScopeId, localScopeProblem, localSourceProblem } from "./local-maven.mjs";
 
 export const TAG = "[work-ledger]";
 const LOCKF = "/usr/bin/lockf";
@@ -22,6 +23,7 @@ export const DEFAULT_CONFIG = {
   gradleLane: true,
   gradleLockTimeoutSec: 1500,
   gradleCache: true,
+  localMavenScopes: [],
 };
 
 // ---------- protected paths ----------
@@ -251,6 +253,24 @@ function onDeploy(target, detail, ctx, res) {
   return res;
 }
 
+async function onMaven(ctx, res) {
+  const { deps, cwd, sessionId, command } = ctx;
+  const fail = reason => deny(res, `Maven publication blocked: source and destination are not verified (${reason}). Play or Firebase approval does not authorize Maven publication.`);
+  const repo = cwd && await deps.lookups.scopeRepo?.(cwd);
+  const state = effectiveGuardState(deps.data, "maven", repo, sessionId, deps.now);
+  if (state.enabled) return fail("a confirmed scoped Maven pause is required");
+  const scope = configuredMavenScopes(deps.config, repo).find(s => !localScopeProblem(s) &&
+    s.cwd === cwd && s.command === command && state.pauses.some(p => p.mavenScopeIds?.includes(localScopeId(s))));
+  if (!scope) return fail("no confirmed descriptor matches the exact project, command, source, launcher, and local destination");
+  if ((deps.protectedDirs || []).some(dir => under(scope.cwd, dir) || under(dir, scope.cwd))) return fail("the project overlaps protected guard source or data");
+  const problem = await localSourceProblem(scope, deps.lookups);
+  if (problem) return fail(problem);
+  if (!deps.config.gradleLane || !deps.lockFile || !fs.existsSync(LOCKF)) return fail("the shared Gradle build lock is unavailable");
+  res.localMaven = true;
+  res.notes.push(`Verified local Maven descriptor ${scope.label} at ${scope.sha}; destination ${scope.destination}. Shared build locking remains active.`);
+  return res;
+}
+
 async function onGradle(f, ctx, res) {
   const { deps } = ctx;
   const key = gradleKey(f);
@@ -329,7 +349,10 @@ export async function decide(call, deps) {
       }
       case "merge": await onMerge(f, ctx, res); break;
       case "review-request": await onReview(f, ctx, res); break;
-      case "deploy": onDeploy(f.target, f.detail, ctx, res); break;
+      case "deploy":
+        if (f.target === "maven") await onMaven(ctx, res);
+        else onDeploy(f.target, f.detail, ctx, res);
+        break;
       case "run-rerun": {
         const wf = f.runId ? await deps.lookups.runWorkflow(f.repo, f.runId) : await deps.lookups.jobWorkflow(f.repo || deps.config.defaultRepo, f.jobId);
         const t = wf ? deployTargetForWorkflow(wf, deps.config.deployWorkflows || undefined) : null;
@@ -349,7 +372,7 @@ export async function decide(call, deps) {
       if (res.deny) return res;
       if (p) res.post.push(p);
     }
-    const lane = deps.config.gradleLane && deps.lockFile && fs.existsSync(LOCKF) && gradle.some((g) => g.tasks.length) && !/\block[f]\b[\s\S]*gradle\.lock/.test(cmd);
+    const lane = deps.config.gradleLane && deps.lockFile && fs.existsSync(LOCKF) && gradle.some((g) => g.tasks.length) && (res.localMaven || !/\block[f]\b[\s\S]*gradle\.lock/.test(cmd));
     if (lane) {
       const base = res.modifiedArgs?.command ?? cmd;
       res.modifiedArgs = { ...args, command: wrapGradleLane(base, deps.lockFile, deps.config.gradleLockTimeoutSec || 1500) };

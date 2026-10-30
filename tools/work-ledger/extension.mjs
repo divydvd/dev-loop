@@ -115,7 +115,14 @@ async function preToolUse(input, inv) {
       ledger.history({ type: "deny", sessionId: sid, tool: call.toolName, reason: res.deny, command: String(call.args.command ?? "").slice(0, 400) });
       return { permissionDecision: "deny", permissionDecisionReason: res.deny };
     }
-    if (calls.length !== 1) continue;
+    if (calls.length !== 1) {
+      if (res.localMaven) {
+        const reason = `${TAG} Run verified local Maven as one separate bash call so the shared Gradle lock wrapper can be applied.`;
+        ledger.history({ type: "deny", sessionId: sid, tool: call.toolName, reason });
+        return { permissionDecision: "deny", permissionDecisionReason: reason };
+      }
+      continue;
+    }
     const original = String(call.args.command ?? "");
     if (res.post.length) remember([original, res.modifiedArgs?.command], res.post.map((p) => ({ ...p, sessionId: sid })));
     if (res.modifiedArgs) {
@@ -180,7 +187,7 @@ async function onUserMessage(e) {
   const control = directGuardText(e, firstUserId);
   if (control && !/^guards (on|off)$/.test(control)) {
     const context = { owner: true, repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId(), messageId: e.id, legacyDisabled: ledger.isDisabled() };
-    const result = ledger.update((data) => applyGuardCommand(data, parseGuardCommand(control), context));
+    const result = ledger.update((data) => applyGuardCommand(data, parseGuardCommand(control), { ...context, config }));
     ledger.history({ type: "guard.control", ...context, command: control, result: result.text });
     log(`${TAG} ${result.text}`);
     return;

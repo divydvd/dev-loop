@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { normRepo } from "./classify.mjs";
 
@@ -93,6 +94,31 @@ export function makeLookups({ gh = findGh(), git = findBinary("git") || "/usr/bi
     },
     gitBranch: (cwd) => gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]),
     gitHead: (cwd) => gitOut(cwd, ["rev-parse", "HEAD"]),
+    gitRoot: (cwd) => gitOut(cwd, ["rev-parse", "--show-toplevel"]),
+    async gitTracked(cwd, file) {
+      return (await gitOut(cwd, ["ls-files", "--error-unmatch", "--", file])) !== null;
+    },
+    async gitReviewedClean(cwd) {
+      const [status, flags, entries] = await Promise.all([
+        gitOut(cwd, ["-c", "core.fsmonitor=false", "-c", "core.ignoreStat=false", "-c", "core.untrackedCache=false", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"]),
+        gitOut(cwd, ["ls-files", "-v", "-z"]),
+        gitOut(cwd, ["ls-files", "--stage", "-z"]),
+      ]);
+      if (status !== "" || flags === null || entries === null || flags.split("\0").some(line => /^[a-zS] /.test(line))) return false;
+      // Hash actual bytes: Git status can trust unchanged size and timestamps.
+      for (const entry of entries.split("\0").filter(Boolean)) {
+        const m = entry.match(/^(100644|100755) ([a-f0-9]{40}) 0\t([\s\S]+)$/);
+        if (!m) return false; // Reject symlinks, submodules, and unresolved index stages.
+        try {
+          const file = path.join(cwd, m[3]);
+          if (!fs.lstatSync(file).isFile() || fs.realpathSync(file) !== file) return false;
+          const bytes = fs.readFileSync(file);
+          const hash = crypto.createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+          if (hash !== m[2]) return false;
+        } catch { return false; }
+      }
+      return true;
+    },
     async gitDirty(cwd) {
       const out = await gitOut(cwd, ["status", "--porcelain"]);
       return out === null ? null : out.length > 0;

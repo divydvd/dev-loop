@@ -5,6 +5,7 @@
 This directory preserves the owner's work-ledger SDK extension in maintained source.
 The source now corrects Maven and Firebase publication classification.
 It also adds partial, confirmed owner controls with temporary repository or session scope.
+Verified local Maven recovery uses the same controls and owner-maintained scope descriptors.
 It is not an installation package and does not change the live guard.
 
 ## Boundary
@@ -48,7 +49,7 @@ This includes `KitTestRepository` and tasks named `MavenLocal`.
 A task name is not a sandbox and does not prove that the build executes only local actions.
 No destination is trusted because its name contains `Local` or `KitTest`.
 Existing deployment approvals cannot bypass this block.
-The next layer must establish a scoped, verified exception for the original local repository publication.
+The verified exception below provides that bounded recovery path in maintained source.
 
 `appDistributionUploadDebug` and other `appDistributionUpload` variants require Firebase approval, not Play approval.
 Play tasks such as `publishReleaseBundle` still require Play approval.
@@ -58,7 +59,7 @@ The shared Gradle lane, configuration checks, and genuine deployment checks rema
 
 ## Partial owner controls
 
-The supported checks are `rebase`, `amend`, `force-push`, `push-main`, `review-limit`, and `test-cache`.
+The supported checks are `rebase`, `amend`, `force-push`, `push-main`, `review-limit`, `test-cache`, and descriptor-bound `maven`.
 Each check defaults to enabled.
 A pause changes enforcement only. It does not change instructions or approve an action.
 For example, a paused history check does not authorize an agent to rewrite history.
@@ -119,14 +120,94 @@ API commands with an unknown repository or another host retain enforcement.
 Other hosts can share these records only through the same persistent `WORK_LEDGER_DIR`.
 The existing directory lock and atomic rename provide shared persistence; this layer adds no remote synchronization.
 
-Merge approval, deployment/configuration approval, unverified Maven, source protection, and the shared Gradle build lock are **not configurable here**.
-Requests for these names return an explicit error.
+Merge approval, deployment/configuration approval, source protection, and the shared Gradle build lock are **not configurable here**.
+Requests for these names return an explicit error. Unverified Maven remains blocked even during a Maven pause.
 Merge and deployment controls remain an outstanding scope decision, not a permanent exclusion.
 The Maven name does not provide a blanket exception.
 Play or Firebase approvals still cannot authorize Maven.
 Every recognized finding in a compound command retains its own check.
 Pausing the verification cache retains Gradle recording and the shared lock wrapper.
 Interactive commands still require the checked command path.
+
+## Verified local Maven recovery
+
+The owner supplies `localMavenScopes` in the maintained extension's configuration before startup.
+The configuration is not installed by this PR.
+Do not copy source paths, SHAs, or configuration from another owner.
+This synthetic example shows the required fields:
+
+```json
+{
+  "localMavenScopes": [{
+    "repo": "example/project",
+    "label": "local test",
+    "cwd": "/canonical/project",
+    "sha": "<reviewed-full-40-character-lowercase-SHA>",
+    "launcher": "/canonical/project/scripts/lowmem/gradlew",
+    "command": "./scripts/lowmem/gradlew :core:publishMavenPublicationToKitTestRepository -PkitRepository=/canonical/project/build/kit-test-repository",
+    "destination": "/canonical/project/build/kit-test-repository"
+  }]
+}
+```
+
+Review the build code at the specified full SHA before configuring a descriptor.
+Confirm that the exact command uses `kitRepository` as its local publication destination.
+A task name or property name alone does not establish that fact.
+The destination must be a canonical path strictly inside `<cwd>/build/`.
+The launcher must be an explicit, tracked `gradlew` pathname inside the project, outside `build/`.
+Nested launchers are supported. PATH-based launchers are not supported.
+The project must be the Git root. The source must have that exact clean SHA.
+The verifier rejects untracked files that Git does not ignore, staged changes, modified tracked bytes, and hidden index flags.
+It overrides Git settings that hide untracked files or rely on filesystem monitor results.
+It rejects tracked symlinks, submodules, unresolved index stages, and symlinks in project, destination, or launcher paths.
+Byte hashing is conservative: checkout transformations, such as line-ending conversion, can cause a denial.
+Projects that overlap protected guard source or data cannot receive the exception.
+
+Type these commands directly in the owner chat:
+
+```text
+guard maven off
+guard maven off in session for 10m
+guard maven on
+guard maven on in session
+guards status
+```
+
+Each change requires the exact separate confirmation returned by its preview.
+The default repository pause lasts 30 minutes. The existing duration and provenance rules apply.
+The preview displays every configured descriptor for that repository.
+Confirmation binds their fingerprints, including canonical cwd, SHA, launcher, exact command, and exact destination.
+Changing the descriptors before confirmation invalidates the preview.
+Changing any descriptor field after confirmation prevents that descriptor from matching.
+A new reviewed source commit requires an updated descriptor and a new confirmed pause.
+A bare Maven pause without descriptor fingerprints permits nothing.
+Restoring one scope leaves an overlapping pause active.
+Pauses, previews, and audit records retain scope, expiry, and request/confirmation provenance.
+
+Only a single exact literal command can match.
+The command syntax excludes quotes, spaces inside paths, shell operators, environment assignments, wrappers, and redirects.
+The supported options are `-PkitRepository=<destination>`, `--offline`, `--no-daemon`, `--console=plain`, and `--stacktrace`.
+Alternate project selectors, init scripts, and other options remain blocked.
+The descriptor must classify as Maven publication without another recognized deployment.
+Every task must be a recognized Maven publication; extra unknown tasks also cause denial.
+Unknown or remote destinations and extra Play/Firebase tasks remain denied.
+Generic deployment approvals never substitute for this descriptor-bound pause.
+The accepted command always receives the existing shared Gradle lock wrapper.
+Batched calls are denied because the host contract cannot apply an individual wrapper within a batch.
+An unavailable lock binary, disabled lane, or missing lock path also causes denial.
+These checks do not execute Gradle during verification.
+
+### Trust limits
+
+The verifier checks source identity. It is not a Gradle sandbox.
+Reviewed build code and launchers can execute arbitrary code, including remote operations.
+The owner must review those actions; this layer does not prove that arbitrary Gradle code cannot deploy.
+Ignored files, global Gradle configuration, environment variables, caches, downloaded dependencies, and external inputs remain trusted inputs.
+Do not put unreviewed build logic in ignored paths.
+The shared lock serializes cooperating builds, not file edits.
+Concurrent source edits after verification, including edits while waiting for the lock, remain a time-of-check risk.
+Use a controlled checkout without concurrent writers for publication.
+Real SDK startup/reload acceptance, owner installation, and additional merge/deployment controls remain separate work.
 
 ## Checks
 

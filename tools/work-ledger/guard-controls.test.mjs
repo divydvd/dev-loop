@@ -64,7 +64,7 @@ test("session scope binds the repository and session, and overlaps stay visible"
 test("invalid inputs and protected checks cannot change the ledger", async () => {
   const h = await helpers();
   for (const text of [
-    "guard deploy off", "guard play off", "guard firebase off", "guard maven off",
+    "guard deploy off", "guard play off", "guard firebase off",
     "guard merge off", "guard gradle-lane off", "guard source-protection off", "guard unknown off",
     "guard rebase off globally", "guard rebase off permanently", "guard rebase off for 0m",
     "guard rebase off for 25h", "guard rebase off for 1.5m", "guard rebase off for -1m",
