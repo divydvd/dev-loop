@@ -106,6 +106,7 @@ An expired pause has no effect on the next policy decision, even without a timer
 Restoring a session pause leaves an overlapping repository pause active, and the reverse also applies.
 The legacy `guards on` removes only the legacy global disable and reports remaining individual pauses.
 The legacy `guards off` remains a separate global control; status identifies its override.
+The existing singular aliases, `guard on` and `guard off`, retain the same legacy behavior.
 No new command writes the legacy `DISABLED` file.
 
 Repository pauses apply across worktrees that resolve to the same canonical GitHub repository.
@@ -114,6 +115,10 @@ Git pushes through named remotes resolve their actual push URLs, including Git U
 Literal push URLs retain enforcement because their effective push rewriting is not verified by this layer.
 Multiple different push destinations, implicit push remotes, unresolved paths, and identity-changing overrides retain enforcement.
 Nested shells, command wrappers, redirects, and compounds with unknown commands also retain enforcement.
+Pipelines, background jobs, and `cd` compounds retain enforcement because their action directory is not verified.
+Use a verified `git -C` path or a Gradle project-directory option instead.
+Review-limit pauses require an independently resolved action repository, even when legacy approval lookup uses a default repository.
+Gradle scope recognizes both separated and attached `-p` and `--project-dir` values.
 Do not treat syntactic shell context as verified action identity.
 API commands with an unknown repository or another host retain enforcement.
 Other hosts can share these records only through the same persistent `WORK_LEDGER_DIR`.

@@ -308,12 +308,14 @@ function gradleFindings(argv, ctx, out) {
   let projectDir = null;
   for (let k = 1; k < argv.length; k++) {
     const a = argv[k];
-    if (a === "-p" || a === "--project-dir") { projectDir = argv[k + 1]; k++; continue; }
+    if (a === "-p" || a === "--project-dir") { projectDir = argv[k + 1] ?? ""; k++; continue; }
+    if (a.startsWith("--project-dir=")) { projectDir = a.slice(14); continue; }
+    if (a.startsWith("-p")) { projectDir = a.slice(2).replace(/^=/, ""); continue; }
     if (GRADLE_VALUE.has(a)) { flags.push(a, String(argv[k + 1] ?? "")); k++; continue; }
     if (a.startsWith("-")) { flags.push(a); continue; }
     tasks.push(a);
   }
-  const cwd = projectDir ? resolveCd(ctx.cwd, projectDir) : ctx.cwd;
+  const cwd = projectDir === null ? ctx.cwd : projectDir ? resolveCd(ctx.cwd, projectDir) : null;
   out.push({ rule: "gradle", cwd, raw: ctx.raw, tasks, flags });
   for (const task of tasks) {
     const name = task.slice(task.lastIndexOf(":") + 1);
