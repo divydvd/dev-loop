@@ -10,8 +10,29 @@ const identity = object => digest(JSON.stringify(object));
 const runtime = ["extension.mjs", ...[
   "approvals", "classify", "gh", "grants", "guard-switches", "local-maven", "policy", "shell", "store", "units",
 ].map(name => `lib/${name}.mjs`)].sort();
-const inside = (a, b) => a === b || a.startsWith(`${b}${path.sep}`);
 const fail = message => { throw new Error(message); };
+
+function physicalKey(file) {
+  const missing = [];
+  for (let current = file; ; current = path.dirname(current)) {
+    try {
+      const stat = fs.statSync(current, { bigint: true });
+      return `${stat.dev}:${stat.ino}/${missing.join("/")}`;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      // Uncreated case variants cannot prove separation. Reject their overlap conservatively.
+      missing.unshift(path.basename(current).toLowerCase());
+    }
+  }
+}
+
+function inside(file, directory) {
+  const key = physicalKey(directory);
+  for (let current = file; ; current = path.dirname(current)) {
+    if (physicalKey(current) === key) return true;
+    if (path.dirname(current) === current) return false;
+  }
+}
 
 function canonical(file) {
   if (!path.isAbsolute(file) || path.resolve(file) !== file) fail("Use normalized absolute paths.");
@@ -73,7 +94,7 @@ function unchanged(directory, expected) {
 
 function privateParent(parent, directories) {
   canonical(parent);
-  if (parent.split(path.sep).includes("extensions")) fail("Backup/staging must be outside extension discovery.");
+  if (parent.split(path.sep).some(part => part.toLowerCase() === "extensions")) fail("Backup/staging must be outside extension discovery.");
   if (directories.some(dir => inside(parent, dir) || inside(dir, parent))) fail("Backup/staging paths must not overlap source or installation.");
   if (fs.existsSync(parent)) {
     const stat = fs.statSync(parent);
@@ -112,9 +133,11 @@ function configurationInput(request, installed) {
   const old = installed.entries.find(e => e[0] === "config.json");
   const original = old ? read(path.join(request.installed, "config.json")) : null;
   const config = original ? object(original) : {};
-  const dataDir = process.env.WORK_LEDGER_DIR || config.dataDir || path.join(os.homedir(), ".copilot/work-ledger");
+  const dataDir = process.env.WORK_LEDGER_DIR || (config.dataDir
+    ? String(config.dataDir).replace(/^~(?=\/|$)/, os.homedir()) : path.join(os.homedir(), ".copilot/work-ledger"));
   if (typeof dataDir !== "string") fail("Configured ledger directory must be a path.");
-  const ledgerDir = path.resolve(dataDir.replace(/^~(?=\/|$)/, os.homedir()));
+  if (!path.isAbsolute(dataDir)) fail("Ledger directory must be absolute; the runtime host working directory is unknown.");
+  const ledgerDir = path.resolve(dataDir);
   canonical(ledgerDir);
   privateParent(request.backupParent, [request.candidate, request.installed, ledgerDir]);
   let additions = [];
@@ -208,7 +231,7 @@ export async function prepareInstallation(request, options = {}) {
   const input = configurationInput(request, before);
   const temporary = fs.realpathSync(os.tmpdir());
   canonical(temporary);
-  if (temporary.split(path.sep).includes("extensions")) fail("Validation must be outside extension discovery.");
+  if (temporary.split(path.sep).some(part => part.toLowerCase() === "extensions")) fail("Validation must be outside extension discovery.");
   if ([request.candidate, request.installed, input.ledgerDir].some(dir => inside(temporary, dir))) fail("Validation temporary root overlaps source, installation, or ledger.");
   const scratch = fs.mkdtempSync(path.join(temporary, "guard-validate-"));
   fs.chmodSync(scratch, 0o700);
@@ -233,9 +256,18 @@ export async function prepareInstallation(request, options = {}) {
       if (type === "directory") fs.chmodSync(path.join(staged, file), mode);
     }
     unchanged(staged, before.hash);
+    const expected = new Map(before.entries.map(entry => [entry[0], entry]));
+    const approvedFiles = new Map(files);
+    if (config) approvedFiles.set("config.json", config);
+    for (const [file, bytes] of approvedFiles) {
+      expected.set(file, [file, "file", expected.get(file)?.[2] ?? 0o600, digest(bytes)]);
+    }
     writeRelease(staged, files);
     if (config) fs.writeFileSync(path.join(staged, "config.json"), config, { mode: 0o600 });
-    const installedHash = installationSnapshot(staged).hash;
+    const prepared = installationSnapshot(staged);
+    const ordered = entries => [...entries].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+    if (identity(ordered(prepared.entries)) !== identity(ordered(expected.values()))) fail("Staged code integrity or preserved installation changed during overlay.");
+    const installedHash = prepared.hash;
     const receipt = { installed: request.installed, backup, originalHash: before.hash, installedHash, sourceHash: request.sourceHash };
     const receiptFile = path.join(work, "receipt.json");
     fs.writeFileSync(receiptFile, JSON.stringify(receipt), { mode: 0o600, flag: "wx" });

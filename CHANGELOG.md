@@ -15,6 +15,10 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     CI exposed Node 22 dropping nested directory modes during recursive copy.
     A local Node 22 reproduction confirmed the mismatch.
     Staging now validates copied bytes and types before restoring pinned directory modes and rechecking the complete tree.
+    Automatic review exposed physical path aliases, ambiguous ledger identity, overlay drift, and incomplete failure cleanup.
+    Regressions reproduce the installation and process failures without touching live state.
+    Staging now compares the complete tree with the pinned original plus approved writes.
+    Failed lifecycle runs stop their owned descendants before restart or directory removal and retain a failed result.
     Actual CLI/SDK tests pass fourteen assertions in both user and project discovery layouts, with zero model requests.
     Each layout starts from a real pinned installer transaction in disposable state.
     They verify native tools/hooks, child replacement, exit, restart, and persisted synthetic notes; they do not prove desktop reload.

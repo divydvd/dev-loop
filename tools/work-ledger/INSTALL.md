@@ -88,11 +88,16 @@ Create a private request file with this structure:
 ```
 
 The backup parent must not overlap the source, installation, or configured ledger directory.
-No component can be named `extensions`.
+No component can be named `extensions`, including case variants.
 If the parent already exists, it must belong to the owner and deny group/other access.
 The installer creates each transaction directory with mode `0700`.
 Validation also rejects temporary roots inside discovery, source, installation, or ledger directories.
 Configured ledger paths with symlink components are unsupported.
+Physical directory and ancestor identities prevent case aliases from bypassing the boundary.
+Uncreated case variants are treated as overlapping until their separation can be established.
+Use an absolute `WORK_LEDGER_DIR`; the installer does not expand its literal tilde.
+Only configured `dataDir` expands an initial tilde, as the runtime does.
+Relative ledger paths are unsupported because the host working directory is unknown.
 
 ### Optional descriptor additions
 
@@ -275,6 +280,10 @@ It recorded only synthetic notes, never approvals or validation claims.
 The observer saw those notes survive foreground replacement and a complete host restart.
 The host replaced the extension child process and stopped old children.
 All exits returned zero, with no observed child left running.
+Failure cleanup tracks owned process groups and descendants before the first successful snapshot.
+It stops remaining owned children and verifies shutdown before another host or directory removal.
+An error stops the acceptance run and leaves a sanitized failed result.
+If cleanup cannot verify shutdown, it preserves the disposable directory.
 The script verifies source and copied runtime hashes after each run.
 Its sanitized JSON evidence records the exact source SHA, code hashes, commands, process identities, and fourteen assertion results.
 It excludes ledger contents and raw tool results, including the synthetic records used for the persistence assertions.

@@ -464,3 +464,76 @@ test("directory mode preservation cannot follow an injected staged symlink", asy
   await assert.rejects(f.run(), /symlink/i);
   assert.equal(fs.statSync(outside).mode & 0o777, 0o755);
 });
+
+for (const kind of ["ledger", "candidate", "temporary", "future-ledger", "discovery"]) {
+  test(`case aliases cannot place ${kind} inside protected paths`, async t => {
+    const f = await fixture(t);
+    fs.mkdirSync(f.dataDir, { mode: 0o700 });
+    const alias = path.join(f.root, "LEDGER");
+    if (!fs.existsSync(alias)) return t.skip("Requires a case-insensitive fixture filesystem.");
+    if (kind === "candidate") {
+      f.request.candidate = f.installed.replace("work-ledger", "WORK-LEDGER");
+    } else if (kind === "discovery") {
+      f.request.backupParent = path.join(path.dirname(f.installed).replace("extensions", "EXTENSIONS"), "backups");
+    } else if (kind === "temporary") {
+      t.mock.method(os, "tmpdir", () => alias);
+    } else if (kind === "future-ledger") {
+      fs.writeFileSync(path.join(f.installed, "config.json"), JSON.stringify({ dataDir: path.join(f.dataDir, "future") }));
+      f.request.installedHash = f.installationSnapshot(f.installed).hash;
+      f.request.backupParent = path.join(alias, "future", "backups");
+    } else {
+      f.request.backupParent = path.join(alias, "backups");
+    }
+    await assert.rejects(f.run(), /overlap|discovery/i);
+    assert.deepEqual(fs.readdirSync(f.dataDir), []);
+  });
+}
+
+test("rejects configured relative dataDir without assuming the owner's host cwd", async t => {
+  const f = await fixture(t);
+  fs.writeFileSync(path.join(f.installed, "config.json"), '{"dataDir":"relative-ledger"}');
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  await assert.rejects(f.run(), /absolute|relative/i);
+});
+
+for (const value of ["~/ledger", "relative-ledger"]) {
+  test(`rejects ambiguous runtime WORK_LEDGER_DIR ${value}`, async t => {
+    const f = await fixture(t);
+    const previous = process.env.WORK_LEDGER_DIR;
+    t.after(() => {
+      if (previous === undefined) delete process.env.WORK_LEDGER_DIR;
+      else process.env.WORK_LEDGER_DIR = previous;
+    });
+    process.env.WORK_LEDGER_DIR = value;
+    await assert.rejects(f.run(), /absolute|relative|ledger/i);
+    assert.equal(fs.existsSync(f.request.backupParent), false);
+  });
+}
+
+test("configured dataDir expands tilde without expanding environment paths", async t => {
+  const f = await fixture(t);
+  t.mock.method(os, "homedir", () => f.root);
+  fs.writeFileSync(path.join(f.installed, "config.json"), '{"dataDir":"~/ledger"}');
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  f.request.backupParent = path.join(f.dataDir, "backups");
+  await assert.rejects(f.run(), /overlap|ledger/i);
+  assert.equal(fs.existsSync(f.dataDir), false);
+});
+
+for (const kind of ["configuration", "unrelated-file", "new-file", "directory-mode"]) {
+  test(`rejects unapproved ${kind} edits during the staged overlay`, async t => {
+    const f = await fixture(t), write = fs.writeFileSync;
+    t.mock.method(fs, "writeFileSync", (file, bytes, ...args) => {
+      write(file, bytes, ...args);
+      if (file.endsWith("/staged/config.json")) {
+        const staged = path.dirname(file);
+        if (kind === "configuration") write(file, '{"reviewCap":99}');
+        if (kind === "unrelated-file") write(path.join(staged, "owner-notes/keep.txt"), "not approved");
+        if (kind === "new-file") write(path.join(staged, "unexpected.txt"), "not approved");
+        if (kind === "directory-mode") fs.chmodSync(path.join(staged, "owner-notes"), 0o755);
+      }
+    });
+    await assert.rejects(f.run(), /changed|drift|integrity/i);
+    assert.equal(f.installationSnapshot(f.installed).hash, f.request.installedHash);
+  });
+}

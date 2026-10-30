@@ -224,6 +224,44 @@ def alive(pid):
         return False
 
 
+def owned_processes(root, seen):
+    output = subprocess.check_output(
+        ["/bin/ps", "-axo", "pid=,ppid=,pgid=,lstart=,stat=,command="], env=ENV, text=True)
+    entries = []
+    for line in output.splitlines():
+        fields = line.split(None, 9)
+        if len(fields) == 10:
+            entries.append({"pid": int(fields[0]), "parent": int(fields[1]), "group": int(fields[2]),
+                            "start": " ".join(fields[3:8]), "state": fields[8]})
+    root_entry = next((entry for entry in entries if entry["pid"] == root), None)
+    same_root = root_entry is None or root not in seen or root_entry["start"] == seen[root]
+    selected = {root} if same_root else set()
+    for _ in range(len(entries) + 1):
+        previous = len(selected)
+        for entry in entries:
+            if (same_root and entry["group"] == root) or entry["parent"] in selected or seen.get(entry["pid"]) == entry["start"]:
+                selected.add(entry["pid"])
+                seen[entry["pid"]] = entry["start"]
+        if len(selected) == previous:
+            break
+    return [entry["pid"] for entry in entries if entry["pid"] in selected and not entry["state"].startswith("Z")]
+
+
+def stop_owned(root, seen):
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for pid in owned_processes(root, seen):
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if not owned_processes(root, seen):
+                return
+            time.sleep(0.1)
+    raise RuntimeError("Owned acceptance processes survived cleanup; retain the disposable directory.")
+
+
 def interactive(replace):
     base = sum(event["type"] == "complete" for event in observer_events())
     args = [CLI, *FLAGS, "--no-mouse", "--screen-reader"]
@@ -234,7 +272,7 @@ def interactive(replace):
         fcntl.ioctl(1, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 140, 0, 0))
         os.execve(CLI, args, ENV)
     transcript = bytearray()
-    run = {"pid": child, "replace": replace, "input": [], "snapshots": []}
+    run = {"pid": child, "replace": replace, "input": [], "snapshots": [], "_owned": {}}
     RESULT["interactive_runs"].append(run)
     approvals, folder_trust = 0, False
 
@@ -245,6 +283,7 @@ def interactive(replace):
     def drain(seconds):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
+            owned_processes(child, run["_owned"])
             readable, _, _ = select.select([terminal], [], [], 0.1)
             if readable:
                 try:
@@ -314,18 +353,19 @@ def interactive(replace):
                 break
         run["shutdown"] = "slash-exit" if exited else "forced-sigterm"
         if not exited:
-            os.kill(child, signal.SIGTERM)
-            drain(6)
-            exited, status = os.waitpid(child, os.WNOHANG)
-        if not exited:
-            run["shutdown"] = "forced-sigkill"
-            os.kill(child, signal.SIGKILL)
+            stop_owned(child, run["_owned"])
             _, status = os.waitpid(child, 0)
         os.close(terminal)
         run["exit_status"] = status
         run["transcript"] = transcript.decode(errors="replace")
-        seen = {record["pid"] for item in run["snapshots"] for record in item["processes"]}
-        run["survivors_after_exit"] = [pid for pid in seen if alive(pid)]
+        run["survivors_after_exit"] = owned_processes(child, run["_owned"])
+        if run["survivors_after_exit"]:
+            run.setdefault("error", "Owned extension children outlived the CLI.")
+            stop_owned(child, run["_owned"])
+        if owned_processes(child, run["_owned"]):
+            raise RuntimeError("Owned acceptance children remain; do not restart or remove their directory.")
+    if "error" in run:
+        raise RuntimeError(run["error"])
 
 
 try:
@@ -378,19 +418,32 @@ try:
     RESULT["provider_requests"] = PROVIDER_REQUESTS
     RESULT["passed"] = all(RESULT["checks"].values())
     RESULT["synthetic_note_counts"] = {"before_restart": len(old_notes), "after_restart": len(new_notes)}
-    for field in ("ledger_before_restart", "ledger_after_restart", "ledger_history"):
-        RESULT.pop(field)
-    RESULT["observer_events"] = [
-        {key: value for key, value in event.items() if key != "result"} for event in RESULT["observer_events"]
-    ]
-    for run in RESULT["interactive_runs"]:
-        run.pop("transcript")
-    result_file = OUTPUT / f"real-host-{ARGS.layout}.json"
-    result_file.write_text(json.dumps(sanitize(RESULT), indent=2) + "\n")
     print(json.dumps({"layout": ARGS.layout, "checks": RESULT["checks"], "passed": RESULT["passed"]}, indent=2))
-    if not RESULT["passed"]:
-        raise SystemExit(1)
+except Exception as error:
+    RESULT["passed"] = False
+    RESULT["error"] = str(error)
 finally:
     PROVIDER.shutdown()
     PROVIDER.server_close()
-    shutil.rmtree(ROOT)
+    survivors = []
+    for run in RESULT["interactive_runs"]:
+        try:
+            stop_owned(run["pid"], run["_owned"])
+        except Exception as error:
+            RESULT["passed"] = False
+            RESULT["cleanup_error"] = str(error)
+        survivors.extend(owned_processes(run["pid"], run.pop("_owned")))
+        run.pop("transcript", None)
+    for field in ("ledger_before_restart", "ledger_after_restart", "ledger_history"):
+        RESULT.pop(field, None)
+    RESULT["observer_events"] = [
+        {key: value for key, value in event.items() if key != "result"}
+        for event in RESULT.get("observer_events", observer_events())
+    ]
+    RESULT["directory_retained_for_survivors"] = bool(survivors)
+    result_file = OUTPUT / f"real-host-{ARGS.layout}.json"
+    result_file.write_text(json.dumps(sanitize(RESULT), indent=2) + "\n")
+    if not survivors:
+        shutil.rmtree(ROOT)
+if not RESULT.get("passed"):
+    raise SystemExit(1)
