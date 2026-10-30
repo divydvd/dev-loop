@@ -319,6 +319,8 @@ An invalid or ambiguous layout invalidates only the two known layout reports in 
 It then fails through safe metadata; it never uses an invalid layout as a filename.
 Use complete option names. Argument errors never start a host.
 Unsupported arguments or output paths fail with safe metadata. Unsafe output paths remain untouched.
+Source overlap checks compare filesystem identity before creating output directories or invalidating reports.
+This rejects existing case aliases and conservatively rejects case aliases of a source that does not yet exist.
 Reports use exclusive temporary files and atomic replacement. A publication failure removes owned report files.
 Cleanup checks the disposable root's filesystem identity before changing its permissions or removing it.
 An uncertain identity preserves the directory and records a failed cleanup check.

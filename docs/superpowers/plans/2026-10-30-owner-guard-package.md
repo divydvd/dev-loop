@@ -165,6 +165,7 @@ The scope is one bounded correction and one push. Merge and live installation re
 - **Done when:** Destination binding precedes validation of other known options, regardless of option order.
 - **Done when:** Missing known values, invalid choices, and unknown options fail safely and invalidate safely identified evidence.
 - **Done when:** Ambiguous output identities and unsafe paths remain untouched. No host starts on invalid arguments.
+- **Done when:** Physical source aliases cannot create destinations or invalidate reports within source. Missing-source aliases fail conservatively.
 - **Required evidence:** Actual-script regressions, independent review, package integrity, both complete Node suites, and both actual SDK layouts.
 - **Size estimate:** No production runtime change; only the fixture, its tests, and directly related documentation change.
 - **Stop conditions:** One correction push. Unpublished automatic text uses the already-authorized independent final-review alternative.

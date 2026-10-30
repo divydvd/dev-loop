@@ -15,6 +15,33 @@ from unittest.mock import Mock, patch
 
 
 class LifecycleCleanup(unittest.TestCase):
+    def test_case_alias_source_destinations_remain_untouched(self):
+        source = Path(__file__).with_name("real-host-acceptance.py").resolve()
+        for name in ("new-proof", "existing-proof"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                candidate = root / "source"
+                candidate.mkdir(mode=0o700)
+                alias = root / "SOURCE"
+                if not alias.exists() or not candidate.samefile(alias):
+                    self.skipTest("Filesystem does not expose a case alias.")
+                existing = candidate / "existing-proof"
+                existing.mkdir(mode=0o700)
+                previous = existing / "real-host-user.json"
+                previous.write_text('{"passed":true,"repo_head":"synthetic-old-success"}')
+                previous.chmod(0o400)
+                before = (previous.read_bytes(), previous.stat().st_mode, existing.stat().st_mode)
+                result = subprocess.run(
+                    [sys.executable, str(source), "--source", str(candidate),
+                     "--output", str(alias / name), "--unexpected"],
+                    env={"PATH": os.defpath, "HOME": str(root)}, capture_output=True, text=True, timeout=15)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((candidate / "new-proof").exists())
+                self.assertEqual((previous.read_bytes(), previous.stat().st_mode, existing.stat().st_mode), before)
+                self.assertFalse(json.loads(result.stderr)["passed"])
+                self.assertNotIn(str(root), result.stdout + result.stderr)
+                self.assertEqual(sorted(path.name for path in candidate.iterdir()), ["existing-proof"])
+
     def test_malformed_known_options_invalidate_identifiable_layout_evidence(self):
         source = Path(__file__).with_name("real-host-acceptance.py").resolve()
         cases = [
@@ -66,7 +93,8 @@ class LifecycleCleanup(unittest.TestCase):
 
     def test_untrusted_output_identity_does_not_modify_existing_evidence(self):
         source = Path(__file__).with_name("real-host-acceptance.py").resolve()
-        for form in ("missing-output-value", "conflicting-output", "after-terminator", "discovery-output"):
+        for form in ("missing-output-value", "conflicting-output", "after-terminator",
+                     "discovery-output", "future-source-alias"):
             with self.subTest(form=form), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 first, second = root / "first", root / "extensions"
@@ -78,12 +106,15 @@ class LifecycleCleanup(unittest.TestCase):
                     "conflicting-output": ["--output", str(first), "--output", str(second), "--source"],
                     "after-terminator": ["--", "--output", str(first), "--source"],
                     "discovery-output": ["--output", str(second), "--source"],
+                    "future-source-alias": ["--source", str(root / "future-source"),
+                                            "--output", str(root / "FUTURE-SOURCE/new-proof"), "--unexpected"],
                 }[form]
                 result = subprocess.run(
                     [sys.executable, str(source), *args], env={"PATH": os.defpath, "HOME": str(root)},
                     capture_output=True, text=True, timeout=15)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("Traceback", result.stderr)
+                self.assertFalse((root / "FUTURE-SOURCE").exists())
                 self.assertFalse(json.loads(result.stderr)["passed"])
                 for output in (first, second):
                     self.assertEqual((output / "real-host-user.json").read_text(), '{"passed":true}')

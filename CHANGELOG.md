@@ -7,8 +7,11 @@ Each entry says what changed, why (the evidence), and how the next weekly review
   - **What:** Bind one safe output directory before checking other known options.
     Preserve unrelated layout evidence when the layout is known. Invalid layouts invalidate only the two known report names.
     Reject ambiguous output identity without changing its possible targets.
+    Check physical source identity before creating a destination or invalidating reports through a filesystem alias.
   - **Why:** Independent final review reproduced malformed `--source` leaving a previous success report unchanged.
+    Its final package review also reproduced case aliases bypassing lexical source isolation.
   - **Check:** Actual-script regressions cover missing values, invalid choices, option order, unknown options, and unsafe/ambiguous destinations.
+    Three alias regressions fail before the identity guard and pass afterward. Fourteen Python methods pass on macOS.
 - **Guard the complete isolated acceptance lifecycle.**
   - **What:** Include bootstrap in the safe reporting boundary. Initialize ownership before allocation and invalidate previous evidence before work.
     Publish reports atomically. Close owned servers and terminals, reap children, and verify root identity before directory cleanup.

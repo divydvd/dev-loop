@@ -410,6 +410,23 @@ def bootstrap():
     if any(part.lower() == "extensions" for part in (*requested_output.parts, *OUTPUT.parts)) or any(
             OUTPUT == source or source in OUTPUT.parents for source in sources):
         parser.error("Use an artifact directory outside source and extension discovery.")
+    source_identities = set()
+    for source in sources:
+        try:
+            identity = source.stat()
+        except FileNotFoundError:
+            parts = tuple(part.casefold() for part in source.parts)
+            if tuple(part.casefold() for part in OUTPUT.parts[:len(parts)]) == parts:
+                parser.error("Evidence output overlaps an unresolved source.")
+            continue
+        source_identities.add((identity.st_dev, identity.st_ino))
+    for ancestor in (OUTPUT, *OUTPUT.parents):
+        try:
+            identity = ancestor.stat()
+        except FileNotFoundError:
+            continue
+        if (identity.st_dev, identity.st_ino) in source_identities:
+            parser.error("Evidence output overlaps source identity.")
     OUTPUT.mkdir(parents=True, exist_ok=True, mode=0o700)
     if OUTPUT.stat().st_mode & 0o077:
         parser.error("Artifact directory must deny group and other access.")
