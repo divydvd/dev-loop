@@ -42,3 +42,12 @@
 - Round 1 verification: four new failing assertions now pass. Complete merged suite: 102/102; plugin check: no faults.
 - Current size: 149 added/deleted production lines versus parent ef955c4. The baseline manifest remains unchanged.
 - Final evidence will be rerun and pinned after this ledger commit. Round-1 push includes all three fixes and the final parent integration.
+- Owner-directed scope refinement, relayed by the coordinator: keep merge and real deployment approval mandatory.
+- This supersedes earlier notes that treated those switches as outstanding. Shared build locking also remains mandatory.
+- Documentation now identifies only owner installation and real SDK acceptance as remaining work.
+- Automatic review round 2: two confirmed findings. Git pathspec magic accepted an ignored untracked launcher; `..`-prefixed child names bypassed protection overlap.
+- Three real Git/path regressions failed before literal-pathspec tracking and component-aware containment fixed these findings.
+- Round 2 includes the owner-directed mandatory-approval documentation. No additional review request or review-only push is needed.
+- Round 2 verification: all three regressions now pass; complete suite 105/105; plugin check no faults.
+- Final production size: 151 added/deleted lines versus parent ef955c4. All 11 release modules have refreshed hashes.
+- Final automatic review will be read after the round-2 push. No further fix push is allowed under this task's two-round limit.

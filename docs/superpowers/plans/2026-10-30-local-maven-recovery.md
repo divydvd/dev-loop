@@ -30,3 +30,5 @@ The bounded implementation and independent review are complete.
 The source verifier, owner controls, policy, and disposable transport contracts pass together.
 The execution ledger records regressions, rulings, and the parent integration.
 Final commit evidence and the open stacked PR provide the handoff.
+The owner's final scope decision keeps merge and real deployment approval mandatory.
+No merge/deployment switches remain planned; only installation and real SDK acceptance remain outstanding.

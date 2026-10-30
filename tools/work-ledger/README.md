@@ -4,7 +4,7 @@
 
 This directory preserves the owner's work-ledger SDK extension in maintained source.
 The source now corrects Maven and Firebase publication classification.
-It also adds partial, confirmed owner controls with temporary repository or session scope.
+It also adds confirmed owner controls with temporary repository or session scope.
 Verified local Maven recovery uses the same controls and owner-maintained scope descriptors.
 The [owner package](INSTALL.md) adds pinned preview, installation, backup, and rollback.
 Source preparation does not change the live guard.
@@ -132,7 +132,8 @@ The existing directory lock and atomic rename provide shared persistence; this l
 
 Merge approval, deployment/configuration approval, source protection, and the shared Gradle build lock are **not configurable here**.
 Requests for these names return an explicit error. Unverified Maven remains blocked even during a Maven pause.
-The owner explicitly chose to keep merge and real deployment approval mandatory.
+The owner requires merge approval and real deployment/configuration approval to remain mandatory.
+They are not planned switches. The shared Gradle build lock also remains mandatory.
 The Maven name does not provide a blanket exception.
 Play or Firebase approvals still cannot authorize Maven.
 Every recognized finding in a compound command retains its own check.
@@ -165,6 +166,7 @@ Confirm that the exact command uses `kitRepository` as its local publication des
 A task name or property name alone does not establish that fact.
 The destination must be a canonical path strictly inside `<cwd>/build/`.
 The launcher must be an explicit, tracked `gradlew` pathname inside the project, outside `build/`.
+Git checks the launcher as a literal pathname, not a pathspec expression.
 Nested launchers are supported. PATH-based launchers are not supported.
 Use the canonical absolute launcher or its exact `./project-relative` pathname without `..` or redundant path components.
 The project must be the Git root. The source must have that exact clean SHA.
@@ -175,6 +177,7 @@ It rejects tracked symlinks, submodules, unresolved index stages, and symlinks i
 Dangling destination symlinks and dangling ancestor symlinks also cause denial.
 Byte hashing is conservative: checkout transformations, such as line-ending conversion, can cause a denial.
 Projects that overlap protected guard source or data cannot receive the exception.
+Containment checks use path components; names such as `..project` and `..ledger` remain inside their parent directory.
 
 Type these commands directly in the owner chat:
 

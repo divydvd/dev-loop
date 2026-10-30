@@ -18,10 +18,10 @@ function assertLocalResult(result) {
   assert.equal(result.lane, true);
   assert.match(result.modifiedArgs.command, /lockf/);
 }
-function fixture(t) {
+function fixture(t, projectName = "project") {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "local-maven-"));
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
-  const cwd = path.join(fs.realpathSync(tmp), "project");
+  const cwd = path.join(fs.realpathSync(tmp), projectName);
   fs.mkdirSync(cwd);
   const git = (...args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
   git("init", "--quiet");
@@ -303,3 +303,37 @@ for (const part of ["leaf", "ancestor"]) {
     assert.ok((await f.run(f.scope.command)).deny);
   });
 }
+
+test("launcher tracking uses literal paths, not Git pathspec magic", async t => {
+  const f = fixture(t);
+  fs.appendFileSync(path.join(f.cwd, ".gitignore"), ":\n");
+  f.git("add", ".");
+  f.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "Ignore synthetic directory");
+  f.scope.sha = f.git("rev-parse", "HEAD");
+  fs.mkdirSync(path.join(f.cwd, ":"));
+  fs.writeFileSync(path.join(f.cwd, ":", "gradlew"), "# untracked launcher, never executed\n");
+  f.scope.launcher = path.join(f.cwd, ":", "gradlew");
+  f.scope.command = f.command.replace("./gradlew", "./:/gradlew");
+  f.pause();
+  assert.equal(f.git("status", "--porcelain"), "");
+  assert.ok((await f.run(f.scope.command)).deny);
+});
+
+test("a ..project child of protected source cannot receive a Maven exception", async t => {
+  const f = fixture(t, "..project");
+  f.pause();
+  f.deps.protectedDirs = [fs.realpathSync(f.tmp)];
+  assert.ok((await f.run()).deny);
+});
+
+test("a project containing ..ledger protected data cannot receive a Maven exception", async t => {
+  const f = fixture(t);
+  const protectedDir = path.join(f.cwd, "..ledger");
+  fs.mkdirSync(protectedDir);
+  fs.writeFileSync(path.join(protectedDir, "data.txt"), "synthetic guard data\n");
+  fs.appendFileSync(path.join(f.cwd, ".git", "info", "exclude"), "\n..ledger/\n");
+  f.pause();
+  f.deps.protectedDirs = [protectedDir];
+  assert.equal(f.git("status", "--porcelain"), "");
+  assert.ok((await f.run()).deny);
+});
