@@ -4,6 +4,7 @@ import { commandsOf, basename } from "./shell.mjs";
 
 const COPILOT_RE = /copilot/i;
 const DEPLOY_WORD_RE = /deploy|release|publish|upload|rollout|promote/i;
+const parentPath = (arg) => typeof arg === "string" && arg.split(/[\\/]/).includes("..");
 
 export const DEFAULT_DEPLOY_WORKFLOWS = {
   "firebase-deploy.yml": "firebase",
@@ -40,9 +41,9 @@ export function parsePrRef(ref) {
   if (ref === null || ref === undefined) return { current: true };
   const s = String(ref);
   if (/^#?\d+$/.test(s)) return { pr: Number(s.replace("#", "")) };
-  const u = s.match(/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)/);
+  const u = s.match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:[/?#].*)?$/);
   if (u) return { repo: `${u[1]}/${u[2]}`, pr: Number(u[3]) };
-  if (/[$`…]/.test(s)) return { unknown: true };
+  if (/[$`…]|:\/\//.test(s)) return { unknown: true };
   return { branch: s };
 }
 
@@ -70,8 +71,15 @@ function gitFindings(argv, ctx, out) {
   let unknownRepo = false;
   while (i < argv.length && argv[i].startsWith("-")) {
     const a = argv[i];
-    if (a === "-C") { cwd = resolveCd(cwd, argv[i + 1]); i += 2; continue; }
-    if (a.startsWith("-C")) { cwd = resolveCd(cwd, a.slice(2)); i++; continue; }
+    if (a === "-C") {
+      if (argv[i + 1] !== "") cwd = resolveCd(cwd, argv[i + 1]);
+      unknownRepo ||= parentPath(argv[i + 1]);
+      i += 2; continue;
+    }
+    if (a.startsWith("-C")) {
+      cwd = resolveCd(cwd, a.slice(2)); unknownRepo ||= parentPath(a.slice(2));
+      i++; continue;
+    }
     if (/^(-c|--git-dir|--work-tree|--namespace|--config-env)(=|$)/.test(a) || /^-c./.test(a)) {
       unknownRepo = true; i += a.includes("=") || /^-c./.test(a) ? 1 : 2; continue;
     }
@@ -316,7 +324,7 @@ function gradleFindings(argv, ctx, out) {
     tasks.push(a);
   }
   const cwd = projectDir === null ? ctx.cwd : projectDir ? resolveCd(ctx.cwd, projectDir) : null;
-  out.push({ rule: "gradle", cwd, raw: ctx.raw, tasks, flags });
+  out.push({ rule: "gradle", cwd, raw: ctx.raw, tasks, flags, unknownRepo: parentPath(projectDir) });
   for (const task of tasks) {
     const name = task.slice(task.lastIndexOf(":") + 1);
     let target;

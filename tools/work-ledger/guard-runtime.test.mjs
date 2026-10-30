@@ -6,6 +6,9 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { makeLookups } from "./lib/gh.mjs";
+import { decide, DEFAULT_CONFIG } from "./lib/policy.mjs";
+import { emptyLedger } from "./lib/store.mjs";
+import { parseGuardCommand, applyGuardCommand } from "./lib/guard-switches.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 function fixture(t) {
@@ -47,6 +50,37 @@ test("literal URLs retain enforcement and named remotes use Git URL rewrites", a
   git("config", "url.https://github.com/example/push.git.pushInsteadOf", "https://github.com/example/project.git");
   assert.equal(await lookups.scopeRepo(dir), "example/project");
   assert.equal(await lookups.scopeRepo(dir, "origin"), "example/push");
+});
+
+test("symlink plus parent traversal cannot transfer a pause through lexical path normalization", async (t) => {
+  const { dir, git } = fixture(t);
+  for (const name of ["base/target", "physical/child", "physical/target"]) fs.mkdirSync(path.join(dir, name), { recursive: true });
+  git("-C", "physical/target", "init", "--quiet");
+  git("-C", "physical/target", "remote", "add", "origin", "https://github.com/example/other.git");
+  fs.symlinkSync(path.join(dir, "physical/child"), path.join(dir, "base/link"));
+  const actionPath = `${dir}/base/link/../target`;
+  const lookups = makeLookups({ gh: null });
+  assert.equal(await lookups.scopeRepo(actionPath), "example/other", "Git physically resolves the symlink before ..");
+  const data = emptyLedger();
+  const now = Date.now();
+  const context = { repo: "example/project", sessionId: "owner", messageId: "r", owner: true, now };
+  for (const guard of ["rebase", "test-cache"]) {
+    const preview = applyGuardCommand(data, parseGuardCommand(`guard ${guard} off`), context);
+    applyGuardCommand(data, parseGuardCommand(preview.confirmation), { ...context, messageId: "c", now: now + 1 });
+  }
+  const sha = "a".repeat(40);
+  data.validations.push({ sha, tasks: "test", at: new Date(now).toISOString(), exit: 0, dirty: false });
+  const deps = {
+    data, config: { ...DEFAULT_CONFIG }, now: now + 2,
+    lookups: { ...lookups, gitHead: async () => sha, gitDirty: async () => false },
+  };
+  for (const command of [
+    `git -C ${actionPath} rebase topic`,
+    `./gradlew --project-dir=${actionPath} test`,
+  ]) {
+    const result = await decide({ toolName: "bash", args: { command }, cwd: dir, sessionId: "owner" }, deps);
+    assert.ok(result.deny, command);
+  }
 });
 
 test("real extension startup and reload contracts use disposable homes and ledgers", (t) => {

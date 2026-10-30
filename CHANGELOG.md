@@ -32,6 +32,8 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Both findings have failing-then-passing regressions; uncertain contexts now retain enforcement.
     Automatic review added five confirmed regressions: pipeline/background context, review defaults, attached Gradle directories, legacy aliases, and short-preview deadlines.
     The fixes retain enforcement for uncertain directories and preserve accurate confirmation windows.
+    The second automatic round added four identity regressions: PR URL hosts, empty Git `-C`, symlink/parent paths, and implicit `gh` defaults.
+    Canonical PR URLs and explicit `gh` repositories are required for review pauses; parent-traversal paths retain enforcement.
   - **Check:** run `node scripts/check.mjs` and
     `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
     Verify the maintained release with `SOURCE.sha256`; keep `BASELINE.sha256` unchanged.

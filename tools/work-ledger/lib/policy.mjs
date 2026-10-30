@@ -229,7 +229,7 @@ async function onReview(f, ctx, res) {
   const grant = approvalsFor(deps.data, deps.now, (a) => a.kind === "review" && a.pr === pr && sameRepo(a.repo, r))[0];
   const cap = deps.config.reviewCap ?? 3;
   const pending = { kind: "review", sessionId, repo: r, pr, sha: head };
-  const paused = await guardPaused("review-limit", f, ctx, res, r);
+  const paused = !!f.repo && await guardPaused("review-limit", f, ctx, res, r);
   if (!paused && !grant && atHead.length) return deny(res, `A Copilot review was already requested for #${pr} at head ${short(head)}. Wait for it, fix its findings in a new commit, then request again. For an extra review of the same commit, ask the owner to type "review again #${pr}".`, pending);
   if (!paused && !grant && reviews.length >= cap) return deny(res, `#${pr} already had ${reviews.length} Copilot review rounds (cap ${cap}). Fix the open findings yourself and report to the owner. For one more round, ask the owner to type "review again #${pr}".`, pending);
   res.post.push({ kind: "review", repo: r, pr, sha: head, grantId: grant?.id || null });
