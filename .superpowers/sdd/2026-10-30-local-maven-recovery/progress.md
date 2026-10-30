@@ -27,3 +27,5 @@
 - Final: Ruling: installer and actual SDK acceptance remain the next layer; this layer does not claim either.
 - Final: Ruling: arbitrary Gradle sandboxing remains out of scope; the README explicitly names trusted ignored/global/external inputs and concurrent edits.
 - Deferred minors: none.
+- Review fix verification: plugin check had no faults; the complete suite passed 92/92.
+- Parent integration: merged controls head fcb9bf7ef5cb754407aaae2b99a95c08bd37319c. Kept its bounded preview deadline and Maven descriptor fingerprints.

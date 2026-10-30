@@ -84,6 +84,33 @@ test("enclosing shell context cannot transfer a repository pause", async () => {
     "git remote set-url origin https://github.com/example/other.git; git rebase topic",
     "cp /other/config .git/config; git rebase topic",
   ]) assert.ok((await f.call(command)).deny, command);
+  for (const command of [
+    "cd /project | git rebase topic",
+    "cd /project & git rebase topic",
+    "cd /project || git rebase topic",
+  ]) assert.ok((await f.call(command, "/other")).deny, command);
+});
+
+test("review-limit pause never uses the legacy default repository as action identity", async () => {
+  const f = fixture();
+  f.deps.config.defaultRepo = repo;
+  f.data.units[`${repo}#1`] = { repo, pr: 1, reviews: [{ sha }] };
+  f.pause("review-limit");
+  assert.ok((await f.call("gh pr edit 1 --add-reviewer @copilot", "/unknown")).deny);
+  f.deps.lookups.prHead = async (_repo, pr) => ({ repo, pr, sha, state: "OPEN" });
+  assert.ok((await f.call("gh pr edit 1 -R example/other --add-reviewer @copilot")).deny);
+});
+
+test("attached Gradle project directories cannot inherit the session repository's cache pause", async () => {
+  const f = fixture();
+  f.data.validations.push({ sha, tasks: "test", at: new Date(now).toISOString(), exit: 0, dirty: false });
+  f.pause("test-cache");
+  for (const flag of ["--project-dir=/other", "-p/other", "-p=/other", "--project-dir='$UNKNOWN'"]) {
+    assert.ok((await f.call(`./gradlew ${flag} test`)).deny, flag);
+  }
+  for (const flag of ["--project-dir=/project", "-p/project", "-p=/project"]) {
+    assert.equal((await f.call(`./gradlew ${flag} test`)).deny, null, flag);
+  }
 });
 
 test("compound commands retain unrelated rules and all approval gates", async () => {

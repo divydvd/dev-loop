@@ -137,16 +137,17 @@ async function resolvePr(f, repo, cwd, deps) {
 }
 
 // Unlike legacy approval lookup, a pause never falls back to defaultRepo.
-async function guardPaused(guard, f, ctx, res) {
+async function guardPaused(guard, f, ctx, res, expectedRepo = null) {
   const { deps, sessionId, cwd } = ctx;
-  if (f.unknownRepo || /[()]|\b(?:GIT_\w+|GH_\w+|GITHUB_\w+|HOME|PATH|XDG_\w+|BASH_ENV|ENV|ZDOTDIR)=/.test(ctx.command)) return false;
+  if (f.unknownRepo || /[()|]|(?<!&)&(?!&)|\b(?:GIT_\w+|GH_\w+|GITHUB_\w+|HOME|PATH|XDG_\w+|BASH_ENV|ENV|ZDOTDIR)=/.test(ctx.command)) return false;
   const commands = commandsOf(ctx.command);
   if (commands.some((c) => c.nested || c.wrapped || c.redirects.length ||
-      !["git", "gh", "gradlew", "gradle", "cd", "firebase", "gcloud", "fastlane"].includes(basename(c.argv[0] || "")) ||
+      !["git", "gh", "gradlew", "gradle", "firebase", "gcloud", "fastlane"].includes(basename(c.argv[0] || "")) ||
       (basename(c.argv[0] || "") === "git" && c.argv.some((a) => ["config", "remote", "worktree", "init", "clone"].includes(a))) ||
       (basename(c.argv[0] || "") === "gh" && c.argv.includes("repo")))) return false;
   const dir = f.cwd === undefined ? cwd : f.cwd;
   const repo = f.repo || (dir && await deps.lookups.scopeRepo(dir, f.remote));
+  if (expectedRepo && !sameRepo(repo, expectedRepo)) return false;
   if (effectiveGuardState(deps.data, guard, repo, sessionId, deps.now).enabled) return false;
   res.notes.push(`${guard} enforcement paused for ${repo}; this is not action approval.`);
   return true;
@@ -228,7 +229,7 @@ async function onReview(f, ctx, res) {
   const grant = approvalsFor(deps.data, deps.now, (a) => a.kind === "review" && a.pr === pr && sameRepo(a.repo, r))[0];
   const cap = deps.config.reviewCap ?? 3;
   const pending = { kind: "review", sessionId, repo: r, pr, sha: head };
-  const paused = await guardPaused("review-limit", { ...f, repo: r }, ctx, res);
+  const paused = await guardPaused("review-limit", f, ctx, res, r);
   if (!paused && !grant && atHead.length) return deny(res, `A Copilot review was already requested for #${pr} at head ${short(head)}. Wait for it, fix its findings in a new commit, then request again. For an extra review of the same commit, ask the owner to type "review again #${pr}".`, pending);
   if (!paused && !grant && reviews.length >= cap) return deny(res, `#${pr} already had ${reviews.length} Copilot review rounds (cap ${cap}). Fix the open findings yourself and report to the owner. For one more round, ask the owner to type "review again #${pr}".`, pending);
   res.post.push({ kind: "review", repo: r, pr, sha: head, grantId: grant?.id || null });

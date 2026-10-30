@@ -108,6 +108,16 @@ test("confirmation rejects stale, changed, repeated and cross-context previews",
   assert.match(request(h, data, older.confirmation, { ...context, messageId: "old-confirm" }).text, /stale|invalid/i);
 });
 
+test("a short pause advertises only the usable confirmation window", async () => {
+  const h = await helpers();
+  const data = emptyLedger();
+  const preview = request(h, data, "guard amend off for 1m");
+  assert.equal(data.guardRequests[0].confirmBy, "2026-10-30T10:01:00.000Z");
+  assert.match(preview.text, /Before 2026-10-30T10:01:00.000Z/);
+  assert.doesNotMatch(h.guardStatus(data, { ...context, now: now + 60000 }), /Pending preview/);
+  assert.match(request(h, data, preview.confirmation, { ...context, messageId: "late", now: now + 60000 }).text, /stale/);
+});
+
 test("direct owner provenance rejects quotes, forwarded messages, and the first message", async () => {
   const h = await helpers();
   const event = (content, extra = {}) => ({ id: "m2", data: { content }, ...extra });

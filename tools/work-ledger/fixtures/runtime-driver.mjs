@@ -4,7 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 await import(pathToFileURL(process.argv[2]).href);
-const { options, callbacks, logs, session } = globalThis.ledgerTestHost;
+const { options, callbacks, logs, session, nextLog } = globalThis.ledgerTestHost;
 const ledgerFile = path.join(process.env.WORK_LEDGER_DIR, "ledger.json");
 const read = () => fs.existsSync(ledgerFile) ? JSON.parse(fs.readFileSync(ledgerFile, "utf8")) : {};
 const pre = (command, extra = {}) => options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command }, workingDirectory: process.cwd(), ...extra }, { sessionId: session.sessionId });
@@ -56,6 +56,15 @@ if (process.env.TEST_RELOAD) {
   assert.match(await get(), /rebase: paused/);
   await send("guards on");
   assert.match(logs.at(-1), /rebase: paused/, "legacy restore must report individual pauses");
+  let logged = nextLog();
+  await send("guard off");
+  assert.match(await logged, /Guards are OFF/);
+  assert.equal(fs.existsSync(path.join(process.env.WORK_LEDGER_DIR, "DISABLED")), true);
+  logged = nextLog();
+  await send("guard on");
+  assert.match(await logged, /Guards are ON/);
+  await pre("true");
+  assert.equal(fs.existsSync(path.join(process.env.WORK_LEDGER_DIR, "DISABLED")), false);
   const history = fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "history.jsonl"), "utf8");
   assert.match(history, /guard.control/);
   assert.match(history, /enforcement paused/);

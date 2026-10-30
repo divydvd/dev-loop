@@ -61,7 +61,7 @@ export function applyGuardCommand(data, command, context) {
     id: crypto.randomBytes(8).toString("hex"), guard: command.guard, state: command.state,
     scope: command.scope, repo, sessionId, messageId, at: new Date(now).toISOString(),
     expiresAt: command.state === "off" ? new Date(now + command.minutes * MINUTE).toISOString() : null,
-    confirmBy: new Date(now + 5 * MINUTE).toISOString(),
+    confirmBy: new Date(now + Math.min(5, command.state === "off" ? command.minutes : 5) * MINUTE).toISOString(),
     ...(scopes.length ? { mavenScopeIds: scopes.map(localScopeId).sort() } : {}),
   };
   data.guardRequests = (data.guardRequests || []).filter((r) => r.sessionId !== sessionId && Date.parse(r.confirmBy) > now);
