@@ -35,6 +35,7 @@ async function fixture(t) {
     candidate, installed, backupParent: path.join(root, "private-backups"),
     sourceHash: fileHash(path.join(candidate, "SOURCE.sha256")),
     installedHash: api.installationSnapshot(installed).hash,
+    ledgerConfigHash: "absent",
   };
   const options = { execute: true, hostsStopped: true, confirmation: `install ${hash(JSON.stringify(request))}` };
   const run = (extra = {}) => api.prepareInstallation(request, {
@@ -537,3 +538,97 @@ for (const kind of ["configuration", "unrelated-file", "new-file", "directory-mo
     assert.equal(f.installationSnapshot(f.installed).hash, f.request.installedHash);
   });
 }
+
+test("rejects a runtime-readable configuration filename with noncanonical case", async t => {
+  const f = await fixture(t);
+  t.mock.method(os, "homedir", () => f.root);
+  fs.renameSync(path.join(f.installed, "config.json"), path.join(f.installed, "config.JSON"));
+  if (!fs.existsSync(path.join(f.installed, "config.json"))) return t.skip("Requires a case-insensitive fixture filesystem.");
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  f.request.backupParent = path.join(f.dataDir, "backups");
+  await assert.rejects(f.run(), /configuration.*name|config.*case/i);
+  assert.equal(fs.existsSync(f.dataDir), false);
+});
+
+test("rejects a transient second configuration read outside the pinned snapshot", async t => {
+  const f = await fixture(t), read = fs.readFileSync;
+  const file = path.join(f.installed, "config.json");
+  let count = 0;
+  t.mock.method(fs, "readFileSync", (target, ...args) => {
+    if (target === file && ++count === 2) {
+      fs.writeFileSync(file, f.originalConfig.replace('"reviewCap": 7', '"reviewCap": 99'));
+      const bytes = read(target, ...args);
+      fs.writeFileSync(file, f.originalConfig);
+      return bytes;
+    }
+    return read(target, ...args);
+  });
+  await assert.rejects(f.run(), /configuration.*changed|configuration.*snapshot/i);
+  assert.equal(fs.readFileSync(file, "utf8"), f.originalConfig);
+  assert.equal(f.installationSnapshot(f.installed).hash, f.request.installedHash);
+});
+
+test("special permission changes invalidate the complete installation pin", async t => {
+  const f = await fixture(t);
+  fs.chmodSync(path.join(f.installed, "owner-notes"), 0o1700);
+  await assert.rejects(f.run(), /snapshot.*changed|drift/i);
+});
+
+test("install and rollback preserve special directory permission bits", async t => {
+  const f = await fixture(t);
+  fs.chmodSync(path.join(f.installed, "owner-notes"), 0o1700);
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  const result = await f.run();
+  assert.equal(fs.statSync(path.join(f.installed, "owner-notes")).mode & 0o7777, 0o1700);
+  await f.rollbackInstallation(result.receipt, {
+    execute: true, hostsStopped: true, confirmation: `rollback ${hash(JSON.stringify(result.receipt))}`,
+  });
+  assert.equal(fs.statSync(path.join(f.installed, "owner-notes")).mode & 0o7777, 0o1700);
+});
+
+for (const kind of ["malformed", "conflicting"]) {
+  test(`rejects ${kind} effective external scopes without adding descriptors`, async t => {
+    const f = await fixture(t);
+    const scope = await descriptor(f);
+    delete f.request.scopesFile;
+    delete f.request.scopesHash;
+    fs.mkdirSync(f.dataDir);
+    const file = path.join(f.dataDir, "config.json");
+    fs.writeFileSync(file, JSON.stringify({ localMavenScopes: kind === "malformed" ? [{}] : [scope, scope] }));
+    f.request.ledgerConfigHash = fileHash(file);
+    await assert.rejects(f.run(), /scope|descriptor|duplicate|conflict/i);
+    assert.equal(f.installationSnapshot(f.installed).hash, f.request.installedHash);
+  });
+}
+
+test("effective external configuration needs a pin even without scope additions", async t => {
+  const f = await fixture(t);
+  delete f.request.ledgerConfigHash;
+  await assert.rejects(f.run(), /external.*pin|configuration.*hash|ledger.*pin/i);
+});
+
+test("valid effective external scopes survive a no-addition installation without local shadowing", async t => {
+  const f = await fixture(t);
+  const scope = await descriptor(f);
+  delete f.request.scopesFile;
+  delete f.request.scopesHash;
+  fs.mkdirSync(f.dataDir);
+  const external = path.join(f.dataDir, "config.json");
+  const bytes = JSON.stringify({ localMavenScopes: [scope], keep: "external" });
+  fs.writeFileSync(external, bytes);
+  f.request.ledgerConfigHash = fileHash(external);
+  await f.run();
+  assert.equal(fs.readFileSync(path.join(f.installed, "config.json"), "utf8"), f.originalConfig);
+  assert.equal(fs.readFileSync(external, "utf8"), bytes);
+});
+
+test("special file permissions survive installation and remain part of the snapshot", async t => {
+  const f = await fixture(t);
+  const file = path.join(f.installed, "owner-notes/keep.txt");
+  fs.chmodSync(file, 0o4600);
+  const changed = f.installationSnapshot(f.installed).hash;
+  assert.notEqual(changed, f.request.installedHash);
+  f.request.installedHash = changed;
+  await f.run();
+  assert.equal(fs.statSync(file).mode & 0o7777, 0o4600);
+});

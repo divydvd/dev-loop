@@ -48,10 +48,12 @@ if not Path(CLI).exists():
     with opener.open(url, timeout=60) as response, archive.open("wb") as target:
         shutil.copyfileobj(response, target)
     integrity = base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
-    assert integrity == "FI4VpxHoCGfTS4U5g9Dpt5QXwomfUXiLPC9vFdnp7Vpvkm620UhBhQv0HkIiJwUSx0u0Uv+yU2Sn+KO1j8G+Tw=="
+    if integrity != "FI4VpxHoCGfTS4U5g9Dpt5QXwomfUXiLPC9vFdnp7Vpvkm620UhBhQv0HkIiJwUSx0u0Uv+yU2Sn+KO1j8G+Tw==":
+        raise RuntimeError("CLI archive integrity mismatch; extraction refused.")
     with tarfile.open(archive) as package:
         package.extractall(TOOLING, filter="data")
-assert hashlib.sha256(Path(CLI).read_bytes()).hexdigest() == "ce1fb3c2159e3712fd634db3f7840280e3026615e9eb604dcd9ed58a55ad3fd5"
+if hashlib.sha256(Path(CLI).read_bytes()).hexdigest() != "ce1fb3c2159e3712fd634db3f7840280e3026615e9eb604dcd9ed58a55ad3fd5":
+    raise RuntimeError("CLI binary integrity mismatch; execution refused.")
 ENV = {
     "PATH": "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     "HOME": str(ROOT / "home"),
@@ -119,6 +121,7 @@ request = {
     "candidate": str(SOURCE), "installed": str(EXT), "backupParent": str(ROOT / "owner-backups"),
     "sourceHash": hashlib.sha256((SOURCE / "SOURCE.sha256").read_bytes()).hexdigest(),
     "installedHash": snapshot["hash"],
+    "ledgerConfigHash": "absent",
 }
 request_file = ROOT / "request.json"
 request_bytes = json.dumps(request).encode()
@@ -321,7 +324,8 @@ def interactive(replace):
         observer_pid = joined["pid"]
         maintained = [record["pid"] for record in processes
                       if "preloads/extension_bootstrap.mjs" in record["command"] and record["pid"] != observer_pid]
-        assert len(maintained) == 1, (processes, observer_pid)
+        if len(maintained) != 1:
+            raise RuntimeError("Expected exactly one maintained extension process.")
         data = {"stage": stage, "sessionId": joined["sessionId"], "processes": processes,
                 "observer_pid": observer_pid, "maintained_pid": maintained[0]}
         if run["snapshots"]:

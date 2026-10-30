@@ -70,7 +70,7 @@ Use canonical paths without symlinks.
 node owner-install.mjs --inspect /ABSOLUTE/EXISTING/EXTENSION
 ```
 
-The printed hash covers file bytes, directory names, and permission modes.
+The printed hash covers file bytes, directory names, and all permission bits, including special bits.
 It includes configuration and unrelated files, not only historical runtime files.
 Record this hash as `installedHash`.
 The installer checks it again before replacement.
@@ -83,7 +83,8 @@ Create a private request file with this structure:
   "installed": "/ABSOLUTE/EXISTING/EXTENSION",
   "backupParent": "/ABSOLUTE/PRIVATE/BACKUPS",
   "sourceHash": "REVIEWED_SOURCE_MANIFEST_SHA256",
-  "installedHash": "REVIEWED_COMPLETE_INSTALLATION_SHA256"
+  "installedHash": "REVIEWED_COMPLETE_INSTALLATION_SHA256",
+  "ledgerConfigHash": "REVIEWED_EXTERNAL_CONFIG_SHA256_OR_absent"
 }
 ```
 
@@ -93,6 +94,7 @@ If the parent already exists, it must belong to the owner and deny group/other a
 The installer creates each transaction directory with mode `0700`.
 Validation also rejects temporary roots inside discovery, source, installation, or ledger directories.
 Configured ledger paths with symlink components are unsupported.
+Configuration filename case variants are unsupported; use the exact name `config.json`.
 Physical directory and ancestor identities prevent case aliases from bypassing the boundary.
 Uncreated case variants are treated as overlapping until their separation can be established.
 Use an absolute `WORK_LEDGER_DIR`; the installer does not expand its literal tilde.
@@ -146,9 +148,10 @@ Make any intentional existing-scope change through a separately reviewed owner a
 
 The runtime combines ledger-directory configuration with extension-local configuration.
 Extension-local settings take precedence.
-If the extension has no `localMavenScopes` field, additions must also pin the external configuration.
+If the extension has no `localMavenScopes` field, every request must pin the effective external configuration.
 Use its complete `config.json` byte hash, or the literal `absent` only when that file does not exist.
 The installer reads only that configuration file, never ledger contents.
+It validates effective external descriptors even when no descriptors are added.
 It preserves effective external scopes in the new extension-local array and rechecks the external pin before replacement.
 This makes the scopes extension-local; later external edits do not override that array.
 Existing extension-local arrays already take precedence and need no external pin.
@@ -249,6 +252,7 @@ The tested host is Copilot CLI `1.0.102-0.unstable.r40141230562.g130d689` on mac
 Its bundled extension runtime reports Node.js `24.22.1`.
 The native binary SHA-256 is `ce1fb3c2159e3712fd634db3f7840280e3026615e9eb604dcd9ed58a55ad3fd5`.
 The acceptance script verifies that binary identity, including a cached copy.
+Explicit integrity checks remain active under optimized Python.
 It downloads the public platform package only when the isolated tooling directory lacks that binary.
 The archive also has a pinned SHA-512 integrity value.
 Python 3.12 or later and a POSIX pseudoterminal are required.

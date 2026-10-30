@@ -3,12 +3,31 @@ import ast
 import os
 from pathlib import Path
 import signal
+import subprocess
 import sys
 import tempfile
 import unittest
 
 
 class LifecycleCleanup(unittest.TestCase):
+    def test_optimized_python_rejects_an_unpinned_cached_cli_before_execution(self):
+        source = Path(__file__).with_name("real-host-acceptance.py")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "proof"
+            cli = output / "host-acceptance-tooling/package/copilot"
+            cli.parent.mkdir(parents=True)
+            output.chmod(0o700)
+            marker = root / "executed"
+            cli.write_text(f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\nraise SystemExit(1)\n")
+            cli.chmod(0o700)
+            result = subprocess.run(
+                [sys.executable, "-O", str(source), "--output", str(output)],
+                env={"PATH": os.environ["PATH"], "HOME": str(root)}, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(marker.exists(), "Optimized Python executed an unpinned CLI binary.")
+            self.assertIn("integrity", result.stderr.lower())
+
     def test_failure_before_snapshot_stops_owned_descendants(self):
         source = Path(__file__).with_name("real-host-acceptance.py")
         tree = ast.parse(source.read_text())

@@ -78,10 +78,10 @@ export function installationSnapshot(directory) {
     const stat = fs.lstatSync(file);
     if (stat.isSymbolicLink()) fail("Installation uses a symlink.");
     if (stat.isDirectory()) {
-      entries.push([relative, "directory", stat.mode & 0o777]);
+      entries.push([relative, "directory", stat.mode & 0o7777]);
       for (const name of fs.readdirSync(file).sort()) walk(path.join(relative, name));
     } else {
-      entries.push([relative, "file", stat.mode & 0o777, digest(read(file))]);
+      entries.push([relative, "file", stat.mode & 0o7777, digest(read(file))]);
     }
   }
   walk("");
@@ -131,7 +131,9 @@ function release(candidate, sourceHash) {
 
 function configurationInput(request, installed) {
   const old = installed.entries.find(e => e[0] === "config.json");
+  if (installed.entries.some(e => e[0] !== "config.json" && e[0].toLowerCase() === "config.json")) fail("Unsupported noncanonical configuration filename.");
   const original = old ? read(path.join(request.installed, "config.json")) : null;
+  if (original && digest(original) !== old[3]) fail("Configuration changed from the pinned snapshot.");
   const config = original ? object(original) : {};
   const dataDir = process.env.WORK_LEDGER_DIR || (config.dataDir
     ? String(config.dataDir).replace(/^~(?=\/|$)/, os.homedir()) : path.join(os.homedir(), ".copilot/work-ledger"));
@@ -150,8 +152,8 @@ function configurationInput(request, installed) {
   }
   let existing = Object.hasOwn(config, "localMavenScopes") ? config.localMavenScopes : [];
   let recheck = () => {};
-  if (additions.length && !Object.hasOwn(config, "localMavenScopes")) {
-    if (!/^(absent|[a-f0-9]{64})$/.test(request.ledgerConfigHash || "")) fail("Review and pin the external configuration hash before adding scopes.");
+  if (!Object.hasOwn(config, "localMavenScopes")) {
+    if (!/^(absent|[a-f0-9]{64})$/.test(request.ledgerConfigHash || "")) fail("Review and pin the effective external configuration hash.");
     const configFile = path.join(ledgerDir, "config.json");
     const externalBytes = () => {
       try { return read(configFile); }
