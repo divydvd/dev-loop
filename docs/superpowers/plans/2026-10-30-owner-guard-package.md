@@ -156,6 +156,19 @@ The owner selected "Approve one bounded bootstrap correction and one push (Recom
 - **Size estimate:** No production runtime change. Only fixtures, tests, and directly related documentation change.
 - **Stop conditions:** One correction push. Report any new confirmed finding afterward without another source change.
 
+## Authorized follow-up: argument-validation evidence
+
+The coordinator relayed the owner's selection: "Approve the argument-validation correction (Recommended)".
+The scope is one bounded correction and one push. Merge and live installation remain excluded.
+
+- **Goal:** Prevent malformed known options from preserving identifiable stale success evidence.
+- **Done when:** Destination binding precedes validation of other known options, regardless of option order.
+- **Done when:** Missing known values, invalid choices, and unknown options fail safely and invalidate safely identified evidence.
+- **Done when:** Ambiguous output identities and unsafe paths remain untouched. No host starts on invalid arguments.
+- **Required evidence:** Actual-script regressions, independent review, package integrity, both complete Node suites, and both actual SDK layouts.
+- **Size estimate:** No production runtime change; only the fixture, its tests, and directly related documentation change.
+- **Stop conditions:** One correction push. Unpublished automatic text uses the already-authorized independent final-review alternative.
+
 ## Conclusion
 This layer prepares an installation package, not an installed correction.
 The owner must separately review private pins, stop affected hosts, install, and verify a fresh host.

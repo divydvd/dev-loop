@@ -313,6 +313,11 @@ Report-write failures emit safe metadata and exit with failure, without printing
 One lifecycle boundary covers argument validation, bootstrap, host execution, reporting, and cleanup.
 The fixture initializes ownership state before creating directories, servers, child processes, or terminal descriptors.
 It removes the previous layout report before substantive work in a validated private output directory.
+It binds the output directory before validating other known options, including missing values and invalid choices.
+One explicit `--output` is required. Conflicting output arguments and tokens after `--` cannot identify a destination.
+An invalid or ambiguous layout invalidates only the two known layout reports in that validated directory.
+It then fails through safe metadata; it never uses an invalid layout as a filename.
+Use complete option names. Argument errors never start a host.
 Unsupported arguments or output paths fail with safe metadata. Unsafe output paths remain untouched.
 Reports use exclusive temporary files and atomic replacement. A publication failure removes owned report files.
 Cleanup checks the disposable root's filesystem identity before changing its permissions or removing it.

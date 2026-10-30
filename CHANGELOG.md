@@ -3,6 +3,12 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## Unreleased tooling (2026-10-30)
+- **Invalidate identifiable evidence before full argument validation.**
+  - **What:** Bind one safe output directory before checking other known options.
+    Preserve unrelated layout evidence when the layout is known. Invalid layouts invalidate only the two known report names.
+    Reject ambiguous output identity without changing its possible targets.
+  - **Why:** Independent final review reproduced malformed `--source` leaving a previous success report unchanged.
+  - **Check:** Actual-script regressions cover missing values, invalid choices, option order, unknown options, and unsafe/ambiguous destinations.
 - **Guard the complete isolated acceptance lifecycle.**
   - **What:** Include bootstrap in the safe reporting boundary. Initialize ownership before allocation and invalidate previous evidence before work.
     Publish reports atomically. Close owned servers and terminals, reap children, and verify root identity before directory cleanup.

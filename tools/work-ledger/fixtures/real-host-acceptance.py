@@ -106,7 +106,7 @@ def write_report():
     temporary, created = None, False
     try:
         if not REPORT_READY:
-            RESULT.setdefault("checks", {})["report_invalidated"] = False
+            RESULT.setdefault("checks", {}).setdefault("report_invalidated", False)
             print(json.dumps(retained_evidence(RESULT)), file=sys.stderr)
             return
         result_file = OUTPUT / f"real-host-{ARGS.layout}.json"
@@ -389,24 +389,42 @@ def bootstrap():
     global ARGS, SOURCE, OUTPUT, ROOT, PROVIDER, PROVIDER_THREAD, ROOT_ID
     global ROOT_CREATED, REPORT_READY, ENV, CLI, WORKSPACE, EXT, CONFIG_BYTES
     global INSTALL_RESULT, HASHES, FLAGS, PROVIDER_REQUESTS
-    parser = SafeArgumentParser(description=__doc__, prog="real-host-acceptance.py")
-    parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parent.parent)
+    default_source = Path(__file__).resolve().parent.parent
+    parser = SafeArgumentParser(description=__doc__, prog="real-host-acceptance.py", allow_abbrev=False)
+    parser.add_argument("--source", type=Path, default=default_source)
     parser.add_argument("--output", type=Path, required=True, help="Private acceptance artifact directory, outside discovery")
     parser.add_argument("--layout", choices=("user", "project"), default="user")
-    ARGS, unknown = parser.parse_known_args()
-    SOURCE = ARGS.source.resolve()
-    OUTPUT = ARGS.output.resolve()
-    if "extensions" in (part.lower() for part in OUTPUT.parts) or OUTPUT == SOURCE or SOURCE in OUTPUT.parents:
+    arguments = sys.argv[1:]
+    if arguments in (["--help"], ["-h"]):
+        parser.parse_args(arguments)
+    destination = SafeArgumentParser(add_help=False, allow_abbrev=False)
+    for option in ("output", "source", "layout"):
+        destination.add_argument("--" + option, action="append", nargs="?")
+    pending, _ = destination.parse_known_args(arguments)
+    if not pending.output or len(pending.output) != 1 or not pending.output[0]:
+        parser.error("Evidence output identity is ambiguous.")
+    SOURCE = default_source
+    requested_output = Path(pending.output[0])
+    OUTPUT = requested_output.resolve()
+    sources = [SOURCE, *(Path(value).resolve() for value in (pending.source or []) if value)]
+    if any(part.lower() == "extensions" for part in (*requested_output.parts, *OUTPUT.parts)) or any(
+            OUTPUT == source or source in OUTPUT.parents for source in sources):
         parser.error("Use an artifact directory outside source and extension discovery.")
     OUTPUT.mkdir(parents=True, exist_ok=True, mode=0o700)
     if OUTPUT.stat().st_mode & 0o077:
         parser.error("Artifact directory must deny group and other access.")
-    result_file = OUTPUT / f"real-host-{ARGS.layout}.json"
-    result_file.unlink(missing_ok=True)
+    layouts = pending.layout or ["user"]
+    layout = layouts[0] if len(layouts) == 1 and layouts[0] in ("user", "project") else None
+    for name in ([layout] if layout is not None else ["user", "project"]):
+        (OUTPUT / f"real-host-{name}.json").unlink(missing_ok=True)
+    RESULT["checks"]["report_invalidated"] = True
+    if layout is None:
+        parser.error("Evidence layout identity is ambiguous.")
+    ARGS = argparse.Namespace(layout=layout)
     REPORT_READY = True
-    RESULT["layout"] = ARGS.layout
-    if unknown:
-        parser.error("Unsupported arguments.")
+    RESULT["layout"] = layout
+    ARGS = parser.parse_args(arguments)
+    SOURCE = ARGS.source.resolve()
     ROOT = OUTPUT / ("host-acceptance-" + uuid.uuid4().hex)
     ROOT.mkdir(mode=0o700)
     ROOT_CREATED = True

@@ -15,6 +15,80 @@ from unittest.mock import Mock, patch
 
 
 class LifecycleCleanup(unittest.TestCase):
+    def test_malformed_known_options_invalidate_identifiable_layout_evidence(self):
+        source = Path(__file__).with_name("real-host-acceptance.py").resolve()
+        cases = [
+            (["--output", "OUTPUT", "--layout", "user", "--source"], "user"),
+            (["--source", "--output", "OUTPUT", "--layout", "user"], "user"),
+            (["--layout=project", "--source", "--output=OUTPUT"], "project"),
+            (["--output=OUTPUT", "--source", "--layout", "project"], "project"),
+            (["--source", "--layout", "user", "--output", "OUTPUT"], "user"),
+            (["--layout", "invalid-private-choice", "--output", "OUTPUT"], None),
+            (["--output", "OUTPUT", "--layout=invalid-private-choice"], None),
+            (["--output", "OUTPUT", "--layout"], None),
+            (["--layout", "--output", "OUTPUT"], None),
+            (["--layout", "user", "--output", "OUTPUT", "--layout", "project", "--source"], None),
+            (["--unexpected", "private argument", "--output", "OUTPUT", "--layout", "project"], "project"),
+            (["--layout", "user", "--output", "OUTPUT", "--source", "--unexpected"], "user"),
+        ]
+        for arguments, layout in cases:
+            with self.subTest(arguments=arguments), tempfile.TemporaryDirectory(prefix="synthetic-back\\owner-") as directory:
+                root = Path(directory)
+                root.chmod(0o700)
+                old = '{"passed":true,"repo_head":"synthetic-old-success"}'
+                for name in ("user", "project"):
+                    (root / f"real-host-{name}.json").write_text(old)
+                cli = root / "host-acceptance-tooling/package/copilot"
+                cli.parent.mkdir(parents=True)
+                cli.write_bytes(b"synthetic unpinned CLI; never execute")
+                args = [argument.replace("OUTPUT", str(root)) for argument in arguments]
+                result = subprocess.run(
+                    [sys.executable, str(source), *args], env={"PATH": os.defpath, "HOME": str(root)},
+                    capture_output=True, text=True, timeout=15)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn(str(root), result.stdout + result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertNotIn("private argument", result.stdout + result.stderr)
+                self.assertNotIn("invalid-private-choice", result.stdout + result.stderr)
+                self.assertEqual(list(root.glob("host-acceptance-????????????????????????????????")), [])
+                for name in ("user", "project"):
+                    report = root / f"real-host-{name}.json"
+                    if layout is not None and name != layout:
+                        self.assertEqual(report.read_text(), old)
+                    elif report.exists():
+                        evidence = json.loads(report.read_text())
+                        self.assertFalse(evidence["passed"])
+                        self.assertIn(False, evidence["checks"].values())
+                if layout is None:
+                    evidence = json.loads(result.stderr)
+                    self.assertFalse(evidence["passed"])
+                    self.assertTrue(evidence["checks"]["report_invalidated"])
+
+    def test_untrusted_output_identity_does_not_modify_existing_evidence(self):
+        source = Path(__file__).with_name("real-host-acceptance.py").resolve()
+        for form in ("missing-output-value", "conflicting-output", "after-terminator", "discovery-output"):
+            with self.subTest(form=form), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                first, second = root / "first", root / "extensions"
+                for output in (first, second):
+                    output.mkdir(mode=0o700)
+                    (output / "real-host-user.json").write_text('{"passed":true}')
+                args = {
+                    "missing-output-value": ["--output", "--source"],
+                    "conflicting-output": ["--output", str(first), "--output", str(second), "--source"],
+                    "after-terminator": ["--", "--output", str(first), "--source"],
+                    "discovery-output": ["--output", str(second), "--source"],
+                }[form]
+                result = subprocess.run(
+                    [sys.executable, str(source), *args], env={"PATH": os.defpath, "HOME": str(root)},
+                    capture_output=True, text=True, timeout=15)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertFalse(json.loads(result.stderr)["passed"])
+                for output in (first, second):
+                    self.assertEqual((output / "real-host-user.json").read_text(), '{"passed":true}')
+                    self.assertEqual(len(list(output.iterdir())), 1)
+
     def test_actual_script_faults_across_bootstrap_allocation_and_reporting(self):
         source = Path(__file__).with_name("real-host-acceptance.py").resolve()
         wrapper = r'''
