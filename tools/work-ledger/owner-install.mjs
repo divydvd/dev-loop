@@ -251,12 +251,10 @@ export async function prepareInstallation(request, options = {}) {
     const staged = path.join(work, "staged"), backup = path.join(work, "original");
     fs.cpSync(request.installed, staged, { recursive: true, preserveTimestamps: true });
     const copied = installationSnapshot(staged);
-    // Node 22 can omit nested directory modes. Verify bytes and types before restoring those modes.
-    const content = entries => entries.map(entry => entry[1] === "directory" ? entry.slice(0, 2) : entry);
+    // Node 22 can omit directory modes and special file bits. Verify bytes/types before restoring them.
+    const content = entries => entries.map(entry => entry[1] === "directory" ? entry.slice(0, 2) : [entry[0], entry[1], entry[2] & 0o777, entry[3]]);
     if (identity(content(copied.entries)) !== identity(content(before.entries))) fail("Copied installation changed during staging.");
-    for (const [file, type, mode] of before.entries) {
-      if (type === "directory") fs.chmodSync(path.join(staged, file), mode);
-    }
+    for (const [file, , mode] of before.entries) fs.chmodSync(path.join(staged, file), mode);
     unchanged(staged, before.hash);
     const expected = new Map(before.entries.map(entry => [entry[0], entry]));
     const approvedFiles = new Map(files);
