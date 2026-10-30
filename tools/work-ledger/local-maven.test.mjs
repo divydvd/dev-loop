@@ -273,3 +273,33 @@ test("launcher traversal through an ignored symlink cannot select untracked exec
   if (preview.confirmation) f.control(preview.confirmation, { ...f.context, messageId: "confirm" });
   assert.ok((await f.run(f.scope.command)).deny);
 });
+
+test("Git replacement refs cannot present an unreviewed tree at the reviewed SHA", async t => {
+  const f = fixture(t);
+  f.pause();
+  fs.appendFileSync(path.join(f.cwd, "build.gradle.kts"), "// unreviewed replacement\n");
+  f.git("add", ".");
+  f.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "Replacement");
+  const replacement = f.git("rev-parse", "HEAD");
+  f.git("update-ref", "HEAD", f.scope.sha);
+  f.git("replace", f.scope.sha, replacement);
+  assert.equal(f.git("rev-parse", "HEAD"), f.scope.sha);
+  assert.equal(f.git("status", "--porcelain"), "", "replacement refs can mask the unreviewed tree");
+  assert.ok((await f.run()).deny);
+});
+
+for (const part of ["leaf", "ancestor"]) {
+  test(`a dangling ${part} symlink cannot be a canonical output path`, async t => {
+    const f = fixture(t);
+    if (part === "ancestor") {
+      f.scope.destination = path.join(f.cwd, "build", "nested", "repo");
+      f.scope.command = f.command.replace(f.destination, f.scope.destination);
+    }
+    f.pause();
+    const link = part === "leaf" ? f.scope.destination : path.dirname(f.scope.destination);
+    fs.mkdirSync(path.join(f.cwd, "build"));
+    fs.symlinkSync(path.join(f.tmp, "missing-outside"), link);
+    assert.equal(f.git("status", "--porcelain"), "");
+    assert.ok((await f.run(f.scope.command)).deny);
+  });
+}

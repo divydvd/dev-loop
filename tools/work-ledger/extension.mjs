@@ -115,7 +115,7 @@ async function preToolUse(input, inv) {
       ledger.history({ type: "deny", sessionId: sid, tool: call.toolName, reason: res.deny, command: String(call.args.command ?? "").slice(0, 400) });
       return { permissionDecision: "deny", permissionDecisionReason: res.deny };
     }
-    if (calls.length !== 1) {
+    if (calls.length !== 1 || (res.localMaven && Array.isArray(input.toolCalls))) {
       if (res.localMaven) {
         const reason = `${TAG} Run verified local Maven as one separate bash call so the shared Gradle lock wrapper can be applied.`;
         ledger.history({ type: "deny", sessionId: sid, tool: call.toolName, reason });

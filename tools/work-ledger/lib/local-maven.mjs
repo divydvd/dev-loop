@@ -41,7 +41,10 @@ export function configuredMavenScopes(config, repo) {
 }
 
 function canonical(file) {
-  try { return fs.realpathSync(file); }
+  try {
+    if (fs.lstatSync(file).isSymbolicLink()) throw new Error(`${file} uses a symlink`);
+    return fs.realpathSync(file);
+  }
   catch (error) {
     if (error.code !== "ENOENT") throw error;
     const parent = path.dirname(file);

@@ -35,3 +35,6 @@
 - Size: 146 added/deleted production lines relative to the selected parent; tests, documentation, and hashes excluded.
 - Installation/runtime limits: no live guard change, no installer, no real SDK host acceptance, and no additional merge/deployment switches.
 - Finish: final verification runs after this ledger commit; evidence is pinned to the resulting head in the PR.
+- Automatic review round 1: three confirmed findings. Four assertions failed first: singleton batch, replacement-ref source, dangling leaf, and dangling ancestor.
+- Round 1 fixes: refuse every batch-shaped Maven invocation; disable replacement objects in source status; inspect symlinks before missing-path fallback.
+- Parent round 2: ef955c45fd7252168898c15e86038fcb0d331a67 is available for integration before the combined round-1 push.

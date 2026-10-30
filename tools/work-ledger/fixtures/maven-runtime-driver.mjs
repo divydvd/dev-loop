@@ -35,8 +35,13 @@ if (!process.env.TEST_RELOAD) {
 const result = await pre(command);
 if (fs.existsSync("/usr/bin/lockf")) {
   assert.match(result.modifiedArgs.command, /lockf/);
-  const batch = await pre("", { toolCalls: [{ name: "bash", args: { command } }, { name: "bash", args: { command: "true" } }] });
-  assert.equal(batch?.permissionDecision, "deny", "a batch cannot discard the required Maven lock wrapper");
+  for (const toolCalls of [
+    [{ name: "bash", args: { command } }],
+    [{ name: "bash", args: { command } }, { name: "bash", args: { command: "true" } }],
+  ]) {
+    const batch = await pre("", { toolCalls });
+    assert.equal(batch?.permissionDecision, "deny", "every batch shape must preserve Maven locking or fail closed");
+  }
 } else {
   assert.equal(result.permissionDecision, "deny");
   assert.match(result.permissionDecisionReason, /shared Gradle build lock is unavailable/);

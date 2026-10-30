@@ -165,7 +165,9 @@ Use the canonical absolute launcher or its exact `./project-relative` pathname w
 The project must be the Git root. The source must have that exact clean SHA.
 The verifier rejects untracked files that Git does not ignore, staged changes, modified tracked bytes, and hidden index flags.
 It overrides Git settings that hide untracked files or rely on filesystem monitor results.
+It disables Git replacement objects when comparing source with the reviewed commit.
 It rejects tracked symlinks, submodules, unresolved index stages, and symlinks in project, destination, or launcher paths.
+Dangling destination symlinks and dangling ancestor symlinks also cause denial.
 Byte hashing is conservative: checkout transformations, such as line-ending conversion, can cause a denial.
 Projects that overlap protected guard source or data cannot receive the exception.
 

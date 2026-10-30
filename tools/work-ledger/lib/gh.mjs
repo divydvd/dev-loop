@@ -100,7 +100,7 @@ export function makeLookups({ gh = findGh(), git = findBinary("git") || "/usr/bi
     },
     async gitReviewedClean(cwd) {
       const [status, flags, entries] = await Promise.all([
-        gitOut(cwd, ["-c", "core.fsmonitor=false", "-c", "core.ignoreStat=false", "-c", "core.untrackedCache=false", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"]),
+        gitOut(cwd, ["--no-replace-objects", "-c", "core.fsmonitor=false", "-c", "core.ignoreStat=false", "-c", "core.untrackedCache=false", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"]),
         gitOut(cwd, ["ls-files", "-v", "-z"]),
         gitOut(cwd, ["ls-files", "--stage", "-z"]),
       ]);

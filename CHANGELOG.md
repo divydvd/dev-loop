@@ -13,6 +13,8 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Entry-point tests exposed discarded batch wrappers; a separate regression exposed lock-like task text.
     Both paths now preserve locking or deny the command.
     Independent review found executable traversal through ignored symlinks. A real filesystem regression failed before exact launcher spelling blocked it.
+    Automatic review found singleton batches, Git replacement refs, and dangling destination links.
+    Transport, Git, and filesystem regressions reproduced these gaps before the fixes.
   - **Check:** run `node scripts/check.mjs` and
     `node --test tools/work-ledger/*.test.mjs scripts/device-handoff.test.mjs scripts/branch-maintenance.test.mjs`.
     Refresh `SOURCE.sha256`; preserve `BASELINE.sha256`.
