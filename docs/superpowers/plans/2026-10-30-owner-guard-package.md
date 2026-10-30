@@ -52,10 +52,10 @@ The CLI pins the request or rollback receipt itself with SHA-256.
 - [x] Run `node --test tools/work-ledger/owner-install.test.mjs`; confirm missing installer behavior.
 - [x] Implement a private stage outside discovery, reviewed code overlay, scope additions, drift rechecks, and reversible renames.
 - [x] Run the installer tests; expect all pass.
-- [ ] Establish actual CLI/SDK lifecycle using only disposable state and no inference.
+- [x] Establish actual CLI/SDK lifecycle using only disposable state and no inference.
 - [x] Get independent review of the transaction.
 - [x] Fix confirmed findings with regressions.
-- [ ] Document exact owner commands, source identity, recovery paths, and host limits.
+- [x] Document exact owner commands, source identity, recovery paths, and host limits.
 
 ## Task 2: Final integration and PR
 **Consumes:** The installer and lifecycle evidence from task 1.

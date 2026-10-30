@@ -110,6 +110,24 @@ EXT.mkdir(parents=True)
 shutil.copy2(SOURCE / "extension.mjs", EXT / "extension.mjs")
 shutil.copytree(SOURCE / "lib", EXT / "lib")
 (EXT / "config.json").write_text(json.dumps({"defaultRepo": "example/acceptance", "debug": True}))
+NODE = shutil.which("node")
+if not NODE:
+    parser.error("Node.js is required for the disposable owner-installer transaction.")
+installer = [NODE, str(SOURCE / "owner-install.mjs")]
+snapshot = json.loads(subprocess.check_output([*installer, "--inspect", str(EXT)], env=ENV, text=True))
+request = {
+    "candidate": str(SOURCE), "installed": str(EXT), "backupParent": str(ROOT / "owner-backups"),
+    "sourceHash": hashlib.sha256((SOURCE / "SOURCE.sha256").read_bytes()).hexdigest(),
+    "installedHash": snapshot["hash"],
+}
+request_file = ROOT / "request.json"
+request_bytes = json.dumps(request).encode()
+request_file.write_bytes(request_bytes)
+request_pin = hashlib.sha256(request_bytes).hexdigest()
+INSTALL_RESULT = json.loads(subprocess.check_output([
+    *installer, "--request", str(request_file), "--sha256", request_pin,
+    "--install", "--hosts-stopped", "--confirm", f"install {request_pin}",
+], env=ENV, text=True))
 OBSERVER = EXT.parent / "zz-acceptance-observer"
 OBSERVER.mkdir()
 (OBSERVER / "extension.mjs").write_text(r'''
@@ -156,6 +174,7 @@ FLAGS = ["--no-auto-update", "--no-custom-instructions", "--disable-builtin-mcps
          "--log-level", "debug", "--log-dir", str(ROOT / "logs"), "-C", str(WORKSPACE)]
 RESULT = {
     "source_sha256": HASHES, "environment": ENV, "layout": ARGS.layout,
+    "fixture_installation": INSTALL_RESULT,
     "repo_head": subprocess.check_output(
         ["/usr/bin/git", "rev-parse", "HEAD"], cwd=SOURCE.parent.parent, env=ENV, text=True).strip(),
     "native_cli_sha256": hashlib.sha256(Path(CLI).read_bytes()).hexdigest(),
@@ -333,6 +352,7 @@ try:
     old_notes = (RESULT["ledger_before_restart"] or {}).get("units", {}).get("example/acceptance#1", {}).get("notes", [])
     new_notes = (RESULT["ledger_after_restart"] or {}).get("units", {}).get("example/acceptance#1", {}).get("notes", [])
     RESULT["checks"] = {
+        "owner_installer_applied_to_disposable_extension": INSTALL_RESULT["installed"] is True,
         "three_real_joined_sessions": len(completions) == 3 and len({event["sessionId"] for event in completions}) == 3,
         "both_maintained_tools_offered_each_session": len(metadata) == 3 and all(
             {tool["name"] for tool in event["metadata"]["tools"]} == {"work_ledger_get", "work_ledger_record"} for event in metadata),
@@ -357,6 +377,14 @@ try:
     }
     RESULT["provider_requests"] = PROVIDER_REQUESTS
     RESULT["passed"] = all(RESULT["checks"].values())
+    RESULT["synthetic_note_counts"] = {"before_restart": len(old_notes), "after_restart": len(new_notes)}
+    for field in ("ledger_before_restart", "ledger_after_restart", "ledger_history"):
+        RESULT.pop(field)
+    RESULT["observer_events"] = [
+        {key: value for key, value in event.items() if key != "result"} for event in RESULT["observer_events"]
+    ]
+    for run in RESULT["interactive_runs"]:
+        run.pop("transcript")
     result_file = OUTPUT / f"real-host-{ARGS.layout}.json"
     result_file.write_text(json.dumps(sanitize(RESULT), indent=2) + "\n")
     print(json.dumps({"layout": ARGS.layout, "checks": RESULT["checks"], "passed": RESULT["passed"]}, indent=2))

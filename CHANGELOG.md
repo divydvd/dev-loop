@@ -12,7 +12,8 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Isolated transaction tests cover complete backup/restore, code validation before imports, scope pins, CLI confirmation, and failures.
     Independent review exposed external-scope shadowing, incoming rollback drift, discoverable temporary staging, and symlinked ledger paths.
     Eight failing regressions now cover the corrections.
-    Actual CLI/SDK tests pass thirteen assertions in both user and project discovery layouts, with zero model requests.
+    Actual CLI/SDK tests pass fourteen assertions in both user and project discovery layouts, with zero model requests.
+    Each layout starts from a real pinned installer transaction in disposable state.
     They verify native tools/hooks, child replacement, exit, restart, and persisted synthetic notes; they do not prove desktop reload.
     Read-only source review and PR approval do not grant installation permission.
   - **Check:** run `node scripts/check.mjs` and

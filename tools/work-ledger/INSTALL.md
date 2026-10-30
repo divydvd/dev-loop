@@ -266,7 +266,8 @@ Offline mode disables GitHub services under the CLI contract.
 A loopback model endpoint rejects requests; both tested layouts recorded zero provider requests.
 This is not packet-level proof for every network destination.
 
-Both layouts passed thirteen assertions.
+Both layouts passed fourteen assertions.
+The owner installer first applies its pinned transaction to each disposable extension directory.
 The unmodified maintained entry joined through the CLI's actual SDK resolver.
 A separate test observer used native SDK metadata and tool APIs, without a model prompt.
 The real host registered both maintained tools and invoked the maintained pre-tool hook.
@@ -275,7 +276,8 @@ The observer saw those notes survive foreground replacement and a complete host 
 The host replaced the extension child process and stopped old children.
 All exits returned zero, with no observed child left running.
 The script verifies source and copied runtime hashes after each run.
-Its sanitized JSON evidence records the exact source SHA, code hashes, commands, process identities, and thirteen assertion results.
+Its sanitized JSON evidence records the exact source SHA, code hashes, commands, process identities, and fourteen assertion results.
+It excludes ledger contents and raw tool results, including the synthetic records used for the persistence assertions.
 
 The exact foreground host options were:
 
