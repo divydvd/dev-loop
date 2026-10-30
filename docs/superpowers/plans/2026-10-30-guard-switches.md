@@ -118,7 +118,7 @@ The installed files are evidence only. Do not edit them or read live ledger data
 - [x] Add baseline smoke tests for public pure helpers without invoking the live host.
 - [x] Document the SDK requirement and a disposable-home test procedure.
 - [x] Run `node scripts/check.mjs` and the baseline Node tests.
-- [ ] Get an independent review of provenance, completeness, and runtime isolation.
+- [x] Get an independent review of provenance, completeness, and runtime isolation.
 - [ ] Commit, verify, and open the source-only PR. Do not install or merge it.
 
 The baseline intentionally preserves existing defects. It is not a corrected release.
@@ -184,7 +184,9 @@ Live installation requires a separate owner-controlled step and an active-runtim
 - Source import: nine files preserved unchanged; all original hashes verified.
 - Baseline checks: six new helper/integrity tests and eleven existing tests passed. `node scripts/check.mjs` reported no faults.
 - Baseline pre-import check: missing manifest assertion and missing-module errors, as expected before preserving the source. This is source preservation, not a behavior implementation.
-- Baseline review: pending.
+- Baseline review: independent read-only review found no significant issue in `67b7c4b..f577899`.
+- Review boundary: live SDK startup, future controls, and pre-existing defects are not validated by this baseline.
+- Provenance evidence: separately read installed hashes matched all nine imported files. The reviewer checked the recorded manifest; it did not independently establish installation history.
 - Switch implementation: not started.
 - Active installation: unchanged.
 
