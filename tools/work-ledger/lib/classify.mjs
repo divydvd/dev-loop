@@ -22,9 +22,9 @@ export const DEFAULT_DEPLOY_WORKFLOWS = {
 };
 
 export function resolveCd(cwd, arg) {
-  if (arg === undefined || arg === "" || arg === "~") return os.homedir();
-  if (/[$`…*?]/.test(arg) || arg === "-") return null;
-  if (arg.startsWith("~/")) return path.join(os.homedir(), arg.slice(2));
+  if (arg === undefined || arg === "") return os.homedir();
+  // The splitter removes quoting, so tilde expansion cannot be verified.
+  if (/[$`…*?]/.test(arg) || arg === "-" || arg.startsWith("~")) return null;
   if (path.isAbsolute(arg)) return path.resolve(arg);
   return cwd ? path.resolve(cwd, arg) : null;
 }
@@ -151,7 +151,7 @@ function pushFindings(args, base, out) {
   if (implicit) out.push({ rule: "push-implicit", ...base, remote: pos[0] || null });
 }
 
-const PR_EDIT_VALUE = new Set(["--add-reviewer", "--remove-reviewer", "--add-label", "--remove-label", "--add-assignee", "--remove-assignee", "--add-project", "--remove-project", "-t", "--title", "-b", "--body", "-F", "--body-file", "-B", "--base", "-m", "--milestone"]);
+const PR_EDIT_VALUE = new Set(["--add-reviewer", "--remove-reviewer", "--add-label", "--remove-label", "--add-assignee", "--remove-assignee", "--add-project", "--remove-project", "--attach", "-t", "--title", "-b", "--body", "-F", "--body-file", "-B", "--base", "-m", "--milestone"]);
 const PR_MERGE_VALUE = new Set(["-t", "--subject", "-b", "--body", "-F", "--body-file", "-A", "--author-email", "--match-head-commit"]);
 
 function ghFindings(argv, ctx, out, opts) {
@@ -159,6 +159,13 @@ function ghFindings(argv, ctx, out, opts) {
   const rest = [];
   for (let k = 1; k < argv.length; k++) {
     const a = argv[k];
+    if (a === "--") { rest.push(...argv.slice(k)); break; }
+    const values = rest[0] === "pr" && (rest[1] === "edit" ? PR_EDIT_VALUE : rest[1] === "merge" ? PR_MERGE_VALUE : null);
+    if (values && values.has(a)) {
+      rest.push(a);
+      if (k + 1 < argv.length) rest.push(argv[++k]);
+      continue;
+    }
     if (a === "-R" || a === "--repo") { repo = argv[k + 1]; k++; continue; }
     if (a.startsWith("--repo=")) { repo = a.slice(7); continue; }
     if (/^-R[\w./:-]+$/.test(a)) { repo = a.slice(2); continue; }
@@ -187,6 +194,7 @@ function ghFindings(argv, ctx, out, opts) {
     const reviewers = [];
     for (let k = 0; k < args.length; k++) {
       const a = args[k];
+      if (a === "--") { if (prRef === null && args[k + 1] !== undefined) prRef = args[k + 1]; break; }
       if (a.startsWith("--") && a.includes("=")) { const [nm, v] = splitOnce(a); if (nm === "--add-reviewer") reviewers.push(...v.split(",")); continue; }
       if (PR_EDIT_VALUE.has(a)) { if (a === "--add-reviewer") reviewers.push(...String(args[k + 1] ?? "").split(",")); k++; continue; }
       if (a.startsWith("-")) continue;

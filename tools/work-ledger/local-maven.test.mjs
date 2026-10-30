@@ -7,7 +7,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { decide, DEFAULT_CONFIG } from "./lib/policy.mjs";
 import { makeLookups } from "./lib/gh.mjs";
-import { emptyLedger } from "./lib/store.mjs";
+import { emptyLedger, Ledger } from "./lib/store.mjs";
 import { applyGuardCommand, parseGuardCommand, guardStatus } from "./lib/guard-switches.mjs";
 
 const now = Date.parse("2026-10-30T10:00:00Z");
@@ -336,4 +336,134 @@ test("a project containing ..ledger protected data cannot receive a Maven except
   f.deps.protectedDirs = [protectedDir];
   assert.equal(f.git("status", "--porcelain"), "");
   assert.ok((await f.run()).deny);
+});
+
+for (const name of ["ledger", "extension"]) {
+  for (const layout of ["root alias", "ancestor alias", "enclosing root", "same directory"]) {
+    test(`Maven rejects a protected ${name} through a ${layout}`, async t => {
+      const f = fixture(t);
+      const base = fs.realpathSync(f.tmp);
+      const alias = path.join(base, `${name}-alias`);
+      let protectedDir;
+      if (layout === "enclosing root" || layout === "same directory") {
+        fs.symlinkSync(layout === "enclosing root" ? base : f.cwd, alias);
+        protectedDir = alias;
+      } else {
+        const target = path.join(f.cwd, "build", name);
+        fs.mkdirSync(target, { recursive: true });
+        fs.writeFileSync(path.join(target, "marker"), "synthetic protected data\n");
+        fs.symlinkSync(layout === "ancestor alias" ? path.dirname(target) : target, alias);
+        protectedDir = layout === "ancestor alias" ? path.join(alias, name) : alias;
+      }
+      const safe = path.join(base, "safe");
+      fs.mkdirSync(safe);
+      f.deps.protectedDirs = [safe, protectedDir];
+      f.pause();
+      assert.equal(f.git("status", "--porcelain"), "");
+      const result = await f.run();
+      assert.match(result.deny || "", /project overlaps protected guard source or data/);
+      assert.notEqual(result.localMaven, true);
+    });
+  }
+}
+
+for (const failure of ["missing root", "broken root alias", "broken ancestor alias", "symlink loop", "non-directory ancestor"]) {
+  test(`Maven explicitly rejects protected path resolution failure: ${failure}`, async t => {
+    const f = fixture(t);
+    const base = fs.realpathSync(f.tmp);
+    const alias = path.join(base, "protected-alias");
+    let protectedDir = alias;
+    if (failure === "broken root alias" || failure === "broken ancestor alias") {
+      fs.symlinkSync(path.join(base, "missing"), alias);
+      if (failure === "broken ancestor alias") protectedDir = path.join(alias, "ledger");
+    } else if (failure === "symlink loop") {
+      fs.symlinkSync(alias, alias);
+    } else if (failure === "non-directory ancestor") {
+      fs.writeFileSync(alias, "not a directory\n");
+      protectedDir = path.join(alias, "ledger");
+    }
+    const safe = path.join(base, "safe");
+    fs.mkdirSync(safe);
+    f.deps.protectedDirs = [safe, protectedDir];
+    f.pause();
+    const result = await f.run();
+    assert.match(result.deny || "", /protected path verification failed/);
+    assert.notEqual(result.localMaven, true);
+  });
+}
+
+test("Maven retains lexical overlap denial when a protected alias points outside the project", async t => {
+  const f = fixture(t);
+  const outside = path.join(fs.realpathSync(f.tmp), "outside");
+  fs.mkdirSync(outside);
+  const alias = path.join(f.cwd, "build", "ledger");
+  fs.mkdirSync(path.dirname(alias));
+  fs.symlinkSync(outside, alias);
+  f.deps.protectedDirs = [alias];
+  f.pause();
+  assert.match((await f.run()).deny, /project overlaps protected guard source or data/);
+});
+
+test("Maven rejects canonical overlap when the project uses an ancestor alias", async t => {
+  const f = fixture(t);
+  const base = fs.realpathSync(f.tmp);
+  const alias = path.join(base, "project-parent-alias");
+  fs.symlinkSync(base, alias);
+  const protectedDir = path.join(f.cwd, "build", "ledger");
+  fs.mkdirSync(protectedDir, { recursive: true });
+  f.scope.cwd = path.join(alias, "project");
+  f.scope.launcher = path.join(f.scope.cwd, "gradlew");
+  f.scope.destination = path.join(f.scope.cwd, "build", "kit-test-repository");
+  f.scope.command = f.command.replace(f.destination, f.scope.destination);
+  f.deps.protectedDirs = [protectedDir];
+  f.pause();
+  const result = await f.run(f.scope.command, f.scope.cwd);
+  assert.match(result.deny || "", /project overlaps protected guard source or data/);
+});
+
+test("Maven permits nonoverlapping canonical aliases after normal ledger initialization", async t => {
+  const f = fixture(t);
+  const base = fs.realpathSync(f.tmp);
+  const data = path.join(base, "new-ledger");
+  const ledger = new Ledger(data);
+  assert.equal(ledger.dir, data);
+  const extension = path.join(base, "extension");
+  fs.mkdirSync(extension);
+  const alias = path.join(base, "protected-parent-alias");
+  fs.symlinkSync(base, alias);
+  f.deps.protectedDirs = [path.join(alias, "new-ledger"), path.join(alias, "extension")];
+  f.pause();
+  const result = await f.run();
+  assertLocalResult(result);
+  if (hasLock) assert.equal(result.localMaven, true);
+});
+
+for (const layout of ["root", "ancestor"]) {
+  test(`Maven rejects a case-aliased protected ${layout} on a case-insensitive filesystem`, async t => {
+    const f = fixture(t);
+    const base = fs.realpathSync(f.tmp);
+    const caseAlias = path.join(base, "PROJECT");
+    if (!fs.existsSync(caseAlias)) return t.skip("fixture filesystem is case-sensitive");
+    assert.equal(fs.statSync(caseAlias).ino, fs.statSync(f.cwd).ino);
+    const target = layout === "root" ? path.join(caseAlias, "build", "ledger")
+      : path.join(path.dirname(base), path.basename(base).toUpperCase());
+    if (layout === "root") fs.mkdirSync(target, { recursive: true });
+    const alias = path.join(base, "protected-alias");
+    // The alternate project spelling defeats string containment after realpath.
+    fs.symlinkSync(target, alias);
+    f.deps.protectedDirs = [alias];
+    f.pause();
+    const result = await f.run();
+    assert.match(result.deny || "", /project overlaps protected guard source or data/);
+  });
+}
+
+test("Maven does not conflate distinct case-sensitive sibling directories", async t => {
+  const f = fixture(t);
+  const other = path.join(fs.realpathSync(f.tmp), "PROJECT");
+  if (fs.existsSync(other)) return t.skip("fixture filesystem is case-insensitive");
+  fs.mkdirSync(other);
+  f.deps.protectedDirs = [other];
+  f.pause();
+  assertLocalResult(await f.run());
 });

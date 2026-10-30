@@ -108,6 +108,8 @@ Restoring a session pause leaves an overlapping repository pause active, and the
 The legacy `guards on` removes only the legacy global disable and reports remaining individual pauses.
 The legacy `guards off` remains a separate global control; status identifies its override.
 The existing singular aliases, `guard on` and `guard off`, retain the same legacy behavior.
+Direct legacy commands retain case and whitespace compatibility, including `guards ON` and `guard  on`.
+Quoted, forwarded, agent, and initial messages still cannot change guard state.
 No new command writes the legacy `DISABLED` file.
 
 Repository pauses apply across worktrees that resolve to the same canonical GitHub repository.
@@ -121,8 +123,11 @@ Use a verified `git -C` path or a Gradle project-directory option instead.
 Review-limit pauses require an independently resolved action repository, even when legacy approval lookup uses a default repository.
 They also require an explicit `-R`/`--repo` or a canonical `https://github.com/.../pull/...` URL.
 An implicit `gh` repository can differ from `origin`, so it never receives this layer's review-limit pause.
+PR option values, such as a title containing `--repo=example/project`, cannot supply that explicit repository.
+The `--` marker ends option parsing; later text cannot select a repository or request a reviewer.
 Gradle scope recognizes both separated and attached `-p` and `--project-dir` values.
 Paths containing a `..` segment retain enforcement because lexical normalization can hide a symlink's physical destination.
+Tilde-prefixed action paths also retain enforcement because the shell splitter cannot distinguish quoted and expanded tildes.
 An empty Git `-C` keeps the previous directory, as Git requires.
 Do not treat syntactic shell context as verified action identity.
 API commands with an unknown repository or another host retain enforcement.
@@ -177,6 +182,12 @@ Dangling destination symlinks and dangling ancestor symlinks also cause denial.
 Byte hashing is conservative: checkout transformations, such as line-ending conversion, can cause a denial.
 Projects that overlap protected guard source or data cannot receive the exception.
 Containment checks use path components; names such as `..project` and `..ledger` remain inside their parent directory.
+The Maven check compares lexical paths and filesystem identities along canonical directory ancestry.
+This includes symlinked ancestors and case aliases on case-insensitive filesystems, without conflating distinct case-sensitive directories.
+It rejects overlap in either direction, including equal paths.
+Every protected root and the project must resolve during verification.
+Missing paths, broken aliases, and other resolution errors explicitly deny Maven; no protected root is skipped.
+Normal extension startup creates the ledger directory before policy use. This check does not change startup or create directories.
 
 Type these commands directly in the owner chat:
 
@@ -221,6 +232,7 @@ Ignored files, global Gradle configuration, environment variables, caches, downl
 Do not put unreviewed build logic in ignored paths.
 The shared lock serializes cooperating builds, not file edits.
 Concurrent source edits after verification, including edits while waiting for the lock, remain a time-of-check risk.
+Concurrent changes to protected aliases after verification have the same limit.
 Use a controlled checkout without concurrent writers for publication.
 Real SDK startup/reload acceptance and owner installation remain separate work.
 Merge and real deployment approval remain mandatory, not unfinished configurable controls.
