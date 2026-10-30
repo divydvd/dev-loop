@@ -2,6 +2,16 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## Unreleased tooling (2026-10-30)
+- **Preserve the work-ledger baseline.**
+  - **What:** maintain the separate SDK extension under `tools/work-ledger/`, with provenance hashes, helper tests, and CI coverage.
+    All nine implementation files are unchanged. No plugin runtime behavior or live installation changes.
+  - **Why:** issue #11 records false deployment blocks and missing maintained source.
+    The owner approved this location and a source-only exception to the 400-line PR limit.
+  - **Check:** run `node scripts/check.mjs` and `node --test tools/work-ledger/*.test.mjs`.
+    Verify the original import against `BASELINE.sha256`.
+    Next weekly review: require separate tested fixes and an owner installation handoff before claiming the incident is resolved.
+
 ## 0.5.0 (2026-10-29)
 - **Project-based UI component reuse.**
   - **What:** UI work inspects existing components, design tokens, and current usage before the mockup or implementation.

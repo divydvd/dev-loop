@@ -13,3 +13,4 @@ jobs:
       - run: node scripts/check.mjs
       - run: node --test scripts/device-handoff.test.mjs
       - run: node --test scripts/branch-maintenance.test.mjs
+      - run: node --test tools/work-ledger/*.test.mjs
