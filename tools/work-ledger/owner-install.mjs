@@ -243,10 +243,8 @@ export async function prepareInstallation(request, options = {}) {
   privateParent(request.backupParent, [request.candidate, request.installed]);
   const before = installationSnapshot(request.installed);
   if (before.hash !== request.installedHash) fail("Installed snapshot changed since review.");
-  if (process.platform === "darwin") {
-    try { fs.accessSync(request.installed, fs.constants.W_OK); }
-    catch (error) { throw new Error("macOS cross-parent backup requires a writable installation root; preview refuses unsupported permissions.", { cause: error }); }
-  }
+  try { fs.accessSync(request.installed, fs.constants.W_OK); }
+  catch (error) { throw new Error("Cross-parent backup requires a writable installation root; preview refuses unsupported permissions.", { cause: error }); }
   const { hashes, files } = release(request.candidate, request.sourceHash);
   supportedInstalled(before, hashes);
   const input = configurationInput(request, before);

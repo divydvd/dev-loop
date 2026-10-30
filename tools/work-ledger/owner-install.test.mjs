@@ -725,7 +725,6 @@ for (const fileMode of [0o400, 0o444, 0o4555]) {
           if (entry[0].endsWith(".mjs")) fs.chmodSync(path.join(f.installed, entry[0]), fileMode);
         }
         for (const relative of ["owner-notes", "lib"]) fs.chmodSync(path.join(f.installed, relative), directoryMode);
-        if (process.platform !== "darwin") fs.chmodSync(f.installed, directoryMode);
         const before = f.installationSnapshot(f.installed);
         f.request.installedHash = before.hash;
         assert.equal((await f.prepareInstallation(f.request)).validated, true);
@@ -755,20 +754,18 @@ for (const kind of ["file", "directory"]) {
   });
 }
 
-if (process.platform === "darwin") {
-  for (const mode of [0o500, 0o555, 0o1500]) {
-    test(`macOS preview refuses root mode ${mode.toString(8)} before any staging or installation`, async t => {
-      assert.notEqual(process.getuid(), 0);
-      const f = await fixture(t);
-      fs.chmodSync(f.installed, mode);
-      const before = f.installationSnapshot(f.installed);
-      f.request.installedHash = before.hash;
-      await assert.rejects(f.prepareInstallation(f.request), /cross-parent.*writable installation root/i);
-      await assert.rejects(f.run(), /cross-parent.*writable installation root/i);
-      assert.deepEqual(f.installationSnapshot(f.installed), before);
-      assert.equal(fs.existsSync(f.request.backupParent), false);
-    });
-  }
+for (const mode of [0o500, 0o555, 0o1500]) {
+  test(`preview refuses root mode ${mode.toString(8)} before any staging or installation`, async t => {
+    assert.notEqual(process.getuid(), 0);
+    const f = await fixture(t);
+    fs.chmodSync(f.installed, mode);
+    const before = f.installationSnapshot(f.installed);
+    f.request.installedHash = before.hash;
+    await assert.rejects(f.prepareInstallation(f.request), /cross-parent.*writable installation root/i);
+    await assert.rejects(f.run(), /cross-parent.*writable installation root/i);
+    assert.deepEqual(f.installationSnapshot(f.installed), before);
+    assert.equal(fs.existsSync(f.request.backupParent), false);
+  });
 }
 
 for (const failure of ["write", "rename", "directory-drift"]) {
@@ -778,7 +775,6 @@ for (const failure of ["write", "rename", "directory-drift"]) {
     fs.chmodSync(path.join(f.installed, "config.json"), 0o400);
     fs.chmodSync(path.join(f.installed, "lib/policy.mjs"), 0o444);
     fs.chmodSync(path.join(f.installed, "lib"), 0o500);
-    if (process.platform !== "darwin") fs.chmodSync(f.installed, 0o555);
     const before = f.installationSnapshot(f.installed);
     f.request.installedHash = before.hash;
     const write = fs.writeFileSync, rename = fs.renameSync, open = fs.openSync;

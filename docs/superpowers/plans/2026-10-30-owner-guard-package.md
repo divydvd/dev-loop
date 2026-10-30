@@ -89,7 +89,8 @@ The active installation remains unchanged.
 
 - **Goal:** Use one approved-write path for configuration and runtime files, including private read-only directories.
 - **Done when:** Files with modes `0400` and `0444` install and roll back without changing their pinned permissions.
-- **Done when:** Installation roots and nested directories with modes `0500` and `0555` retain their exact permissions.
+- **Done when:** Nested directories with modes `0500` and `0555` retain their exact permissions.
+- **Done when:** Preview explicitly refuses unsupported read-only installation roots without changing their permissions.
 - **Required evidence:** Non-root regressions, executable/special mode preservation, injected failures, independent review, required suites, and both actual hosts.
 - **Size estimate:** Fewer than 390 production lines for the complete installer.
 - **Stop conditions:** Report new confirmed findings after this cycle without another source push.
@@ -100,10 +101,23 @@ Check the full temporary tree before restoring pinned directory modes.
 Check the final tree again before replacement.
 Fail explicitly during preview for unreadable installation states.
 Never change permissions in the active installation.
-macOS rejects cross-parent directory moves when the moved root is read-only.
+macOS and Linux reject cross-parent directory moves when the moved root is read-only.
 A disposable filesystem probe confirms same-parent success and cross-parent `EACCES` at mode `0555`.
-Preview therefore refuses read-only macOS roots explicitly; Linux tests exercise successful read-only root replacement and rollback.
-The successful macOS matrix retains a writable root and tests read-only files and nested directories.
+Linux CI independently confirms the cross-parent failure for the full read-only root matrix.
+Preview therefore refuses read-only roots explicitly on all supported platforms.
+The successful matrix retains a writable root and tests read-only files and nested directories.
+
+## Authorized follow-up: portable root precondition
+
+The owner selected "Approve the bounded correction push (Recommended)" after reviewing the Linux CI blocker.
+This decision authorizes one bounded correction push, not installation or active permission changes.
+
+- **Goal:** Reject unsupported read-only installation roots during preview on every supported platform.
+- **Done when:** Root modes `0500`, `0555`, and `01500` fail without changing original bytes or modes.
+- **Done when:** Read-only runtime/configuration files and nested directories still install and roll back exactly.
+- **Required evidence:** Independent review, fresh package pins, both complete Node suites, both actual hosts, and final CI/review.
+- **Size estimate:** Fewer than 360 production lines. No parent runtime change.
+- **Stop conditions:** Report a new confirmed final finding without another source push.
 
 ## Conclusion
 This layer prepares an installation package, not an installed correction.

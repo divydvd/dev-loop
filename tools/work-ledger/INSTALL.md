@@ -17,8 +17,8 @@ The transaction tests run on macOS with Node.js 26.12.1 and 22.23.4.
 The installer requires POSIX ownership and permission modes; Windows is not a supported installation target.
 All installed files and directories must be readable and traversable by the owner.
 Read-only configuration, runtime files, and nested directories are supported.
-On macOS, the installation root must also be writable for the cross-parent backup rename.
-Preview refuses a read-only macOS root without changing its permissions.
+The installation root must also be writable for the cross-parent backup rename.
+Preview refuses a read-only root without changing its permissions.
 Do not install while an affected extension host runs.
 An extension host is the CLI process that loads an extension and its SDK child process.
 The installer cannot identify or stop every desktop, terminal, remote, or background host.
