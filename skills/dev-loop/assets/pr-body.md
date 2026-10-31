@@ -31,9 +31,24 @@ After merge, post the refresh result as a PR comment and in the owner-facing rep
 - `docs/flows/<flow>.md`: <what changed> (or "none: <reason>")
 
 ## Review
+### Independent agent review
+| Item | Evidence |
+| --- | --- |
+| Reviewer | <agent identity; not the implementer or GitHub Copilot reviewer> |
+| Reviewed commit | <SHA or exact working-tree snapshot and its committed content> |
+| Scope | <complete PR diff and interactions; or existing coverage plus focused review> |
+| Verdict | <findings addressed, unresolved findings, or unavailable; not a test result> |
+| Changes after review | <changes and their focused review evidence; harmless edits; or none> |
+| Exemption | <none; or harmless spelling/formatting edits and why they cannot affect behavior, safety, or validation> |
+
+### GitHub Copilot review
+<Head commit, result, and any availability limitation. This does not replace independent agent review.>
+
 - Fixed findings: <list, or "none">
 - Findings that are not fixed: <each with the reason, or "none">
 - Not reviewed: <each task or branch whose review subagent failed 2 times, or "none">
+
+If independent review remains unavailable, report "open, not ready". Never treat "none" in the findings list as proof of review.
 
 ## Risks, and what the owner must check
 - <a risk, or a check that only a person can do>

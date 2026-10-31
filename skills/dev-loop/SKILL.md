@@ -51,7 +51,7 @@ For non-UI tasks, skip that reference and the profile's UI reuse pointers.
 - **Bug:** use `systematic-debugging`. Reproduce the bug, find the root cause, and write a test that fails because of the bug.
   - If the fix is in one area and has 3 tasks or fewer, save the acceptance record (`assets/acceptance-record.md`) before you write the fix. Save it as the plan, in `docs/superpowers/plans/<YYYY-MM-DD>-<topic>.md`. Then fix it with `test-driven-development`. Do not use `writing-plans`. Copy the record into the PR body.
   - If the fix is bigger, write a plan (step 2).
-- **Trivial change** (no change in behavior: text, a comment, a typo): make the change, and go to step 4. In step 6, run only the fast checks. A config change that changes behavior is a behavior change.
+- **Trivial change:** only harmless spelling or formatting edits qualify for the independent-review exemption. Record the reason in the PR body. A changed command or operational instruction is not trivial. A config change that changes behavior is a behavior change. For a harmless edit, make the change and go to step 4. In step 6, run only the fast checks.
 - **Question:** answer with evidence (paths, commands, and results). Do not change code.
 - **Big work** (more than about 3 PRs): you are the lead. Split the work into a stack of PRs, with one child session for each PR. Use the `pr-stack` and `orchestrate` skills when they are available. Review each child PR before you report.
 
@@ -65,7 +65,7 @@ For non-UI tasks, skip that reference and the profile's UI reuse pointers.
 ## 3. Build
 - Follow `executing-plans` or `subagent-driven-development`, as core rule 7 says. Use test-driven development.
 - With `executing-plans`, after each task in a risky area, get one independent review: use `requesting-code-review` for the commits of that task. Give the reviewer the task, the acceptance record, and the review checklist. Before the next task, fix the findings that pass `receiving-code-review`. `subagent-driven-development` already reviews each task.
-- If a review subagent fails, here or in step 5, start it again once. If it fails again, do not put your own review in its place. Write the task or the branch in the "Not reviewed" line of the PR body, and name it in the report.
+- If a review subagent fails, here or in step 5, start it again once. If it fails again, do not report the PR ready or put your own review in its place. Write the task or branch in "Not reviewed". You may open the PR, but report "open, not ready: independent review unavailable".
 - Run independent tasks and research in parallel. Run only one heavy build at a time, with the profile's commands.
 - When the plan does not answer a question, decide it, and record the ruling in the ledger.
 
@@ -74,11 +74,15 @@ For non-UI tasks, skip that reference and the profile's UI reuse pointers.
 - Otherwise, use `flow-docs`. Update the doc of each flow that you changed, in the same PR. Add each new pitfall and invariant.
 
 ## 5. Self-review
-Do this step for each code change, also a small one.
+Do this step for each substantive change, including small features and small fixes.
 - Do a "simplify" pass. Remove the code, flags, and abstractions that the goal does not need.
 - Check the change against the acceptance record and the profile's review checklist.
 - For UI work, check the reuse decision against the final code, affected consumers, and the required UI evidence.
-- For a change with a plan from step 2, also use `requesting-code-review`, or the final whole-branch review of the execution skill. Give the reviewer the acceptance record and the review checklist.
+- Require independent agent review of the complete PR diff before the first push. This covers code, tests, configuration, dependencies, workflows, rules, skills, and operational instructions, regardless of the plan route.
+- Use `requesting-code-review` in a separate agent context. Give the reviewer the base and head commits, acceptance record, and project checklist. For an uncommitted change, identify the exact working-tree snapshot. Ask the reviewer to check the source and affected callers, not only the author's explanation. Self-review and GitHub Copilot review do not replace this review or the required tests.
+- Reuse an existing independent review when it covers the complete PR diff and its interactions. Isolated task reviews do not establish integration coverage. Review the missing coverage rather than repeat completed work.
+- Give later substantive changes a focused independent review of the changed behavior and affected interactions before the next push. Harmless spelling or formatting edits do not need another review. Do not request a full review merely to obtain a clean verdict.
+- Record the reviewer identity, reviewed commit or snapshot, scope, verdict, and findings disposition in the PR body and ledger. Record changes after review separately. Link a reviewed snapshot to its committed content; do not claim the reviewer checked a later commit. The coverage record must account for the final substantive content.
 - Check each finding with `receiving-code-review`. Fix the Critical and Important findings that pass this check. List the other findings in the PR body, with the reason.
 - Check the size with `git diff --stat <base>...HEAD`. Count only production code: not tests, docs, or generated files. If it is still more than about 400 lines, split it, and write in the Dev-loop feedback why the estimate was wrong.
 
@@ -108,6 +112,7 @@ Commit all changes first. Do this step after the last commit to the branch, so t
 - Each push starts CI and a Copilot review, and both cost Actions minutes. Do not push the branch before this step. Push once to open the PR, and then once for each review round.
 - Push the branch, and open a PR with a body from `assets/pr-body.md`. Fill in the evidence, the Test tool feedback, and the Dev-loop feedback.
 - After the PR opens, if `work_ledger_record` is available, record each result from step 6 with the PR number and its exact commit SHA (kind `validated` or `device_tested`). Record new results after each review fix.
+- Keep independent review evidence separate from automatic review evidence. A `review_clean` entry does not by itself prove independent review. Record the reviewer and coverage in a `note` when the work ledger is available.
 - After each push, wait for the checks and for the automatic review of the head commit. `gh pr checks` does not show Copilot code review. Find its check run, `copilot-pull-request-reviewer`, in `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`. The review starts 1 minute or less after the push, and it can take 5 minutes. If no review starts in 2 minutes, the repo has no automatic review.
 - A failed check is a new finding that you must fix. Fix it in the push of the round. If the round limit stops you, report the failed check to the owner.
 - Do review rounds. Read each new finding, in the review threads and in the review text. Check it as in step 5. When a finding asks only for evidence, get the evidence, and do not change code for it. Reply in its thread with your change or your reason, and resolve the thread.
@@ -140,13 +145,14 @@ For a project with no device test, or a change outside its device-test tier, rep
 ## 8. Report
 Send the owner one short message:
 ```
-PR #<N> is ready: <one-line summary>.
+PR #<N> is <ready | open, not ready: reason>: <one-line summary>.
 Evidence: <tests> passed; device test <passed | not needed> at <sha7>.
+Independent review: <reviewer, covered commit or snapshot, later-change coverage | harmless-edit exemption and reason | unavailable>.
 Please check: <the one or two things that only a person can check>.
 ```
 
 ## Stop conditions
-- **Done:** each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped.
+- **Done:** each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved.
 - **Blocked:** 3 failed fixes, missing access, no device, or a product decision that the repo does not answer. Stop. Report what you tried, the evidence, and the decision that you need.
 - **Ask the owner** only at the feature design, at a plan for a risky area, and before a destructive action.
 

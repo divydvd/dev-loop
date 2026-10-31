@@ -2,6 +2,24 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.1 (2026-10-31)
+- **Require independent review for substantive PRs.**
+  - **What:** Replace the step-2-only review condition with complete independent coverage before the first push.
+    Include small changes, tests, dependencies, configuration, and operational instructions.
+    Exempt only harmless spelling or formatting edits, with a recorded reason.
+    Reuse complete existing coverage and review later substantive changes with a focused scope.
+    Record reviewer identity, reviewed content, verdict, and later-change coverage separately from GitHub Copilot review.
+    Two failed attempts permit an open PR, but not a ready claim. No blocking guard is added.
+  - **Why:** A fresh baseline agent applied eight scenarios to the old instructions.
+    It excluded small bugs and features because their acceptance records came from step 1.
+    It also permitted a ready claim after two failed independent review attempts.
+    PR #3 records two Important independent findings while Actions blocked automatic review.
+    PR #20 records three independent findings that received regression tests.
+  - **Check:** All five new text regressions failed before the change and passed afterward.
+    A fresh agent applied eight revised scenarios and five pressure variants.
+    It required substantive coverage, reused complete coverage, exempted harmless edits, and rejected unsupported ready claims.
+    Text checks do not prove runtime enforcement. The next weekly review measures coverage, owner reminders, confirmed findings, and review cost.
+
 ## Unreleased tooling (2026-10-31)
 - **Allow an owner-listed read-only monitor to name the guard lock path.**
   - **What:** A new `readOnlyMonitors` config list (exact interpreter words, script SHA-256, and one argument name). A call to a listed monitor may carry the exact guard `lockf` envelope as that argument's value. The call text must be plain or single-quoted words, so bash runs exactly the checked words. All other guard-path mentions, other interpreters, code flags, env prefixes, wrappers, chains, redirects, substitutions, and typed shell input stay denied.
