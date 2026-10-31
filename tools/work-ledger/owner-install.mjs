@@ -109,10 +109,10 @@ function authorize(kind, document, options) {
 }
 
 function supportedInstalled(snapshot, source) {
-  const baseline = manifest(read(path.join(here, "BASELINE.sha256")));
+  const known = ["BASELINE.sha256", "PREVIOUS.sha256"].map(name => manifest(read(path.join(here, name))));
   const files = snapshot.entries.filter(e => e[1] === "file" && e[0].endsWith(".mjs"));
   const matches = allowed => files.length === allowed.size && files.every(e => allowed.get(e[0]) === e[3]);
-  if (!matches(baseline) && !matches(source)) fail("Unsupported installed runtime source; review its changes separately.");
+  if (![...known, source].some(matches)) fail("Unsupported installed runtime source; review its changes separately.");
 }
 
 function release(candidate, sourceHash) {

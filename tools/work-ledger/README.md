@@ -32,6 +32,8 @@ These defaults are preserved, not recommended for other owners.
 `SOURCE.sha256` records the maintained release files.
 Update the release manifest when an implementation file changes.
 Do not update the baseline manifest to hide an implementation change.
+`PREVIOUS.sha256` is an exact copy of the previous release manifest. The installer uses it only to upgrade that reviewed release.
+Replace it with the old `SOURCE.sha256` when a new release changes runtime files.
 
 The original import retains the defects in [issue #11](https://github.com/divydvd/dev-loop/issues/11).
 The maintained source corrects the classification defects described below.
@@ -101,13 +103,17 @@ Agent messages, forwarded messages, quoted text, and the session's initial user 
 These checks use the existing SDK's direct-user event boundary, not a second account authentication service.
 
 `guards status` and `work_ledger_get` show the individual state, overlapping pauses, expiry, pending previews, and recent audit events.
+A pending preview shows its exact confirmation line and its deadline. Agents must show that line unchanged in a normal reply.
 The atomic ledger retains the latest 200 control audit events.
 The existing rotating history also records commands and outcomes.
 Controls do not remove approvals or evidence.
 An expired pause has no effect on the next policy decision, even without a timer or another ledger write.
 Restoring a session pause leaves an overlapping repository pause active, and the reverse also applies.
-The legacy `guards on` removes only the legacy global disable and reports remaining individual pauses.
-The legacy `guards off` remains a separate global control; status identifies its override.
+The legacy `guards off` is a global pause. It pauses only `review-limit` and `test-cache` for all repositories.
+It does not turn off merge approval, deployment/configuration approval, the rebase/amend/force-push/push-main checks, guard-source protection, Maven verification, or the shared Gradle build lock.
+It does not create, remove, or extend scoped pauses, and it is not action approval.
+Startup context, subagent context, `guards status`, and `work_ledger_get` show the global pause and the protections that stay active.
+The legacy `guards on` ends only the global pause and reports remaining individual pauses.
 The existing singular aliases, `guard on` and `guard off`, retain the same legacy behavior.
 Direct legacy commands retain case and whitespace compatibility, including `guards ON` and `guard  on`.
 Quoted, forwarded, agent, and initial messages still cannot change guard state.

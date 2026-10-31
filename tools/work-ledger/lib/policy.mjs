@@ -6,7 +6,7 @@ import { classify, deployTargetForWorkflow } from "./classify.mjs";
 import { commandsOf, basename, shQuote } from "./shell.mjs";
 import { activeApprovals } from "./store.mjs";
 import { sameSha, sameRepo, short, findUnit, passingRuns } from "./units.mjs";
-import { effectiveGuardState } from "./guard-switches.mjs";
+import { effectiveGuardState, GLOBAL_PAUSE_GUARDS } from "./guard-switches.mjs";
 import { configuredMavenScopes, localScopeId, localScopeProblem, localSourceProblem } from "./local-maven.mjs";
 
 export const TAG = "[work-ledger]";
@@ -147,6 +147,10 @@ async function resolvePr(f, repo, cwd, deps) {
 // Unlike legacy approval lookup, a pause never falls back to defaultRepo.
 async function guardPaused(guard, f, ctx, res, expectedRepo = null) {
   const { deps, sessionId, cwd } = ctx;
+  if (deps.globalPause && GLOBAL_PAUSE_GUARDS.includes(guard)) {
+    res.notes.push(`${guard} paused by the owner's global pause; this is not action approval.`);
+    return true;
+  }
   if (f.unknownRepo || /[()|]|(?<!&)&(?!&)|\b(?:GIT_\w+|GH_\w+|GITHUB_\w+|HOME|PATH|XDG_\w+|BASH_ENV|ENV|ZDOTDIR)=/.test(ctx.command)) return false;
   const commands = commandsOf(ctx.command);
   if (commands.some((c) => c.nested || c.wrapped || c.redirects.length ||
@@ -237,7 +241,7 @@ async function onReview(f, ctx, res) {
   const grant = approvalsFor(deps.data, deps.now, (a) => a.kind === "review" && a.pr === pr && sameRepo(a.repo, r))[0];
   const cap = deps.config.reviewCap ?? 3;
   const pending = { kind: "review", sessionId, repo: r, pr, sha: head };
-  const paused = !!f.repo && await guardPaused("review-limit", f, ctx, res, r);
+  const paused = (!!ctx.deps.globalPause || !!f.repo) && await guardPaused("review-limit", f, ctx, res, r);
   if (!paused && !grant && atHead.length) return deny(res, `A Copilot review was already requested for #${pr} at head ${short(head)}. Wait for it, fix its findings in a new commit, then request again. For an extra review of the same commit, ask the owner to type "review again #${pr}".`, pending);
   if (!paused && !grant && reviews.length >= cap) return deny(res, `#${pr} already had ${reviews.length} Copilot review rounds (cap ${cap}). Fix the open findings yourself and report to the owner. For one more round, ask the owner to type "review again #${pr}".`, pending);
   res.post.push({ kind: "review", repo: r, pr, sha: head, grantId: grant?.id || null });
@@ -347,7 +351,7 @@ export async function decide(call, deps) {
 
   const cmd = ctx.command;
   if (!cmd.trim()) return res;
-  if (bashTouchesProtected(cmd, cwd, dirs)) return deny(res, "This command writes to the work-ledger guard files. Only the owner changes them (the owner can type \"guards off\").");
+  if (bashTouchesProtected(cmd, cwd, dirs)) return deny(res, "This command writes to the work-ledger guard files. Only the owner changes them.");
 
   const { findings } = classify(cmd, { cwd, deployWorkflows: deps.config.deployWorkflows || undefined });
   const gradle = [];

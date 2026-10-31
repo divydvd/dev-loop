@@ -26,13 +26,14 @@ The `--hosts-stopped` option is an owner attestation, not automatic process dete
 This package never stops sessions, changes approvals, disables guards, deploys, or accesses a phone.
 
 The supported destination is an existing extension directory.
-Its runtime must match the archival baseline or this release.
+Its runtime must match the archival baseline, the previous reviewed release (`PREVIOUS.sha256`), or this release.
 Unknown runtime changes, additional `.mjs` files, symlinks, hard links, and nonregular files cause explicit failure.
 Review an unsupported installation separately. Do not remove its unknown files to bypass the check.
 Unrelated regular files, nested directories, permissions, and configuration survive.
 External configuration and ledger data remain untouched.
 
-Only repository/session pauses exist. They default to 30 minutes and need separate direct owner confirmation.
+Scoped pauses apply to a repository or a session. They default to 30 minutes and need separate direct owner confirmation.
+The legacy `guards off` pauses only the review limit and the duplicate-test cache. All other protections stay active.
 Merge and real deployment approval remain mandatory by explicit owner decision.
 The source protection and shared build lock remain active.
 Installation does not create a Maven pause or approve publication.
@@ -50,7 +51,7 @@ shasum -a 256 -c SOURCE.sha256
 
 Compare both manifest hashes with the PR evidence.
 `SOURCE.sha256` pins the eleven runtime files.
-`PACKAGE.sha256` also pins the installer, guides, and archival manifest.
+`PACKAGE.sha256` also pins the installer, guides, the archival manifest, and the previous release manifest.
 The installer uses only Node built-ins before validating candidate code.
 It imports verified helper byte copies from a private temporary directory.
 Preview removes that temporary directory and creates no persistent backup.

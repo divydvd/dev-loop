@@ -225,3 +225,46 @@ test("source protection and interactive routing remain outside the controls", as
   const interactive = await decide({ toolName: "write_bash", args: { input: "git rebase topic{enter}" }, cwd: "/project", sessionId: "owner" }, f.deps);
   assert.ok(interactive.deny);
 });
+
+test("global pause bypasses only the review limit and duplicate-test cache", async () => {
+  const f = fixture();
+  f.deps.globalPause = true;
+  f.data.validations.push({ sha, tasks: "test", at: new Date(now).toISOString(), exit: 0, dirty: false });
+  for (const command of ["./gradlew test", "./gradlew test 2>&1 | tail -5"]) {
+    const result = await f.call(command);
+    assert.equal(result.deny, null, command);
+    assert.equal(result.post[0]?.kind, "gradle", command);
+    assert.match(result.notes.join("\n"), /global pause/i, command);
+    if (fs.existsSync("/usr/bin/lockf")) {
+      assert.equal(result.lane, true, command);
+      assert.match(result.modifiedArgs.command, /lockf.*gradle\.lock/, command);
+    }
+  }
+  for (const r of [repo, "example/other"]) {
+    f.data.units[`${r}#1`] = { repo: r, pr: 1, reviews: [{ sha }, { sha }, { sha }, { sha }] };
+    const result = await f.call(`gh pr edit 1 -R ${r} --add-reviewer @copilot`);
+    assert.equal(result.deny, null, r);
+    assert.equal(result.post[0].kind, "review", r);
+  }
+  for (const command of [
+    "git rebase topic", "git commit --amend", "git push --force origin topic", "git push origin main",
+    "gh pr merge 1 -R example/project", "firebase deploy", "./gradlew publishToMavenLocal",
+    "gh variable set NAME --body value", "echo text > /protected/file",
+  ]) assert.ok((await f.call(command)).deny, command);
+  const write = await decide({ toolName: "apply_patch", args: { patch: "*** Update File: /protected/file" }, cwd: "/project", sessionId: "owner" }, f.deps);
+  assert.ok(write.deny);
+  const interactive = await decide({ toolName: "write_bash", args: { input: "git rebase topic{enter}" }, cwd: "/project", sessionId: "owner" }, f.deps);
+  assert.ok(interactive.deny);
+  assert.equal(f.data.approvals.length, 0);
+});
+
+test("global pause keeps separately confirmed scoped pauses and their limits", async () => {
+  const f = fixture();
+  f.pause("rebase");
+  f.deps.globalPause = true;
+  assert.equal((await f.call("git rebase topic")).deny, null);
+  assert.ok((await f.call("git rebase topic", "/other")).deny);
+  assert.ok((await f.call("git commit --amend")).deny);
+  f.deps.now = now + 1800000;
+  assert.ok((await f.call("git rebase topic")).deny, "scoped pause expiry still applies");
+});

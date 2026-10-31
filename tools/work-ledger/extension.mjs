@@ -11,7 +11,7 @@ import { makeLookups } from "./lib/gh.mjs";
 import { cleanOwnerTextInfo, planOwnerMessage, applyPlan, hasWork, addPending } from "./lib/grants.mjs";
 import { prRefs } from "./lib/approvals.mjs";
 import { formatUnit, recordEvidence, EVIDENCE_KINDS, short, findUnit } from "./lib/units.mjs";
-import { directGuardText, parseGuardCommand, applyGuardCommand, guardStatus } from "./lib/guard-switches.mjs";
+import { directGuardText, parseGuardCommand, applyGuardCommand, guardStatus, GLOBAL_PAUSE_TEXT } from "./lib/guard-switches.mjs";
 
 const EXT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return {}; } };
@@ -30,6 +30,7 @@ const RULES = `${TAG} Guards are ON. They block these actions:
 - A second Copilot review request for the same head commit, or more than ${config.reviewCap} rounds per PR ("review again #N" allows 1 more).
 - Gradle runs share one lane across sessions. A passing test or lint run is cached per clean commit.
 Owner controls: "guards status" shows supported temporary pauses. Each change needs a separate direct confirmation. A pause is not action approval.
+When a guard preview appears, show its exact "guard confirm ..." line to the owner in your normal reply. Do not change, shorten, invent, or reuse it, and do not ask for it with ask_user.
 A denied call tells you what to do next. Use work_ledger_get for PR status and work_ledger_record to save evidence (exact SHA required).`;
 const RULES_SHORT = `${TAG} Guards are ON: merges and deploys need the owner's typed approval; no force push, rebase, amend, or push to main; 1 Copilot review per head commit. A denied call tells you what to do next.`;
 
@@ -71,9 +72,8 @@ function safe(name, fn) {
 }
 
 function hydration(full) {
-  if (ledger.isDisabled()) return `${TAG} Guards are OFF (the owner typed "guards off"). Follow the owner's normal rules.`;
   const act = activeApprovals(ledger.read()).map((a) => (a.kind === "merge" ? `merge ${a.repo}#${a.pr} at ${short(a.sha)}` : a.kind === "deploy" ? `deploy ${a.target}` : `extra review ${a.repo}#${a.pr}`));
-  return `${full ? RULES : RULES_SHORT}\n${act.length ? `Active owner approvals: ${act.join("; ")}.` : "No active owner approvals."}`;
+  return `${full ? RULES : RULES_SHORT}${ledger.isDisabled() ? `\n${TAG} ${GLOBAL_PAUSE_TEXT}` : ""}\n${act.length ? `Active owner approvals: ${act.join("; ")}.` : "No active owner approvals."}`;
 }
 
 function remember(keys, posts) {
@@ -92,21 +92,21 @@ function takePosts(cmd) {
 async function preToolUse(input, inv) {
   cwdNow = input.workingDirectory || input.cwd || cwdNow;
   if (config.debug) ledger.history({ type: "debug.pre", sessionId: inv?.sessionId, tool: input.toolName ?? (input.toolCalls || []).map((c) => c.name ?? c.toolName).join(","), batched: Array.isArray(input.toolCalls), argsType: typeof input.toolArgs, cwd: cwdNow });
-  if (ledger.isDisabled()) return undefined;
   await waitFor(approvalWork, 10000);
   const calls = Array.isArray(input.toolCalls)
     ? input.toolCalls.map((c) => ({ toolName: c.name ?? c.toolName, args: parseArgs(c.args ?? c.arguments ?? c.toolArgs) }))
     : [{ toolName: input.toolName, args: parseArgs(input.toolArgs) }];
   const data = ledger.read();
+  const globalPause = ledger.isDisabled();
   const sid = inv?.sessionId || input.sessionId || mySessionId();
   for (const call of calls) {
     let res;
     try {
-      res = await decide({ ...call, cwd: cwdNow, sessionId: mySessionId() || sid }, { data, lookups, config, now: Date.now(), protectedDirs, lockFile });
+      res = await decide({ ...call, cwd: cwdNow, sessionId: mySessionId() || sid }, { data, lookups, config, now: Date.now(), protectedDirs, lockFile, globalPause });
     } catch (e) {
       ledger.error(`decide: ${e?.stack || e}`);
       const text = `${call.toolName} ${JSON.stringify(call.args)}`;
-      if (RISKY.test(text)) return { permissionDecision: "deny", permissionDecisionReason: `${TAG} The guard could not check this command (internal error), so it stays blocked. Try again once. If it fails again, tell the owner; the owner can type "guards off".` };
+      if (RISKY.test(text)) return { permissionDecision: "deny", permissionDecisionReason: `${TAG} The guard could not check this command (internal error), so it stays blocked. Try again once. If it fails again, tell the owner.` };
       continue;
     }
     for (const n of res.notes) ledger.history({ type: "note", sessionId: sid, note: n });
@@ -186,7 +186,7 @@ async function onUserMessage(e) {
   if (e.id === firstUserId || d.source || d.isAutopilotContinuation) return;
   const control = directGuardText(e, firstUserId);
   if (control && !/^guards?\s+(on|off)$/i.test(control)) {
-    const context = { owner: true, repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId(), messageId: e.id, legacyDisabled: ledger.isDisabled() };
+    const context = { owner: true, repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId(), messageId: e.id, globalPause: ledger.isDisabled() };
     const result = ledger.update((data) => applyGuardCommand(data, parseGuardCommand(control), { ...context, config }));
     ledger.history({ type: "guard.control", ...context, command: control, result: result.text });
     log(`${TAG} ${result.text}`);
@@ -203,7 +203,7 @@ async function onUserMessage(e) {
   if (!hasWork(plan)) return;
   if (plan.guards) {
     ledger.setDisabled(plan.guards === "off", `owner in session ${mySessionId()}`);
-    log(`${TAG} Guards are ${plan.guards.toUpperCase()} for all sessions.${plan.guards === "off" ? ' Type "guards on" to turn them back on.' : ""}`, plan.guards === "off" ? "warning" : undefined);
+    log(`${TAG} ${plan.guards === "off" ? GLOBAL_PAUSE_TEXT : "Guards are ON for all sessions. The global pause has ended."}`, plan.guards === "off" ? "warning" : undefined);
     if (plan.guards === "on") log(`${TAG} ${guardStatus(ledger.read(), { repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId() })}`);
   }
   const heads = new Map();
@@ -232,10 +232,9 @@ session = await joinSession({
     onSessionStart: safe("onSessionStart", async () => ({ additionalContext: hydration(true) })),
     onSubagentStart: safe("onSubagentStart", async (input) => {
       if (config.debug) ledger.history({ type: "debug.substart", agentName: input?.agentName, agentType: input?.agentType });
-      return ledger.isDisabled() ? undefined : { additionalContext: hydration(false) };
+      return { additionalContext: hydration(false) };
     }),
     onSubagentStop: safe("onSubagentStop", async (input) => {
-      if (ledger.isDisabled()) return undefined;
       if (READ_ONLY_AGENTS.test(input.agentType || "") || READ_ONLY_AGENTS.test(input.agentName || "")) return undefined;
       const r = String(input.response || "");
       const key = input.agentId || input.transcriptPath || r.slice(0, 80);
@@ -257,7 +256,7 @@ session = await joinSession({
       handler: async ({ pr, repo } = {}) => {
         try {
           const data = ledger.read();
-          const guards = `${ledger.isDisabled() ? "Guards: OFF (legacy global control overrides individual state)" : "Guards: ON"}\n${guardStatus(data, { repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId() })}`;
+          const guards = `Guards: ON\n${guardStatus(data, { repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId(), globalPause: ledger.isDisabled() })}`;
           if (pr) {
             const r = repo || await repoFor(cwdNow);
             const h = await lookups.prHead(r, Number(pr));
