@@ -145,3 +145,30 @@ test("malformed owner entries do not allow anything", async t => {
     assert.match((await f.run(f.exact)).deny, PROTECTED);
   }
 });
+
+test("a carriage return or other control character in the command is denied", async t => {
+  const f = fixture(t);
+  for (const c of [`\r${f.exact}`, `${f.exact}\r`, f.exact.replace(" -I ", " -I\r"), `\u00a0${f.exact}`, `\t${f.exact}`]) {
+    assert.match((await f.run(c)).deny ?? "", PROTECTED, JSON.stringify(c.slice(0, 30)));
+  }
+});
+
+test("a script path whose '..' follows a symlink out of the reviewed folder is denied", async t => {
+  const f = fixture(t);
+  const other = path.join(f.tmp, "other");
+  fs.mkdirSync(path.join(other, "sub"), { recursive: true });
+  fs.writeFileSync(path.join(other, "publication-watchdog.py"), "open('/tmp/x', 'w')\n");
+  fs.symlinkSync(path.join(other, "sub"), path.join(f.files, "link"));
+  const tricky = path.join(f.files, "link") + "/../publication-watchdog.py";
+  assert.match((await f.run(f.exact.replace(f.script, tricky))).deny ?? "", PROTECTED);
+  assert.match((await f.run(f.exact.replace(f.script, `${f.files}/./publication-watchdog.py`))).deny ?? "", PROTECTED);
+});
+
+test("any fully matching owner entry allows the call, in any list order", async t => {
+  const f = fixture(t);
+  const [entry] = f.config.readOnlyMonitors;
+  f.config.readOnlyMonitors = [{ ...entry, argument: "--other-command" }, entry];
+  const r = await f.run(f.exact);
+  assert.equal(r.deny, null);
+  assert.equal(r.modifiedArgs, null);
+});

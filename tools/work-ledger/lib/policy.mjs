@@ -82,26 +82,28 @@ function verifiedReadOnlyMonitor(cmd, c, count, dirs, opts) {
   if (count !== 1 || c.nested || c.wrapped || c.heredoc || (c.redirects || []).length) return false;
   const argv = c.argv;
   // Rebuild the call from plain words and single-quoted words. Only then does bash pass exactly these words.
-  const literal = argv.map((a) => /^[A-Za-z0-9_\/.:=@%+,-]+$/.test(a) ? a : /^[^'\n]+$/.test(a) ? `'${a}'` : null);
-  if (literal.includes(null) || cmd.trim() !== literal.join(" ") || argv.some((a) => /[`$]/.test(a))) return false;
-  const entry = monitors.find((m) => {
+  // Printable ASCII only: the parser drops some characters (such as "\r") that bash keeps in a word.
+  if (/[^\x20-\x7e]/.test(cmd)) return false;
+  const literal = argv.map((a) => /^[A-Za-z0-9_\/.:=@%+,-]+$/.test(a) ? a : /^[^']+$/.test(a) ? `'${a}'` : null);
+  if (literal.includes(null) || cmd !== literal.join(" ") || argv.some((a) => /[`$]/.test(a))) return false;
+  return monitors.some((m) => {
     if (m.interpreter.some((w, i) => argv[i] !== w)) return false;
     const script = argv[m.interpreter.length];
-    if (!script || !path.isAbsolute(script)) return false;
+    // A normalized path has no "." or ".." part, so the guard and Python open the same file.
+    if (!script || !path.isAbsolute(script) || path.normalize(script) !== script) return false;
     try {
-      const real = fs.realpathSync(script);
+      const real = fs.realpathSync.native(script);
       if ([script, real].some((p) => dirs.some((d) => under(p, d))) || !fs.statSync(real).isFile()) return false;
-      return crypto.createHash("sha256").update(fs.readFileSync(real)).digest("hex") === m.sha256;
+      if (crypto.createHash("sha256").update(fs.readFileSync(real)).digest("hex") !== m.sha256) return false;
     } catch { return false; }
+    const flag = m.argument;
+    const at = argv.indexOf(flag);
+    if (at <= m.interpreter.length || at + 1 >= argv.length || argv.indexOf(flag, at + 1) !== -1 || argv.some((a) => a.startsWith(`${flag}=`))) return false;
+    const value = argv[at + 1];
+    const envelope = value.match(new RegExp(`^${escapeRe(LOCKF)} -t \\d+ ${escapeRe(opts.lockFile)} /bin/bash -c `));
+    if (!envelope || mentions(value.slice(envelope[0].length), dirs)) return false;
+    return argv.every((a, i) => i === at + 1 || !mentions(a, dirs));
   });
-  if (!entry) return false;
-  const flag = entry.argument;
-  const at = argv.indexOf(flag);
-  if (at <= entry.interpreter.length || at + 1 >= argv.length || argv.indexOf(flag, at + 1) !== -1 || argv.some((a) => a.startsWith(`${flag}=`))) return false;
-  const value = argv[at + 1];
-  const envelope = value.match(new RegExp(`^${escapeRe(LOCKF)} -t \\d+ ${escapeRe(opts.lockFile)} /bin/bash -c `));
-  if (!envelope || mentions(value.slice(envelope[0].length), dirs)) return false;
-  return argv.every((a, i) => i === at + 1 || !mentions(a, dirs));
 }
 
 /** Does this shell command write inside a protected dir? */
