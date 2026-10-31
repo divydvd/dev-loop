@@ -46,3 +46,7 @@ test("the PR records independent and automatic review separately", () => {
   assert.match(pr, /GitHub Copilot review/);
   assert.match(skill, /review_clean.*does not.*prove independent/i);
 });
+
+test("CI runs the independent review regression suite", () => {
+  assert.match(read(".github/workflows/check.yml"), /node --test scripts\/independent-review\.test\.mjs/);
+});

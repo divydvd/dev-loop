@@ -16,6 +16,7 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     PR #3 records two Important independent findings while Actions blocked automatic review.
     PR #20 records three independent findings that received regression tests.
   - **Check:** All five new text regressions failed before the change and passed afterward.
+    A sixth regression caught missing CI wiring; CI now runs the independent review suite.
     A fresh agent applied eight revised scenarios and five pressure variants.
     It required substantive coverage, reused complete coverage, exempted harmless edits, and rejected unsupported ready claims.
     Text checks do not prove runtime enforcement. The next weekly review measures coverage, owner reminders, confirmed findings, and review cost.
