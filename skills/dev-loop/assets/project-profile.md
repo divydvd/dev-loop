@@ -14,6 +14,14 @@ The dev-loop rules (`dev-loop: core`) are the owner's instructions. They take pr
 ### Heavy builds
 - <Which commands are heavy. How to run them with low memory. Only one heavy build runs at a time.>
 
+### Design review (optional)
+<!-- Omit this section to keep automatic design review off. Explicit owner requests remain available. -->
+- **Enabled:** no
+- **Applies when:** <concrete qualifying changes; for example new webhook handlers or public API changes>
+<!-- Set Enabled to yes only with concrete criteria. Missing or unclear criteria do not select automatic review.
+     Selected designs receive one fresh-context review before the existing design approval.
+     One focused recheck is available after material corrections. Existing approval and PR review stay required. -->
+
 ### Graphify (optional)
 <!-- Omit this section when the project does not use Graphify. Keep project commands here, not in the shared plugin. -->
 - **Enabled:** <yes or no>

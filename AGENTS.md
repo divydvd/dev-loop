@@ -28,6 +28,7 @@ A plan that touches one of these areas needs the owner's plan review.
 - The core rule stays generic. Project facts go in the project profile.
 - Each change has a `CHANGELOG.md` entry with its evidence and its check.
 - Use Superpowers `writing-skills` to test a new or changed skill.
+- For design-review changes, use the README application scenarios. Text checks alone do not prove routing or reviewer isolation.
 
 ### Flow docs
 - None. The README is the reference.
