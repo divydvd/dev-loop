@@ -168,6 +168,18 @@ Use the same `WORK_LEDGER_DIR` environment as the affected host.
 Otherwise, the runtime uses the configured `dataDir`, or its normal home-directory default.
 Do not point the installer at another host's ledger to bypass validation.
 
+### Read-only monitor list
+
+The installer does not add `readOnlyMonitors` entries.
+After an installation, the owner adds an entry by hand. Use one of the two guard `config.json` files:
+- The external file in the ledger directory (normally `~/.copilot/work-ledger/config.json`).
+- The extension-local file, which takes precedence when it also has the field.
+
+Review the monitor script first. Then record its exact hash with `shasum -a 256 /ABSOLUTE/monitor.py`.
+Agents cannot write these files; the guard denies them.
+A new external file changes the `ledgerConfigHash` pin for a later request when the extension has no `localMavenScopes` field.
+See [the README](README.md#owner-listed-read-only-monitors) for the exact allowed call shape.
+
 ## Preview and install
 
 Make the private request readable only by the owner.

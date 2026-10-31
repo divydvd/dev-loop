@@ -2,6 +2,7 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { classify, deployTargetForWorkflow } from "./classify.mjs";
 import { commandsOf, basename, shQuote } from "./shell.mjs";
 import { activeApprovals } from "./store.mjs";
@@ -24,6 +25,7 @@ export const DEFAULT_CONFIG = {
   gradleLockTimeoutSec: 1500,
   gradleCache: true,
   localMavenScopes: [],
+  readOnlyMonitors: [],
 };
 
 // ---------- protected paths ----------
@@ -63,13 +65,53 @@ function mentions(text, dirs) {
   return dirs.some((d) => s.includes(d) || s.includes(d.replace(HOME, "~")) || s.includes(d.replace(HOME, "$HOME")) || s.includes(d.replace(HOME, "${HOME}")));
 }
 
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * An owner-listed monitor (exact interpreter prefix and script SHA-256) may
+ * receive the exact guard lock envelope as the value of its one configured
+ * argument. Everything else must stay free of protected paths, and the
+ * command must be one plain invocation.
+ */
+function verifiedReadOnlyMonitor(cmd, c, count, dirs, opts) {
+  const monitors = Array.isArray(opts.monitors) ? opts.monitors.filter((m) =>
+    m && /^[a-f0-9]{64}$/.test(String(m.sha256)) && /^--[a-z][a-z0-9-]*$/.test(String(m.argument)) &&
+    Array.isArray(m.interpreter) && m.interpreter.length && path.isAbsolute(String(m.interpreter[0])) &&
+    m.interpreter.every((w) => typeof w === "string" && /^[A-Za-z0-9_\/.=+,-]+$/.test(w))) : [];
+  if (!monitors.length || !opts.lockFile) return false;
+  if (count !== 1 || c.nested || c.wrapped || c.heredoc || (c.redirects || []).length) return false;
+  const argv = c.argv;
+  // Rebuild the call from plain words and single-quoted words. Only then does bash pass exactly these words.
+  const literal = argv.map((a) => /^[A-Za-z0-9_\/.:=@%+,-]+$/.test(a) ? a : /^[^'\n]+$/.test(a) ? `'${a}'` : null);
+  if (literal.includes(null) || cmd.trim() !== literal.join(" ") || argv.some((a) => /[`$]/.test(a))) return false;
+  const entry = monitors.find((m) => {
+    if (m.interpreter.some((w, i) => argv[i] !== w)) return false;
+    const script = argv[m.interpreter.length];
+    if (!script || !path.isAbsolute(script)) return false;
+    try {
+      const real = fs.realpathSync(script);
+      if ([script, real].some((p) => dirs.some((d) => under(p, d))) || !fs.statSync(real).isFile()) return false;
+      return crypto.createHash("sha256").update(fs.readFileSync(real)).digest("hex") === m.sha256;
+    } catch { return false; }
+  });
+  if (!entry) return false;
+  const flag = entry.argument;
+  const at = argv.indexOf(flag);
+  if (at <= entry.interpreter.length || at + 1 >= argv.length || argv.indexOf(flag, at + 1) !== -1 || argv.some((a) => a.startsWith(`${flag}=`))) return false;
+  const value = argv[at + 1];
+  const envelope = value.match(new RegExp(`^${escapeRe(LOCKF)} -t \\d+ ${escapeRe(opts.lockFile)} /bin/bash -c `));
+  if (!envelope || mentions(value.slice(envelope[0].length), dirs)) return false;
+  return argv.every((a, i) => i === at + 1 || !mentions(a, dirs));
+}
+
 /** Does this shell command write inside a protected dir? */
-export function bashTouchesProtected(cmd, cwd, dirs) {
+export function bashTouchesProtected(cmd, cwd, dirs, opts = {}) {
   if (!dirs.length) return false;
   const hasRel = /\.copilot/.test(cmd);
   if (!mentions(cmd, dirs) && !hasRel) return false;
   let here = cwd;
-  for (const c of commandsOf(cmd)) {
+  const all = commandsOf(cmd);
+  for (const c of all) {
     const argv = c.argv;
     const w0 = argv.length ? basename(argv[0]) : "";
     if ((w0 === "cd" || w0 === "pushd") && !c.nested) { const p = argPath(argv[1] ?? "~", here); here = p; continue; }
@@ -95,7 +137,10 @@ export function bashTouchesProtected(cmd, cwd, dirs) {
       ((w0 === "curl" || w0 === "wget") && argv.some((a) => /^(-o|-O|--output|--output-document)/.test(a))) ||
       (w0 === "find" && argv.some((a) => a === "-delete" || a === "-exec" || a === "-execdir"));
     if (write && (hitDesc || inside || (ANCESTOR_DANGER.has(w0) && hitAnc))) return true;
-    if (INTERPRETERS.has(w0) && (mentions(c.raw, dirs) || inside)) return true;
+    if (INTERPRETERS.has(w0) && (mentions(c.raw, dirs) || inside)) {
+      if (!inside && verifiedReadOnlyMonitor(cmd, c, all.length, dirs, opts)) continue;
+      return true;
+    }
   }
   return false;
 }
@@ -351,7 +396,7 @@ export async function decide(call, deps) {
 
   const cmd = ctx.command;
   if (!cmd.trim()) return res;
-  if (bashTouchesProtected(cmd, cwd, dirs)) return deny(res, "This command writes to the work-ledger guard files. Only the owner changes them.");
+  if (bashTouchesProtected(cmd, cwd, dirs, { lockFile: deps.lockFile, monitors: deps.config.readOnlyMonitors })) return deny(res, "This command writes to the work-ledger guard files. Only the owner changes them.");
 
   const { findings } = classify(cmd, { cwd, deployWorkflows: deps.config.deployWorkflows || undefined });
   const gradle = [];
