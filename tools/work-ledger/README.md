@@ -110,7 +110,8 @@ Controls do not remove approvals or evidence.
 An expired pause has no effect on the next policy decision, even without a timer or another ledger write.
 Restoring a session pause leaves an overlapping repository pause active, and the reverse also applies.
 The legacy `guards off` is a global pause. It pauses only `review-limit` and `test-cache` for all repositories.
-It does not turn off merge approval, deployment/configuration approval, the rebase/amend/force-push/push-main checks, guard-source protection, Maven verification, or the shared Gradle build lock.
+It does not turn off merge approval, deployment/configuration approval, guard-source protection, Maven verification, or the shared Gradle build lock.
+The rebase, amend, force-push, and push-main checks stay active unless a separately confirmed scoped pause applies.
 It does not create, remove, or extend scoped pauses, and it is not action approval.
 Startup context, subagent context, `guards status`, and `work_ledger_get` show the global pause and the protections that stay active.
 The legacy `guards on` ends only the global pause and reports remaining individual pauses.

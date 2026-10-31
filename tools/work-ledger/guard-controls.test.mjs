@@ -158,6 +158,7 @@ test("status names the global pause, retained protections, and the exact pending
   assert.match(status, /review-limit: paused \[global pause\]/);
   assert.match(status, /test-cache: paused \[global pause\]/);
   assert.match(status, /rebase: enabled/);
+  assert.match(status, /push-main checks stay active unless a separately confirmed scoped pause applies/);
   assert.match(status, /maven: enabled/);
   assert.match(status, /Always active.*merge approval.*shared Gradle build lock/);
   assert.doesNotMatch(status, /overrides|Not configurable/);

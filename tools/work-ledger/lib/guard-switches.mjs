@@ -6,7 +6,7 @@ export const GUARD_NAMES = ["rebase", "amend", "force-push", "push-main", "revie
 /** The legacy "guards off" marker pauses only these optional limits. */
 export const GLOBAL_PAUSE_GUARDS = ["review-limit", "test-cache"];
 export const ALWAYS_ACTIVE = "merge approval, deployment/configuration approval, unverified Maven, guard-source protection, shared Gradle build lock";
-export const GLOBAL_PAUSE_TEXT = `Global guard pause is ON (the owner typed "guards off"): review-limit and test-cache are paused for all repositories. Still enforced: ${ALWAYS_ACTIVE}, and the rebase, amend, force-push, and push-main checks. Type "guards on" to end the pause.`;
+export const GLOBAL_PAUSE_TEXT = `Global guard pause is ON (the owner typed "guards off"): review-limit and test-cache are paused for all repositories. Still enforced: ${ALWAYS_ACTIVE}. The rebase, amend, force-push, and push-main checks stay active unless a separately confirmed scoped pause applies. Type "guards on" to end the pause.`;
 const MINUTE = 60000;
 const repoId = (s) => typeof s === "string" && /^[\w.-]+\/[\w.-]+$/.test(s) ? s.toLowerCase() : null;
 const matches = (p, repo, sessionId) => p.repo === repoId(repo) && (p.scope === "repository" || (p.scope === "session" && p.sessionId === sessionId));
