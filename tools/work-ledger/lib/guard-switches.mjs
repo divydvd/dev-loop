@@ -3,6 +3,10 @@ import { cleanOwnerTextInfo } from "./grants.mjs";
 import { configuredMavenScopes, localScopeId, localScopeProblem } from "./local-maven.mjs";
 
 export const GUARD_NAMES = ["rebase", "amend", "force-push", "push-main", "review-limit", "test-cache", "maven"];
+/** The legacy "guards off" marker pauses only these optional limits. */
+export const GLOBAL_PAUSE_GUARDS = ["review-limit", "test-cache"];
+export const ALWAYS_ACTIVE = "merge approval, deployment/configuration approval, unverified Maven, guard-source protection, shared Gradle build lock";
+export const GLOBAL_PAUSE_TEXT = `Global guard pause is ON (the owner typed "guards off"): review-limit and test-cache are paused for all repositories. Still enforced: ${ALWAYS_ACTIVE}. The rebase, amend, force-push, and push-main checks stay active unless a separately confirmed scoped pause applies. Type "guards on" to end the pause.`;
 const MINUTE = 60000;
 const repoId = (s) => typeof s === "string" && /^[\w.-]+\/[\w.-]+$/.test(s) ? s.toLowerCase() : null;
 const matches = (p, repo, sessionId) => p.repo === repoId(repo) && (p.scope === "repository" || (p.scope === "session" && p.sessionId === sessionId));
@@ -82,20 +86,21 @@ export function effectiveGuardState(data, guard, repo, sessionId, now = Date.now
   return { enabled: pauses.length === 0, pauses };
 }
 
-export function guardStatus(data, { repo, sessionId, now = Date.now(), legacyDisabled = false } = {}) {
+export function guardStatus(data, { repo, sessionId, now = Date.now(), globalPause = false } = {}) {
   const lines = GUARD_NAMES.map((g) => {
     const s = effectiveGuardState(data, g, repo, sessionId, now);
-    return `${g}: ${s.enabled ? "enabled" : "paused"}${s.pauses.map((p) => ` [${p.scope} ${p.repo}${p.scope === "session" ? ` session ${p.sessionId}` : ""} until ${p.expiresAt}]`).join("")}`;
+    const global = globalPause && GLOBAL_PAUSE_GUARDS.includes(g);
+    return `${g}: ${s.enabled && !global ? "enabled" : "paused"}${global ? " [global pause]" : ""}${s.pauses.map((p) => ` [${p.scope} ${p.repo}${p.scope === "session" ? ` session ${p.sessionId}` : ""} until ${p.expiresAt}]`).join("")}`;
   });
-  if (legacyDisabled) lines.unshift("Legacy global guards are OFF; this overrides the individual enforcement states below.");
+  if (globalPause) lines.unshift(GLOBAL_PAUSE_TEXT);
   for (const p of data.guardPauses || []) {
     if (p.repo !== repoId(repo) || (p.scope === "session" && p.sessionId !== sessionId)) continue;
     if (!active(p, now)) lines.push(`Expired: ${p.guard} ${p.scope} ${p.repo} at ${p.expiresAt}; enforcement restored.`);
   }
   for (const p of (data.guardRequests || []).filter((p) => p.repo === repoId(repo) && p.sessionId === sessionId && Date.parse(p.confirmBy) > now)) {
-    lines.push(`Pending preview (not active): ${p.guard} ${p.state} ${p.scope} ${p.repo}, expiry ${p.expiresAt || "enabled"}, confirm before ${p.confirmBy}.`);
+    lines.push(`Pending preview (not active): ${p.guard} ${p.state} ${p.scope} ${p.repo}, expiry ${p.expiresAt || "enabled"}. To confirm, the owner types this exact line as a separate direct message before ${p.confirmBy}:`, confirmationOf(p));
   }
-  lines.push("Not configurable here: merge approval, deployment/configuration approval, unverified Maven, guard-source protection, shared Gradle build lock.");
+  lines.push(`Always active (no pause exists): ${ALWAYS_ACTIVE}.`);
   lines.push("Maven pauses apply only to confirmed descriptor fingerprints; exact source, launcher, command, destination, and shared locking are checked before execution.");
   lines.push("Pauses do not approve actions. Repository and session pauses can overlap; restoring one leaves the other active.");
   lines.push("Control audit (latest 10 events for this repository):");

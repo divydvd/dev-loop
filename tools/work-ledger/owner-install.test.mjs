@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const source = fileURLToPath(new URL(".", import.meta.url));
 const hash = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
@@ -143,6 +143,22 @@ test("rejects unknown runtime source even with a refreshed installed snapshot", 
   fs.appendFileSync(path.join(f.installed, "lib/policy.mjs"), "// unknown change\n");
   f.request.installedHash = f.installationSnapshot(f.installed).hash;
   await assert.rejects(f.run(), /unsupported|source/i);
+});
+
+test("upgrades only the exact previous reviewed runtime release", async t => {
+  const f = await fixture(t);
+  const previous = fs.readFileSync(path.join(source, "PREVIOUS.sha256"), "utf8");
+  assert.equal(hash(previous), "59e670c61650bbdf50611d0b01121317b1eb21db683b63b4502a0c98fa853ee1", "previous manifest is the PR #17 release");
+  const installer = await import(`${pathToFileURL(path.join(f.candidate, "owner-install.mjs")).href}?previous`);
+  fs.appendFileSync(path.join(f.installed, "lib/policy.mjs"), "// previous release bytes\n");
+  const entries = f.installationSnapshot(f.installed).entries.filter(e => e[1] === "file" && e[0].endsWith(".mjs"));
+  fs.writeFileSync(path.join(f.candidate, "PREVIOUS.sha256"), entries.map(e => `${e[3]}  ${e[0]}`).join("\n") + "\n");
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  const result = await installer.prepareInstallation(f.request);
+  assert.equal(result.installed, false);
+  fs.appendFileSync(path.join(f.installed, "lib/policy.mjs"), "// unknown change\n");
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  await assert.rejects(installer.prepareInstallation(f.request), /unsupported|source/i);
 });
 
 test("rejects candidate changes before imports, even when its manifest is rewritten", async t => {

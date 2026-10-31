@@ -36,6 +36,8 @@ if (process.env.TEST_RELOAD) {
   assert.equal((await pre("git rebase topic")).permissionDecision, "deny");
   const confirmation = logs.findLast((s) => s.includes("guard confirm ")).split("\n").at(-1);
   assert.match(confirmation, /^guard confirm /);
+  await send("guards status");
+  assert.ok(logs.at(-1).split("\n").includes(confirmation), "status must show the exact pending confirmation");
   await send(confirmation, { agentId: "agent" });
   await send(`> ${confirmation}`);
   await send(confirmation, { data: { content: confirmation, source: "forwarded" } });
@@ -51,15 +53,28 @@ if (process.env.TEST_RELOAD) {
   assert.match(logs.at(-1), /Invalid|stale/);
   await send("guards status");
   assert.match(logs.at(-1), /rebase: paused/);
-  assert.match(logs.at(-1), /Not configurable here/);
+  assert.match(logs.at(-1), /Always active/);
   assert.match(logs.at(-1), /guard.confirmed/);
   assert.match(await get(), /rebase: paused/);
   await send("guards on");
   assert.match(logs.at(-1), /rebase: paused/, "legacy restore must report individual pauses");
   let logged = nextLog();
   await send("guard off");
-  assert.match(await logged, /Guards are OFF/);
+  assert.match(await logged, /Global guard pause is ON.*review-limit and test-cache[\s\S]*merge approval/);
   assert.equal(fs.existsSync(path.join(process.env.WORK_LEDGER_DIR, "DISABLED")), true);
+  for (const command of ["git push --force origin topic", "git commit --amend", "firebase deploy", "./gradlew publishToMavenLocal", `echo changed > ${process.argv[2]}`]) {
+    assert.equal((await pre(command))?.permissionDecision, "deny", `global pause must keep ${command} blocked`);
+  }
+  assert.equal(await pre("git rebase topic"), undefined, "global pause keeps the confirmed scoped pause");
+  if (fs.existsSync("/usr/bin/lockf")) assert.match((await pre("./gradlew test")).modifiedArgs.command, /lockf.*gradle\.lock/);
+  for (const context of [(await options.hooks.onSessionStart()).additionalContext, (await options.hooks.onSubagentStart({})).additionalContext]) {
+    assert.match(context, /Global guard pause is ON/);
+    assert.doesNotMatch(context, /Guards are OFF/);
+  }
+  const paused = await get();
+  assert.match(paused, /review-limit: paused \[global pause\]/);
+  assert.match(paused, /rebase: paused/);
+  assert.doesNotMatch(paused, /overrides/);
   logged = nextLog();
   await send("guard on");
   assert.match(await logged, /Guards are ON/);

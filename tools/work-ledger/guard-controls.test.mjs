@@ -148,3 +148,25 @@ test("two hosts read shared controls and enforce expiry without a timer", async 
   assert.equal(a.read().guardAudit.length, 2);
   assert.match(h.guardStatus(b.read(), { ...context, now: now + 1800000 }), /expired/i);
 });
+
+test("status names the global pause, retained protections, and the exact pending confirmation", async () => {
+  const h = await helpers();
+  const data = emptyLedger();
+  const preview = request(h, data, "guard rebase off");
+  const status = h.guardStatus(data, { ...context, globalPause: true });
+  assert.match(status, /Global guard pause is ON/);
+  assert.match(status, /review-limit: paused \[global pause\]/);
+  assert.match(status, /test-cache: paused \[global pause\]/);
+  assert.match(status, /rebase: enabled/);
+  assert.match(status, /push-main checks stay active unless a separately confirmed scoped pause applies/);
+  assert.match(status, /maven: enabled/);
+  assert.match(status, /Always active.*merge approval.*shared Gradle build lock/);
+  assert.doesNotMatch(status, /overrides|Not configurable/);
+  assert.ok(status.split("\n").includes(preview.confirmation), "pending preview shows its exact confirmation line");
+  assert.match(status, /separate direct message before 2026-10-30T10:05:00.000Z/);
+  const plain = h.guardStatus(data, context);
+  assert.doesNotMatch(plain, /Global pause|\[global pause\]/);
+  assert.match(plain, /review-limit: enabled/);
+  assert.doesNotMatch(h.guardStatus(data, { ...context, now: now + 300000 }), /guard confirm/);
+  assert.doesNotMatch(h.guardStatus(data, { ...context, sessionId: "other" }), /guard confirm/);
+});

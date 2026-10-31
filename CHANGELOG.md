@@ -2,6 +2,15 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## Unreleased tooling (2026-10-31)
+- **Make the legacy global guard OFF a safe, limited pause.**
+  - **What:** `guards off` now pauses only `review-limit` and `test-cache`. Merge and deploy approval, history checks, guard-source protection, Maven verification, and the shared Gradle lock stay active.
+    Startup, subagent, and status text name the pause and the protections that stay active. A pending preview shows its exact confirmation line and deadline.
+    The installer also accepts the exact previous reviewed release (`PREVIOUS.sha256`) for upgrade.
+  - **Why:** In the app-kit sessions, OFF skipped every check, including the Gradle lock wrapper. Agents then turned guards ON again, which blocked Maven again.
+    OFF status also listed protections that were not active, and agents could not find the confirmation line again after a preview.
+  - **Check:** New policy, status, and real-extension regressions. Full work-ledger suite and `node scripts/check.mjs` pass. The next weekly review checks for OFF/ON loops and lost confirmations in guard history.
+
 ## Unreleased tooling (2026-10-30)
 - **Require existing candidate source directories before acceptance writes.**
   - **What:** Reject absent roots and source files before output creation or report invalidation. Remove the missing-source case-fold fallback.

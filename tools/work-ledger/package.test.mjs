@@ -22,7 +22,7 @@ test("owner package pins runtime, installer, provenance, and owner guides", () =
   }
   const runtime = fs.readFileSync(path.join(root, "SOURCE.sha256"), "utf8").trim().split("\n").map(line => line.slice(66));
   assert.deepEqual([...entries.keys()].sort(), [
-    ...runtime, "owner-install.mjs", "BASELINE.sha256", "SOURCE.sha256", "INSTALL.md", "README.md",
+    ...runtime, "owner-install.mjs", "BASELINE.sha256", "PREVIOUS.sha256", "SOURCE.sha256", "INSTALL.md", "README.md",
     "fixtures/real-host-acceptance.py",
   ].sort());
 });
