@@ -245,6 +245,30 @@ Use a controlled checkout without concurrent writers for publication.
 Actual host lifecycle evidence and owner-only installation steps appear in [the installation guide](INSTALL.md).
 Merge and real deployment approval remain mandatory.
 
+## Owner-listed read-only monitors
+
+The guard denies an interpreter command (`python3`, `node`, `bash`, and others) when its text names a guard folder.
+This rule also denies a read-only watchdog that receives the guarded Gradle command as an argument, because that command contains the lock path.
+The owner can list a reviewed monitor script in `readOnlyMonitors` in a guard `config.json`:
+
+```json
+{ "readOnlyMonitors": [{ "label": "publication watchdog", "interpreter": ["/usr/bin/python3", "-I"], "sha256": "<64 hex>", "argument": "--expected-command" }] }
+```
+
+The guard then allows the call only when all of these are true:
+- The call starts with the exact `interpreter` words, then the script path. The first word is an absolute path. Use a system interpreter that agents cannot replace, and an isolated mode (Python `-I`), so that files next to the script cannot load first.
+- The command is one plain invocation: no env prefix, wrapper, chain, pipe, redirect, heredoc, substitution, or `$`.
+- The command text is exactly its words joined by single spaces, with no other characters. It contains only printable ASCII, so no carriage return, tab, or other invisible character can change a word for bash. Each word is either plain (`A-Z a-z 0-9 _ / . : = @ % + , -`) or single-quoted. So bash cannot expand a glob, a brace, `~`, or an escape into a different word.
+- The first argument after the interpreter words is an absolute, normalized script path (no `.` or `..` part) outside the guard folders, also after physical symlink resolution.
+- The script bytes match a listed SHA-256 at decision time.
+- The listed argument occurs once, as a separate word. Its value starts with the exact guard envelope `/usr/bin/lockf -t <N> <lock file> /bin/bash -c `, and the rest of the value names no guard folder.
+- No other argument names a guard folder, and the working directory is outside the guard folders.
+- One list entry matches all of these conditions. The order of the list entries has no effect.
+
+The guard does not prove what a script does. The owner reviews the script and lists its hash.
+A script change after the decision is a time-of-check risk, as for Gradle sources.
+Typed shell input (`write_bash`) never uses this list. Without a list entry, the old denial applies.
+
 ## Checks
 
 Run these commands from the repository root:

@@ -148,7 +148,7 @@ test("rejects unknown runtime source even with a refreshed installed snapshot", 
 test("upgrades only the exact previous reviewed runtime release", async t => {
   const f = await fixture(t);
   const previous = fs.readFileSync(path.join(source, "PREVIOUS.sha256"), "utf8");
-  assert.equal(hash(previous), "59e670c61650bbdf50611d0b01121317b1eb21db683b63b4502a0c98fa853ee1", "previous manifest is the PR #17 release");
+  assert.equal(hash(previous), "f0d70b54e060a4109ff0c4f3c9f55ccbe53f3f5823f61f9501439a426131f5c3", "previous manifest is the PR #19 release");
   const installer = await import(`${pathToFileURL(path.join(f.candidate, "owner-install.mjs")).href}?previous`);
   fs.appendFileSync(path.join(f.installed, "lib/policy.mjs"), "// previous release bytes\n");
   const entries = f.installationSnapshot(f.installed).entries.filter(e => e[1] === "file" && e[0].endsWith(".mjs"));
