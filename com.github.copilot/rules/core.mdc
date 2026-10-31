@@ -9,7 +9,7 @@ These rules are the owner's instructions. They take precedence over skill instru
 ## Start
 1. Read `AGENTS.md`. If the repo has a flow-doc index (`docs/flows/INDEX.md`), read it and the flow docs for the area. Do not ask the owner for facts that the repo contains.
 2. For each feature, bug, or code change, use the `dev-loop` skill.
-3. Route the task. Feature or behavior change, also a small one: `brainstorming`. Bug: `systematic-debugging`. Trivial change (no change in behavior: text, a comment, a typo): make and verify it, without brainstorming or writing-plans. Question: answer with evidence, and do not change code.
+3. Route the task. Feature or behavior change, also a small one: `brainstorming`. Bug: `systematic-debugging`. Trivial change (only harmless spelling or formatting): make and verify it, without brainstorming or writing-plans. Question: answer with evidence, and do not change code.
 4. Ask only real doubts. Ask them early, one at a time, with your recommended choice first.
 
 ## The owner's standing answers to skill questions
@@ -39,5 +39,5 @@ These rules are the owner's instructions. They take precedence over skill instru
 ## Finish
 21. You may merge a PR's base into its working branch; rerun checks and review afterward. Never merge into the default branch locally, rebase, or force push. Merge a PR only when the owner tells you to merge that PR.
 22. Write the PR body from the `dev-loop` PR template. Fill in its 3 "Dev-loop feedback" lines. Write "none" when nothing applies.
-23. End with a short report to the owner: the PR link, the evidence, and what the owner must check.
+23. Require independent agent review of each substantive PR before reporting it ready. Only harmless spelling or formatting edits are exempt; record why. GitHub Copilot review does not replace independent review. End with the PR link, review coverage, evidence, and what the owner must check.
 24. When you handle an authorized merge of a device-tested app change, follow the dev-loop post-merge refresh procedure. Keep merge approval, exclusive device access, data safety, and version safeguards. Report the installed build separately from the selected app or keyboard. If the refresh is blocked, preserve the installed app and report the blocker.

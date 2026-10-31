@@ -38,6 +38,10 @@ Put this table in each report. Fill the "This week" column from the data of sect
 | Actions minutes (Linux), all project repos | | | lower than last week |
 | Copilot reviews for each PR (mean) | | | 2 or fewer |
 | Device tests that needed a workaround | | | lower than last week |
+| Substantive PRs with complete independent review evidence | | | all |
+| Owner reminders to request independent review | | | 0 |
+| Confirmed findings from independent review | | | observe, not a quota |
+| Independent review model calls and elapsed time | | | observe cost and delay |
 
 Use the `gh pr list` data from section 1 to compute the PR measures:
 - PR size: add the `additions` and `deletions` of the production code files in `files`. Do not count tests, docs (`*.md`, `docs/`), or generated files.
@@ -46,6 +50,12 @@ Use the `gh pr list` data from section 1 to compute the PR measures:
 - Device tests that needed a workaround: a PR has a device test when its Evidence has a device test row that is not "not needed". N is the PRs in M whose "Test tool feedback" has a `workaround` line for a device test scenario. Write it as "<N> of <M>": M is the PRs with a device test that have the section. Add the number of PRs without the section, for example "6 of 8 (2 without the section)". Compare the ratio N/M with last week. If last week has M = 0, write "n/a" for last week.
 - Evidence at the head commit: the Commit cell of each Evidence row is the first 7 characters of `headRefOid`.
 - A flow and its doc: when `files` has a key file of a flow doc, `files` also has that flow doc.
+- Independent review coverage: check reviewer identity, reviewed content, scope, verdict, findings disposition, and later-change coverage in each PR body.
+  Exclude only PRs with a justified harmless spelling or formatting exemption. Missing evidence does not prove no review occurred; report it as missing.
+- Independent review reminders: count explicit owner requests from the session history. Do not count reviewer assignments or agent messages as owner requests.
+- Confirmed independent findings: count findings confirmed in source and addressed or explicitly deferred. Keep them separate from automatic findings and repeated reports.
+- Review cost and delay: use identifiable independent reviewer calls and their observed start/end times. Report model calls and elapsed time separately.
+  If attribution or timing is unavailable, write "n/a" with the reason. Do not infer review cost from the whole session's cost.
 
 Compute the session measures from the files on this Mac. 1 KB is 1,000 bytes. Round to one decimal.
 - Always-loaded text: add the sizes of the instruction files that load in each project session, and of the Superpowers start text. `copilot instruction list` in a project checkout shows the instruction files: today the project's `AGENTS.md`, `com.github.copilot/rules/core.mdc`, and `~/.copilot/copilot-instructions.md`. Take the size of `AGENTS.md` on the default branch. The Superpowers start hook loads `skills/using-superpowers/SKILL.md` of the installed Superpowers in each session.

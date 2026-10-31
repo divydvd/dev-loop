@@ -11,6 +11,7 @@ A Copilot plugin that lets one session run the full development loop from one li
 | `infra-review` skill | `skills/infra-review/` | The weekly review that improves this plugin and the project profiles. |
 | Check script | `scripts/check.mjs` | Exact checks: the rule size, the frontmatter, the links, and the versions. CI runs it on each PR. |
 | Device handoff tests | `scripts/device-handoff.test.mjs` | Regression checks for passing-build retention, monitor grants, and authorized post-merge refresh instructions. |
+| Independent review tests | `scripts/independent-review.test.mjs` | Regression checks for review scope, coverage reuse, exemptions, and readiness evidence. |
 | Work-ledger source | `tools/work-ledger/` | Separate SDK extension with classification corrections, scoped controls, and verified local Maven recovery. Owner installation remains outstanding. The plugin does not load it. |
 
 ## Layers
@@ -101,6 +102,25 @@ Trivial UI text changes need no new plan or mockup.
 To resolve PR conflicts, merge the PR's current base into its working branch.
 Preserve both sets of changes, then rerun the required checks and review before requesting merge approval.
 Do not merge into the default branch locally, rebase, or force push.
+
+## Independent PR review
+Every substantive PR receives independent agent review before its first push.
+This includes small fixes, tests, dependencies, configuration, rules, skills, and operational instructions.
+Only harmless spelling or formatting edits are exempt. The PR records the exemption reason.
+Self-review, passing tests, and GitHub Copilot review do not replace independent review.
+
+The reviewer uses a separate context and checks the diff, acceptance record, and affected interactions.
+The PR records the reviewer, reviewed commit or snapshot, scope, verdict, and findings disposition.
+Existing complete coverage can count. Isolated task reviews do not establish integration coverage.
+Later substantive changes receive focused review; harmless edits do not trigger duplicate review.
+The evidence links reviewed content to the final substantive change without claiming an old review covered a new commit.
+
+A failed reviewer receives one retry. If review remains unavailable, the agent can open the PR but reports it as not ready.
+Independent review does not authorize a merge or replace tests and human checks.
+Run `node --test scripts/independent-review.test.mjs` when these instructions change.
+Skill application scenarios are also required; text checks alone do not prove agent behavior.
+After merge, update the installed plugin and start a new session or reload its instructions.
+This change does not add a blocking work-ledger guard.
 
 ## Device build handoff
 After a passing device test, keep the tested build installed.
