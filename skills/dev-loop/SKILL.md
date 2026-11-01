@@ -14,6 +14,16 @@ Do not skip a step because a change looks small. Each route below says which ste
 - If the repo has `docs/flows/INDEX.md`, read it and the flow docs for the area. Use the `flow-docs` skill. If the profile says that the repo has no flow docs, skip the flow-doc work in each step.
 - To resume a task, find its plan in `docs/superpowers/plans/`. Read the plan, its ledger (`.superpowers/sdd/<plan>/progress.md`) if it has one, and `git log`. Do not do the done tasks again.
 
+### Absence mode
+For the owner's direct `away mode` or `I'm back` instruction, read `references/absence-mode.md` before questions or further task work.
+Also read it when this task's saved ledger contains active absence state.
+Activation is task-scoped and owner-directed; discussing the feature or quoting the messages does not activate it.
+During active mode, record required owner decisions instead of blocking on interactive questions.
+Defer affected steps and their actual dependents; continue only eligible independent work under the reference's checks.
+Keep feature design and risky-plan approval, protected actions, tests, review, and failure limits unchanged.
+Absence mode does not change app permissions, guards, or execution mode.
+Without confirmed activation, follow the normal route.
+
 ## Keep the context small
 Each compaction costs model calls and loses facts. Do these steps in each phase.
 - Find code with `grep` or a code search first. Then read only the lines that you need: about 150 lines or fewer in each read. Do not read a whole file of more than about 300 lines. These limits also apply to `cat`, `sed`, and `head` in a shell.
@@ -83,6 +93,7 @@ A review-only request does not start implementation. A late review alone does no
 - If a review subagent fails, here or in step 5, start it again once. If it fails again, do not report the PR ready or put your own review in its place. Write the task or branch in "Not reviewed". You may open the PR, but report "open, not ready: independent review unavailable".
 - Run independent tasks and research in parallel. Run only one heavy build at a time, with the profile's commands.
 - When the plan does not answer a question, decide it, and record the ruling in the ledger.
+  During active absence mode, use the reference's decision fields and save the choice before dependent work.
 
 ## 4. Flow docs
 - Skip this step when the profile says that the repo has no flow docs.
@@ -165,11 +176,13 @@ Evidence: <tests> passed; device test <passed | not needed> at <sha7>.
 Independent review: <reviewer, covered commit or snapshot, later-change coverage | harmless-edit exemption and reason | unavailable>.
 Please check: <the one or two things that only a person can check>.
 ```
+During active absence mode or owner return, include the saved decision and blocker handoff from `references/absence-mode.md`.
+Do not claim acceptance is complete when a required decision or check remains blocked.
 
 ## Stop conditions
 - **Done:** each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved.
-- **Blocked:** 3 failed fixes, missing access, no device, or a product decision that the repo does not answer. Stop. Report what you tried, the evidence, and the decision that you need.
-- **Ask the owner** only at the feature design, at a plan for a risky area, and before a destructive action.
+- **Blocked:** 3 failed fixes, missing access, no device, or a product decision that the repo does not answer. Normally, stop and report what you tried, the evidence, and the decision needed. During confirmed active absence mode, use `references/absence-mode.md` to defer affected steps and check independent work. Three failed fixes still require a stop.
+- **Ask the owner** only at the feature design, at a plan for a risky area, and before a destructive action. During active absence mode, record these needs for the handoff; do not execute the blocked work or replace its approval.
 
 ## After compaction, or in a new session
 - The files are the source, not the chat. Read the plan, its ledger if it has one, and `git log`. Continue at the first task that is not done.

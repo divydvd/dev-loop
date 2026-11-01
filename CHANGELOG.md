@@ -2,6 +2,26 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.3 (2026-11-02)
+- **Add owner-activated absence mode.**
+  - **What:** Add the `away mode` and `I'm back` messages, a task-scoped reference, durable decision fields, and a blocker handoff.
+    During verified absence, defer blocked steps and their dependents; continue only permitted independent work.
+    Preserve feature design, risky-plan, merge, deployment, live configuration, and other protected approvals.
+    Preserve review, test, failure, data, and shared-resource requirements.
+    Return does not approve agent decisions. No eligible work produces a handoff, not a blocking question or polling loop.
+    Normal behavior is unchanged without direct owner activation.
+  - **Why:** Eleven baseline scenarios found no absence activation or persistent return state.
+    Mixed-phase continuation depended on agent guesses.
+    Missing feature and risky-plan approvals still selected blocking questions while the owner was absent.
+    Existing implementation rulings and three-failed-fix stops already worked and remain required.
+  - **Check:** Fresh agents applied all eleven revised reference cases and integrated routing cases.
+    Independent risky-task review identified an implicit workspace-conflict stop; it is now explicit.
+    A control already stopped conservatively before that clarification; it is not claimed as a new unsafe runtime failure.
+    Focused cases distinguish a session-wide conflict stop from task-local deployment deferral.
+    Run the plugin check, existing plugin regressions, and temporary-home install with instruction and skill discovery.
+    The README keeps repeatable application cases. These instruction tests do not prove every host permission path.
+    The next weekly review checks decision completeness, dependency handling, unnecessary stops, and protected approvals.
+
 ## 0.5.2 (2026-11-01)
 - **Add optional fresh-context design review.**
   - **What:** Add `design-review` and its source-backed reviewer contract.

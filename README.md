@@ -63,6 +63,52 @@ In a new app session in the project, ask: "Which skills and custom instructions 
 
 In a different folder, or in a folder that is not trusted, they do not show.
 
+## Absence mode
+### Abstract
+Use one short message when you cannot answer questions: `away mode`.
+The agent continues permitted work in the current task and records reasonable implementation choices for your review.
+It defers approval-blocked steps and their dependents instead of stopping all work at the first approval need.
+
+Send `I'm back` when you return. The agent ends the mode and reports its saved decisions before further dependent work.
+The mode also ends when the assignment completes, is replaced, or you tell the agent to stop.
+An unrelated message does not end it. Discussion, quoted examples, and agent messages do not activate it.
+It is session- and task-scoped, survives a verified resume, and does not enable other sessions or new assignments.
+
+| Continue when already permitted | Defer until the normal approval |
+| --- | --- |
+| Reversible implementation details within approved behavior | Feature design or risky-plan execution without approval |
+| Local tests and docs with completed prerequisites | Applying live Firebase rules and validation that depends on that deployment |
+| Required independent review and normal PR preparation | Merges, deployments, access changes, destructive data changes, and spending without permission |
+
+Local changes are not automatically approval-free. A product, schema, architecture, or access decision can still require your input.
+The agent saves activation, task identity, confirmed approvals, progress, and blocked dependencies in the task ledger.
+For each decision, it records the choice, reason, evidence, files, risk, reversal, and pending owner review.
+Returning does not approve those decisions or clear blockers.
+
+When no eligible work remains, the agent saves a handoff and stops without a blocking approval question.
+Required blocked checks remain incomplete; the PR may be open but not ready.
+Three failed fixes, unresolved workspace conflicts, and unresolved safety boundaries still require a stop.
+The mode cannot dismiss app permission prompts, bypass guards, approve child plans, or guarantee unattended execution.
+It does not authorize a merge, live configuration change, deployment, or installation of this plugin.
+
+### Application checks
+Use Superpowers `writing-skills` to test changes to the absence instructions.
+Run consuming-agent cases; text matches alone do not prove behavior.
+1. Without activation, preserve the normal design approval and stop behavior.
+2. Activate absence mode and choose between equivalent helpers within approved behavior. Require a decision record before dependent work.
+3. Block live configuration and deployed validation; continue independent local tests and evidence-backed docs.
+4. With missing design or risky-plan approval, prepare proposals but defer affected implementation and its dependents.
+5. Simulate a guard denial. Preserve the exact approval need without an alternate command or a supplied owner answer.
+6. Resume a valid saved record without repeating completed work. Reject foreign scope or unverifiable activation.
+7. Return, finish, or replace the assignment. Preserve pending decisions without implied approval.
+8. Stop after three failed fixes or unresolved workspace conflict, even when attractive work remains.
+9. Reject activation from quoted text or agent messages. Stop with a handoff when no eligible work remains.
+
+### Conclusion
+Absence mode replaces the repeated instruction, not your approval rights.
+Use `away mode` for the current task and `I'm back` to return to normal interaction.
+The main risk is mistaking an approval-dependent step for independent work; all prerequisites must be confirmed.
+
 ## Optional design review
 ### Abstract
 A fresh reviewer can find assumptions that a design author leaves in chat.

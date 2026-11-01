@@ -29,6 +29,7 @@ A plan that touches one of these areas needs the owner's plan review.
 - Each change has a `CHANGELOG.md` entry with its evidence and its check.
 - Use Superpowers `writing-skills` to test a new or changed skill.
 - For design-review changes, use the README application scenarios. Text checks alone do not prove routing or reviewer isolation.
+- For absence-mode changes, use the README application checks. Confirm approval boundaries, dependency handling, and durable decision records.
 
 ### Flow docs
 - None. The README is the reference.

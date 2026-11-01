@@ -11,6 +11,7 @@ These rules are the owner's instructions. They take precedence over skill instru
 2. For each feature, bug, or code change, use the `dev-loop` skill.
 3. Route the task. Feature or behavior change, also a small one: `brainstorming`. Bug: `systematic-debugging`. Trivial change (only harmless spelling or formatting): make and verify it, without brainstorming or writing-plans. Question: answer with evidence, and do not change code.
 4. Ask only real doubts. Ask them early, one at a time, with your recommended choice first.
+   For direct `away mode` or `I'm back` instructions, or saved active absence state, use `skills/dev-loop/references/absence-mode.md`. Preserve all approvals; defer only blocked steps and their dependents.
 
 ## The owner's standing answers to skill questions
 5. Design: the owner approves the design of each feature once, at the brainstorming gate. Do not write feature code before this approval. For a small feature, the design is 2–5 lines and one question. For a UI change, show a mockup of each changed screen without an offer.
