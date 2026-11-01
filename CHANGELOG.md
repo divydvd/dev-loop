@@ -2,6 +2,28 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.2 (2026-11-01)
+- **Add optional fresh-context design review.**
+  - **What:** Add `design-review` and its source-backed reviewer contract.
+    Explicit owner requests remain review-only work.
+    Automatic review requires project enablement and concrete matching criteria, before the existing design approval.
+    Preserve core rules, owner gates, tests, and independent PR review.
+    Allow one focused recheck; report incomplete coverage, failed delegation, and remaining findings explicitly.
+    Record design and source hashes, review identity, findings disposition, and available pilot measurements.
+    EGM is a method reference, not an installed dependency. Drift checks remain out of scope.
+  - **Why:** Six baseline scenarios found no pre-approval fresh review for enabled settings or explicit design-review requests.
+    The old instructions had no design-specific snapshot contract or focused-recheck limit.
+    Existing disabled routing and approval behavior already worked and needed preservation.
+  - **Check:** Fresh agents applied the revised skill, integrated routing, and review boundary cases.
+    An actual fresh reviewer found duplicate-credit risk in a retrying webhook fixture.
+    Another fresh reviewer found no confirmed issues in a complete transaction-based design.
+    Independent review identified an implicit source-drift check; the instructions now name every source comparison.
+    A targeted control already detected source drift before clarification; it is not claimed as a new failing runtime test.
+    Missing hashes and changed-source cases require incomplete coverage.
+    Run the plugin check, existing regressions, and temporary-home installation with instruction and skill discovery.
+    The README preserves application scenarios for later changes; these checks do not add a runtime guard.
+    The next weekly review compares useful findings, elapsed review time, and available usage before wider enablement.
+
 ## 0.5.1 (2026-10-31)
 - **Require independent review for substantive PRs.**
   - **What:** Replace the step-2-only review condition with complete independent coverage before the first push.

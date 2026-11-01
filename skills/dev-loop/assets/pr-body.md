@@ -31,6 +31,11 @@ After merge, post the refresh result as a PR comment and in the owner-facing rep
 - `docs/flows/<flow>.md`: <what changed> (or "none: <reason>")
 
 ## Review
+### Design review (optional)
+<Write "none: not selected" when unused. Otherwise, link the design and report.
+Record the trigger, design snapshot, reviewer, source evidence, findings disposition, recheck scope, and coverage limits.
+Record elapsed review time and host-provided usage, or "unavailable". This does not replace the independent PR review below.>
+
 ### Independent agent review
 | Item | Evidence |
 | --- | --- |

@@ -7,6 +7,7 @@ A Copilot plugin that lets one session run the full development loop from one li
 | --- | --- | --- |
 | Core rules | `com.github.copilot/rules/core.mdc` | The owner's standing instructions. Always on in a repo that turns on the plugin. |
 | `dev-loop` skill | `skills/dev-loop/` | The loop for one task: route, plan, build, flow docs, self-review, verify, PR, and report. Templates: the acceptance record, the PR body, and the project profile. |
+| `design-review` skill | `skills/design-review/` | Optional fresh-context review of a saved design before the existing owner approval. |
 | `flow-docs` skill | `skills/flow-docs/` | Read, update, and create the flow docs in `docs/flows/`. |
 | `infra-review` skill | `skills/infra-review/` | The weekly review that improves this plugin and the project profiles. |
 | Check script | `scripts/check.mjs` | Exact checks: the rule size, the frontmatter, the links, and the versions. CI runs it on each PR. |
@@ -56,11 +57,58 @@ The `disable` commands keep both plugins off in all other folders and chats. Eac
 ## Check that it works
 In a terminal in the project folder:
 - `copilot instruction list` shows `dev-loop: core` under "Plugin instructions".
-- `copilot skill list` shows `dev-loop`, `flow-docs`, and `infra-review`.
+- `copilot skill list` shows `dev-loop`, `design-review`, `flow-docs`, and `infra-review`.
 
-In a new app session in the project, ask: "Which skills and custom instructions do you have?" The answer must include the 3 skills and "Dev-loop core rules".
+In a new app session in the project, ask: "Which skills and custom instructions do you have?" The answer must include the 4 skills and "Dev-loop core rules".
 
 In a different folder, or in a folder that is not trusted, they do not show.
+
+## Optional design review
+### Abstract
+A fresh reviewer can find assumptions that a design author leaves in chat.
+The optional `design-review` skill reviews a saved design before implementation, while keeping the existing owner approval.
+Its method draws on [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model); it does not install or depend on EGM.
+
+Ask for a review directly: "Review the design at `<path>` with design-review."
+An explicit request is review-only work. It does not start implementation.
+For automatic review, copy the optional design-review section from `skills/dev-loop/assets/project-profile.md` into the project's `AGENTS.md`.
+Set `Enabled` to `yes` and supply concrete `Applies when` criteria, such as new webhook handlers or public API changes.
+Absent, disabled, or nonmatching settings preserve the normal route.
+Missing or unclear enabled criteria produce a configuration notice, not an automatic review or a new question.
+
+For a selected feature, dev-loop saves the proposed design and dispatches one fresh agent before requesting design approval.
+The reviewer receives the design, project rules, and source references, without the author's conversation.
+It checks assumptions, relevant failure cases, compatibility, and testable requirements.
+The report records the design hash, source commit and hashes, reviewer identity, scope, findings, dispositions, and coverage limits.
+Missing tools, failed reviewers, changed inputs, or missing source hashes produce an incomplete result, never a self-review substitute.
+One focused recheck is available after material corrections. Remaining findings stop automatic review.
+A new explicit review request remains separate review-only work.
+
+Design review does not replace design approval, risky-plan review, tests, independent PR review, or merge permission.
+A late review alone does not invalidate approval of an unchanged design.
+Material design changes still require approval.
+No external service, named persona, or nested agent capability is required.
+Fresh delegation must be available in the host; instruction discovery alone does not prove reviewer isolation.
+
+### Application checks and pilot evidence
+Use Superpowers `writing-skills` for new or changed review instructions.
+Run consuming-agent scenarios; text matches alone do not prove behavior.
+1. Review a webhook design that permits retries but lacks duplicate protection. Require source-backed findings and a fresh reviewer.
+2. Review a complete design that specifies atomic duplicate protection and failure tests. Do not invent findings for planned source replacement.
+3. Apply absent, disabled, nonmatching, and unclear profile settings. Preserve normal approval and acceptance-record behavior.
+4. Simulate unavailable delegation and a failed reviewer. Require an incomplete report without self-review or automatic retry.
+5. Apply one focused recheck, remaining findings, and a new explicit request. Preserve the automatic limit and existing owner gates.
+6. Change a referenced source while keeping the design and HEAD unchanged. Require incomplete coverage for the old snapshot.
+7. Omit an examined source hash, including a clean file's hash. Require incomplete coverage rather than a clean verdict.
+
+Record useful confirmed findings, rejected findings, elapsed review time, and host-provided usage for the first few qualifying reviews.
+Write "unavailable" when measurements are not exposed; do not estimate credits or savings.
+Keep automatic review opt-in until this evidence supports wider use.
+
+### Conclusion
+Use this review for defined changes that need stronger design checks, not as a default extra stage for every task.
+The main risk is added cost without useful findings.
+Keep EGM's full workflow and documentation-drift checks outside this integration.
 
 ## Optional Graphify support
 [Graphify](https://github.com/Graphify-Labs/graphify) maps code relationships for cross-file discovery. It is not a dev-loop dependency.

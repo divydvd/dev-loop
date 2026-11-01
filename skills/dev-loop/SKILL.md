@@ -45,6 +45,7 @@ For non-UI tasks, skip that reference and the profile's UI reuse pointers.
 
 ## 1. Route
 - **Feature or behavior change, also a small one:** use `brainstorming`. Put the facts from the profile, and from the flow docs if the repo has them, into your questions. Do not write code before the owner approves the design.
+  - Before requesting design approval, apply the optional design-review selection below.
   - For a UI change, make a mockup before you ask for the design approval. Do not wait for the owner to ask for it, and do not offer it first. Do not use the brainstorming visual companion. Make one self-contained HTML file (inline CSS and JavaScript, no network) in the session files folder. Show each changed screen, before and after, in the light and dark themes. Use the app's real texts, colors, and sizes from the code. Open the file in the browser canvas with a `file://` URL, and put its path in the plan and the PR body.
   - For a small feature (one area, 3 tasks or fewer), show a design of 2–5 lines and ask one question, with your recommended choice first. After the approval, save the acceptance record (`assets/acceptance-record.md`) as the plan, in `docs/superpowers/plans/<YYYY-MM-DD>-<topic>.md`. Then build it with `test-driven-development`. Do not use `writing-plans`. Copy the record into the PR body.
   - For a bigger feature, write a plan (step 2) after the approval.
@@ -52,8 +53,22 @@ For non-UI tasks, skip that reference and the profile's UI reuse pointers.
   - If the fix is in one area and has 3 tasks or fewer, save the acceptance record (`assets/acceptance-record.md`) before you write the fix. Save it as the plan, in `docs/superpowers/plans/<YYYY-MM-DD>-<topic>.md`. Then fix it with `test-driven-development`. Do not use `writing-plans`. Copy the record into the PR body.
   - If the fix is bigger, write a plan (step 2).
 - **Trivial change:** only harmless spelling or formatting edits qualify for the independent-review exemption. Record the reason in the PR body. A changed command or operational instruction is not trivial. A config change that changes behavior is a behavior change. For a harmless edit, make the change and go to step 4. In step 6, run only the fast checks.
-- **Question:** answer with evidence (paths, commands, and results). Do not change code.
+- **Question:** for an explicit design-review request, use `design-review` as review-only work. Otherwise, answer with evidence (paths, commands, and results). Do not change code.
 - **Big work** (more than about 3 PRs): you are the lead. Split the work into a stack of PRs, with one child session for each PR. Use the `pr-stack` and `orchestrate` skills when they are available. Review each child PR before you report.
+
+### Design review (optional)
+Automatic design review requires the project's `Design review (optional)` profile section, `Enabled: yes`, and concrete matching `Applies when` criteria.
+An explicit owner request can select `design-review` without automatic enablement.
+Absent, disabled, or nonmatching settings leave the normal route unchanged, without review artifacts or questions.
+Missing or unclear enabled criteria mean automatic review is not configured; report that and continue the normal route.
+
+When selected, use `design-review` before the existing feature design approval.
+For automatic review, save the proposed design before dispatch. For explicit review, use the identified existing design.
+Review it with one fresh agent, without the author's conversation.
+The skill records evidence and permits one focused recheck after material corrections.
+Present incomplete coverage and remaining findings at the existing owner decision.
+Design review does not add or replace approval gates, tests, risky-plan review, or independent PR review.
+A review-only request does not start implementation. A late review alone does not invalidate approval of an unchanged design.
 
 ## 2. Plan
 - Use `writing-plans`. Put the acceptance record (`assets/acceptance-record.md`) at the top of the plan.
