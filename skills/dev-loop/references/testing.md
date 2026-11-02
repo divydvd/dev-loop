@@ -28,6 +28,50 @@ Use the project's tools and commands. Do not install a tool or create a test ser
 Assert observable results, including error behavior and preserved behavior, not only mocked calls or successful exit codes.
 Keep TDD: reproduce the fault or missing behavior before the implementation, then check the fix and regressions.
 
+## Permanent project regression inventory
+The permanent inventory protects important existing flows across tasks.
+It belongs in the project repository, under version control. The task matrix records the current selection and run evidence.
+Read the profile's `Regression matrix` path and existing project testing docs before creating another record.
+Reuse an existing inventory even when it has a different name.
+When establishing a baseline without an existing location, use `docs/testing/regression-matrix.md` and `assets/regression-matrix.md`.
+Keep commands and project triggers in the project profile; keep flow definitions and real test references in the inventory.
+
+Each entry needs a stable case ID, flow and expected result, source/consumers, level/triggers, test/procedure, and environment/safe data.
+Use existing automated tests or reproducible manual steps. Identify missing automation or behavior coverage explicitly.
+Do not store secrets, private account data, or permanent passed results.
+Link selected permanent IDs into the task matrix instead of copying a second complete inventory.
+
+### Select existing flows
+1. Select the configured core checks for each substantive code PR.
+2. Add affected-area checks from changed behavior, source, tests, and consumers.
+3. Select broad checks when the profile's concrete triggers apply or source investigation finds cross-cutting risk.
+4. Include applicable core and affected cases in broad selection. Do not replace existing project test tiers.
+5. Record selected case IDs, levels, trigger evidence, and exclusions in the task record before implementation.
+
+Select by impact, not a line-count threshold. A tiny shared permission change can affect several main flows.
+Core checks should stay fast. Broad selection does not mean every expensive test after every edit.
+One real command may cover multiple IDs; map its actual assertions and results to each selected case.
+Do not repeat an identical run merely to fill rows. Preserve every required check and its final tested identity.
+Questions and harmless spelling or formatting edits keep their existing routes and exemptions.
+
+### Maintain and inspect the inventory
+Add a new important flow and its real test or procedure in the same PR as the feature.
+Retain useful bug regression cases. Update an existing entry when it already covers that behavior.
+If references remain accurate, record why no inventory edit is needed; do not require artificial document changes.
+Update affected flow references, consumers, triggers, fixtures, and test locations when behavior changes.
+Retire a case only when requirements or source establish that the flow no longer applies.
+Keep the retired ID, reference, and reason. Do not reuse an ID for another meaning.
+Do not retire or weaken a case because it fails, is blocked, or delays delivery.
+Review inventory changes with the code and tests, not as a later documentation task.
+
+A missing inventory is an explicit inventory gap, not proof that the project has no tests.
+For missing setup, inspect source, tests, and consumers; keep project tiers and risk-based task selection.
+Do not invent a suite or expand the assignment into a project-wide baseline without approved scope.
+Report the missing path or configuration and the limits of existing-flow coverage.
+For stale or missing test references, find and verify a replacement or record the affected coverage gap.
+An old passing entry cannot establish current coverage. Required failed, blocked, unrun, or uncovered cases keep their normal readiness effect.
+Establishing a project's initial baseline is a project adoption task; this generic template does not supply its actual flows.
+
 ## Assess relevant categories
 Assess categories separately from case execution. Combine related categories when they share a reason.
 Give exclusions a reason; an excluded category is not a passed case.
@@ -63,6 +107,7 @@ Extend the existing independent review; add no separate reviewer for each small 
 Give the reviewer requirements, the matrix, source, relevant consumers, and the reviewed identity.
 Ask the reviewer to find missing cases from source and interactions, not only inspect table completeness.
 Check acceptance links, important risks, expected results, exclusions, required/optional decisions, and execution evidence.
+Review omitted existing flows, permanent case selection, inventory changes, and real test references against source and consumers.
 Keep the existing independent review requirements and later-change coverage.
 Review is not a test run. A complete matrix is not execution evidence.
 

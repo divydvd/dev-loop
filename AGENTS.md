@@ -33,6 +33,7 @@ A plan that touches one of these areas needs the owner's plan review.
 - For testing-instruction changes, run `node --test scripts/testing-contract.test.mjs` and the existing CI suites.
   Use the README risk-based testing application checks with fresh consuming agents before and after instruction changes.
   Preserve passing baseline controls. Text checks alone do not prove case selection, coverage review, or evidence honesty.
+- For permanent-regression changes, also use the README inventory application cases. Check path reuse, additive levels, same-PR maintenance, stale references, and stable IDs.
 
 ### Flow docs
 - None. The README is the reference.

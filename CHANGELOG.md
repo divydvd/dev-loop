@@ -2,6 +2,27 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.5 (2026-11-02)
+- **Add permanent project regression inventory support.**
+  - **What:** Add a project-owned matrix template and profile fields for its path, core checks, affected areas, and broad triggers.
+    Link stable permanent case IDs to task selection and current evidence.
+    Maintain important new flows and useful bug regressions with their tests in the same PR.
+    Reuse existing inventories; retain traceable retirement and source-backed reasons for unchanged entries.
+    Report missing setup and stale references without inventing suites or expanding task scope.
+    Preserve project tiers, approvals, device safeguards, absence behavior, and existing readiness rules.
+  - **Why:** The previous contract describes per-task cases but has no permanent template, profile fields, or required selection slots.
+    Five fresh baseline agents applied 13 fixed cases, including five independent samples of a small parser fix.
+    They already selected safe checks and preserved pressure, evidence, retirement, consumer, and absence controls.
+    One baseline made durable bug-document maintenance conditional; missing-inventory reporting lacked an explicit setup-gap record.
+    New-flow inventory maintenance already appeared in baseline. These passing controls are not claimed as new unsafe failures.
+  - **Check:** Five fresh revised agents applied the same cases against a hash-pinned snapshot.
+    They linked existing IDs, maintained project records, and reported setup gaps while preserving baseline controls.
+    Five new structural checks failed before implementation; all 14 testing-contract checks pass after implementation.
+    Independent risky-task review found no significant issue in the eight-file snapshot and its existing interactions.
+    Run the plugin check, all CI suites, the README application cases, and temporary-home installation/discovery.
+    Structural checks establish wiring; simulated agent tasks do not execute an application or prove universal reliability.
+    Project adoption and a real-task pilot remain separate. The next weekly review checks omitted flows, stale links, and record effort.
+
 ## 0.5.4 (2026-11-02)
 - **Add proportional risk-based test planning.**
   - **What:** Save a compact matrix for small substantive changes and detailed cases for complex or high-risk changes.
