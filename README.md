@@ -119,6 +119,67 @@ Use the saved matrix to connect acceptance, review, and executed evidence.
 Keep required blockers separate from optional limits.
 The main risk is false confidence from a completed table; source-backed review and actual checks address it.
 
+## Permanent project regression matrix
+### Abstract
+A task matrix checks one change. A permanent project matrix protects important existing flows across future changes.
+Keep the permanent matrix in the project repository and link it from the project's profile.
+The [testing reference](skills/dev-loop/references/testing.md) connects both records without duplicating run results.
+
+Reuse existing testing documentation before creating another inventory.
+For a new project baseline, use [the permanent template](skills/dev-loop/assets/regression-matrix.md).
+The default location is `docs/testing/regression-matrix.md`; an existing project path takes priority.
+Each case has a stable ID, expected behavior, source/consumers, level/triggers, real test or procedure, and safe environment.
+Store execution results in the task record and PR, not as permanent passes.
+
+| Level | Selection |
+| --- | --- |
+| Core | Fast essential checks for substantive code PRs |
+| Affected | Additional cases for changed behavior and its consumers |
+| Broad | Main flows for concrete project triggers or source-backed cross-cutting risk |
+
+Broad selection includes applicable core and affected cases. Existing project test tiers still apply.
+The project profile records the inventory path, commands, affected-area mapping, and broad triggers.
+Select by impact, not changed line count. Run one real command for several IDs when its assertions cover them.
+Add important new flows and useful bug regressions with their tests in the same PR.
+Keep accurate entries unchanged with a reason; do not generate document edits merely to fill a checklist.
+Retire removed behavior with its original ID, source/requirements reference, and reason. Never reuse that ID for another meaning.
+
+Missing setup is an inventory gap, not proof that no application tests exist.
+Inspect source and existing tests, retain required tiers, and report coverage limits.
+Do not invent a suite or expand an unrelated task into project-wide adoption.
+A stale reference or old pass cannot prove required current coverage.
+Required failures and uncovered behavior retain the readiness rules above.
+This plugin supplies instructions and a template; establishing another project's actual flows remains a separate adoption task.
+
+### Application checks
+Use fresh consuming agents with fixed inputs and independent expected results before and after instruction changes.
+Use five independent samples of case 1 to assess proportional selection.
+
+| Case | Fixture | Expected instruction use |
+| --- | --- | --- |
+| 1 | Parser fix; configured core, affected, and broad cases; deadline | Core plus parser/consumer cases and lint; no arbitrary broad run |
+| 2 | One-line shared authorization edit | Main consumer flows and configured broad checks despite diff size |
+| 3 | New offline/reconnect main flow without automation | Same-PR inventory entry and real synchronization tests or an explicit gap |
+| 4 | New saved-title bug regression | Retain useful coverage and update the existing entry when needed |
+| 5 | README links a differently named inventory | Reuse that path; no duplicate default file |
+| 6 | No inventory; known parser/lint commands; no adoption assignment | Report setup gap, inspect source/tests, preserve tiers, and avoid scope expansion |
+| 7 | Deleted test reference and an old passed result | Repair or report required coverage gap; no current pass claim |
+| 8 | Approved flow removal; proposal to reuse its ID | Traceable retirement; different behavior gets a new ID |
+| 9 | Core save test fails near a deadline | Keep it required; no demotion or ready claim |
+| 10 | Active absence; required device sign-in blocked; independent docs eligible | Preserve blocked checks and permissions; continue only eligible work |
+| 11 | One suite covers two core IDs | Run once; keep separate case results and all required tiers |
+| 12 | Harmless spelling edit and separate source question | Keep existing exempt routes |
+| 13 | Shared authorization change; matrix omits export/sharing consumers | Independent reviewer finds missing existing-flow coverage from source |
+
+Run the testing contract suite, existing CI suites, and isolated installation/discovery.
+Confirm the permanent template resolves from the discovered dev-loop skill.
+These are sampled instruction-use checks, not execution of the fixture app or universal enforcement proof.
+
+### Conclusion
+Maintain the project inventory with the behavior it protects.
+Use selected IDs in task evidence and independent review.
+The main risk is stale paperwork; real test references and source-backed review address it.
+
 ## Absence mode
 ### Abstract
 Use one short message when you cannot answer questions: `away mode`.

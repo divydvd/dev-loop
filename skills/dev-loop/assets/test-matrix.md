@@ -5,6 +5,8 @@
 - Requirements and source assessed: <commit or exact snapshot; relevant consumers>
 - Detail: <compact | detailed; reason based on impact and behavior>
 - Required checks: <acceptance conditions, important safety risks, and project tiers>
+- Regression selection: <project inventory path; selected permanent case IDs, levels, and trigger evidence; exclusions and setup gaps>
+  Link permanent IDs to cases below. Keep run results here, not as permanent inventory passes.
 
 ## Category assessment
 Keep relevance separate from case execution. Group categories with the same reason.

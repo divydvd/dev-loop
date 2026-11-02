@@ -11,6 +11,8 @@ const guidance = read("skills/dev-loop/references/testing.md");
 const matrix = read("skills/dev-loop/assets/test-matrix.md");
 const acceptance = read("skills/dev-loop/assets/acceptance-record.md");
 const pr = read("skills/dev-loop/assets/pr-body.md");
+const regression = read("skills/dev-loop/assets/regression-matrix.md");
+const profile = read("skills/dev-loop/assets/project-profile.md");
 
 // These checks protect instruction wiring. Fresh consuming agents test instruction use.
 test("substantive routes load testing guidance before implementation", () => {
@@ -103,4 +105,58 @@ test("ready gates permit only justified inapplicable required cases", () => {
   }
   assert.match(guidance, /not.*required case not applicable unless source or requirements/i);
   assert.match(guidance, /not applicable.*not a pass/i);
+});
+
+test("the permanent inventory template separates flow definitions from run evidence", () => {
+  for (const field of [
+    "Case ID", "Flow / expected result", "Source / consumers", "Level / triggers",
+    "Test / procedure", "Environment / safe data",
+  ]) {
+    assert.ok(regression.includes(field), `missing permanent field: ${field}`);
+  }
+  assert.match(regression, /stable.*IDs/i);
+  assert.match(regression, /no.*permanent.*passed/i);
+  assert.match(regression, /task.*evidence/i);
+});
+
+test("project profiles locate the inventory and define additive selection levels", () => {
+  assert.match(profile, /Regression matrix/);
+  assert.match(profile, /Matrix path/);
+  assert.match(profile, /Core checks/);
+  assert.match(profile, /Affected-area checks/);
+  assert.match(profile, /Broad triggers/);
+  assert.match(guidance, /core.*substantive code PR/i);
+  assert.match(guidance, /core and affected cases in broad selection|broad.*core.*affected/i);
+  assert.match(guidance, /not.*line.count/i);
+  assert.match(guidance, /do not replace.*project.*tiers/i);
+});
+
+test("discovery reuses project records and reports absent or stale coverage honestly", () => {
+  assert.match(guidance, /existing.*testing.*docs/i);
+  assert.match(guidance, /docs\/testing\/regression-matrix\.md/);
+  assert.match(guidance, /missing.*inventory.*gap/i);
+  assert.match(guidance, /do not invent.*suite/i);
+  assert.match(guidance, /stale.*test.*reference/i);
+  assert.match(guidance, /source.*tests.*consumers/i);
+});
+
+test("feature and bug work maintains persistent cases without convenient retirement", () => {
+  assert.match(guidance, /same PR/i);
+  assert.match(guidance, /new.*important.*flow/i);
+  assert.match(guidance, /bug.*regression/i);
+  assert.match(guidance, /retire.*requirements.*source/i);
+  assert.match(guidance, /do not reuse.*ID/i);
+  assert.match(guidance, /not.*retire.*fails.*blocked/i);
+  assert.match(regression, /Retired cases/);
+});
+
+test("permanent case IDs connect selection and maintenance to task records and review", () => {
+  for (const record of [acceptance, matrix, pr]) {
+    assert.match(record, /Regression selection/);
+    assert.match(record, /case IDs/i);
+  }
+  assert.match(skill, /assets\/regression-matrix\.md/);
+  assert.match(skill, /permanent.*inventory/i);
+  assert.match(guidance, /review.*omitted.*flows/i);
+  assert.match(guidance, /one.*command.*multiple.*IDs/i);
 });

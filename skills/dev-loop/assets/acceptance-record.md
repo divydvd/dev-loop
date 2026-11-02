@@ -8,6 +8,7 @@
   Use the compact table below for a small substantive change; link `assets/test-matrix.md` detailed cases for complex or high-risk work.
   Map every acceptance condition and important risk to case IDs or an explicit gap.
   Assess relevant edge categories; give exclusions a reason. Keep this record with the plan and ledger.
+- **Regression selection:** <permanent inventory path; selected case IDs and levels; trigger evidence and exclusions; inventory updates or reason unchanged; missing setup/coverage gaps>
 - **Size estimate:** <changed lines of production code for each task, and the total; tests, docs, and generated files do not count. More than 400: the stack of PRs>
 - **Out of scope:** <what this task does not change>
 - **Risky area:** <none | the area from the profile> (a risky area needs the owner's plan review)

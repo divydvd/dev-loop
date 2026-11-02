@@ -87,6 +87,8 @@ A review-only request does not start implementation. A late review alone does no
 ## 2. Plan
 - Use `writing-plans`. Put the acceptance record (`assets/acceptance-record.md`) at the top of the plan.
 - Save test cases under `references/testing.md` before implementation. Link detailed cases for complex or high-risk work.
+- Select existing flows from the project's permanent regression inventory under `references/testing.md`; link case IDs in the task record.
+  Use `assets/regression-matrix.md` when establishing a project baseline, not a duplicate inventory or a list of permanent passes.
 - Make tasks of 2–5 minutes. Mark the tasks that can run in parallel.
 - Estimate the changed lines of production code for each task, and fill in the "Size estimate" of the acceptance record. Tests, docs, and generated files do not count. If the total is more than 400, split the plan into a stack of PRs now, with one concern for each PR. Give each PR its own branch, made from the branch of the PR before it. Name each branch and its base in the plan. Split now, before the build.
 - If a task touches a risky area from the profile, mark the task and the plan "risky". Wait for the owner's plan review only then.
@@ -95,6 +97,7 @@ A review-only request does not start implementation. A late review alone does no
 ## 3. Build
 - Follow `executing-plans` or `subagent-driven-development`, as core rule 7 says. Use test-driven development.
 - Update affected cases and evidence under `references/testing.md` when requirements, source, setup, or consumers change.
+- Maintain affected permanent inventory entries and real test references in the same PR under `references/testing.md`.
 - With `executing-plans`, after each task in a risky area, get one independent review: use `requesting-code-review` for the commits of that task. Give the reviewer the task, the acceptance record, and the review checklist. Before the next task, fix the findings that pass `receiving-code-review`. `subagent-driven-development` already reviews each task.
 - If a review subagent fails, here or in step 5, start it again once. If it fails again, do not report the PR ready or put your own review in its place. Write the task or branch in "Not reviewed". You may open the PR, but report "open, not ready: independent review unavailable".
 - Run independent tasks and research in parallel. Run only one heavy build at a time, with the profile's commands.

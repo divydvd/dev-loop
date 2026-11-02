@@ -41,6 +41,15 @@ The dev-loop rules (`dev-loop: core`) are the owner's instructions. They take pr
 | --- | --- |
 | <path or area> | <command> |
 
+### Regression matrix
+- **Matrix path:** <existing project testing doc; otherwise `docs/testing/regression-matrix.md`; or "not established">
+- **Core checks:** <fast essential case IDs and commands for substantive code PRs>
+- **Affected-area checks:** <source/consumer areas -> additional case IDs and commands>
+- **Broad triggers:** <concrete cross-cutting conditions -> main-flow case IDs and commands; not a line-count threshold>
+<!-- Keep flows and test references in the matrix, not a second inventory here.
+     Use the regression-matrix template when establishing a project baseline.
+     Missing setup does not waive existing test tiers or prove that application tests are absent. -->
+
 ### UI reuse (optional)
 <!-- Omit for projects without UI. Keep only paths and check references here, not a component inventory. -->
 - **Components:** <shared UI source paths or component API reference; or "none">
