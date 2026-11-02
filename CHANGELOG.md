@@ -2,6 +2,51 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.4 (2026-11-02)
+- **Add proportional risk-based test planning.**
+  - **What:** Save a compact matrix for small substantive changes and detailed cases for complex or high-risk changes.
+    Link acceptance conditions and important risks to cases or explicit gaps.
+    Record category exclusions, expected results, methods, locations, statuses, evidence, and tested identities.
+    Extend existing independent review to inspect missing cases against requirements, source, and consumers.
+    Preserve TDD, project tiers, approvals, device safety, and absence dependencies.
+    Required failures and required coverage gaps prevent readiness; optional limits remain explicit.
+    Reassess affected cases after changes without relabeling historical evidence.
+  - **Why:** Five fresh baseline agents applied 13 fixed cases, including five samples of a small validation fix.
+    They selected many useful checks but did not consistently produce per-case method, location, status, and identity fields.
+    One small-fix sample omitted invalid-input cases. Detailed risk records and explicit category assessment were inconsistent.
+    Existing reuse, readiness, device, evidence-drift, consumer-review, exempt-route, absence, and failure controls already passed.
+    These controls are preserved, not reported as newly reproduced unsafe failures.
+  - **Check:** Five fresh revised agents applied the same 13 cases and produced consistent compact records in five small-fix samples.
+    Independent risky-task review found no confirmed issue in the instruction snapshot and its existing interactions.
+    Eight structural assertions failed before implementation; seven passed after the contract, with CI wiring intentionally pending.
+    CI now runs the added suite alongside existing suites.
+    Automatic review found conflicting finish wording for justified `not applicable` cases.
+    A fresh baseline agent blocked an approved removed requirement; the revised case permits readiness without claiming a pass.
+    A failed required revocation case still blocks readiness. A ninth structural regression protects both finish clauses.
+    Run the plugin check, all CI regression suites, the README application cases, and temporary-home installation and discovery.
+    Structural checks establish wiring, not runtime enforcement. Agent simulations do not execute the fixture applications.
+    The next weekly review checks missing-case findings, record size, honest identities, and required blockers.
+
+## 0.5.3 (2026-11-02)
+- **Add owner-activated absence mode.**
+  - **What:** Add the `away mode` and `I'm back` messages, a task-scoped reference, durable decision fields, and a blocker handoff.
+    During verified absence, defer blocked steps and their dependents; continue only permitted independent work.
+    Preserve feature design, risky-plan, merge, deployment, live configuration, and other protected approvals.
+    Preserve review, test, failure, data, and shared-resource requirements.
+    Return does not approve agent decisions. No eligible work produces a handoff, not a blocking question or polling loop.
+    Normal behavior is unchanged without direct owner activation.
+  - **Why:** Eleven baseline scenarios found no absence activation or persistent return state.
+    Mixed-phase continuation depended on agent guesses.
+    Missing feature and risky-plan approvals still selected blocking questions while the owner was absent.
+    Existing implementation rulings and three-failed-fix stops already worked and remain required.
+  - **Check:** Fresh agents applied all eleven revised reference cases and integrated routing cases.
+    Independent risky-task review identified an implicit workspace-conflict stop; it is now explicit.
+    A control already stopped conservatively before that clarification; it is not claimed as a new unsafe runtime failure.
+    Focused cases distinguish a session-wide conflict stop from task-local deployment deferral.
+    Run the plugin check, existing plugin regressions, and temporary-home install with instruction and skill discovery.
+    The README keeps repeatable application cases. These instruction tests do not prove every host permission path.
+    The next weekly review checks decision completeness, dependency handling, unnecessary stops, and protected approvals.
+
 ## 0.5.2 (2026-11-01)
 - **Add optional fresh-context design review.**
   - **What:** Add `design-review` and its source-backed reviewer contract.

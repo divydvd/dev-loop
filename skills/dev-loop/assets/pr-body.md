@@ -10,6 +10,15 @@
 | Unit tests | `<command>` | <N passed> | `<sha7>` |
 | Device test | <scenario, or "not needed: reason"> | <pass or fail, and a note> | `<sha7>` |
 
+## Test coverage
+<Link or include the saved matrix. Use portable paths or evidence links, not machine-specific session paths.
+For a harmless spelling or formatting change, write "not applicable: harmless edit".>
+- Acceptance mapping: <each acceptance condition -> case IDs and actual evidence; include important risks>
+- Category assessment: <relevant case IDs and exclusions with reasons>
+- Required blockers: <failed, blocked, not run, or required coverage gaps; actual dependents, or none>
+- Optional limits: <unexecuted optional checks, reasons, and remaining risks, or none>
+- Reassessment: <affected cases after changes; retain original tested identities for historical evidence>
+
 ## Device handoff
 | Item | Final verified state |
 | --- | --- |
@@ -57,6 +66,12 @@ If independent review remains unavailable, report "open, not ready". Never treat
 
 ## Risks, and what the owner must check
 - <a risk, or a check that only a person can do>
+
+## Absence handoff (when used)
+<Otherwise write "none: not activated". Link this task's saved absence record; do not include secrets or private account data.
+Record activation and current mode, approved scope, agent decisions pending owner review, reasons, evidence, affected files, risks, and reversal steps.
+List blocked steps, their actual dependents, exact approvals needed, and any required check that remains incomplete.
+The owner returning does not approve these decisions or clear blockers. An open PR may still be not ready.>
 
 ## Test tool feedback
 <For a device test or another test tool run: each gap of the test tool, each step that needed a workaround (for example raw adb instead of the test tool) and why, and each unreliable step. Start each line with one label: `gap`, `workaround`, or `unreliable`. If the run had none of these, write "none: no finding". If no test tool ran, write "none: <reason>".>

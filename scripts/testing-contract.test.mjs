@@ -1,0 +1,106 @@
+import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { test } from "node:test";
+
+const read = (path) => {
+  const url = new URL(`../${path}`, import.meta.url);
+  return existsSync(url) ? readFileSync(url, "utf8") : "";
+};
+const skill = read("skills/dev-loop/SKILL.md");
+const guidance = read("skills/dev-loop/references/testing.md");
+const matrix = read("skills/dev-loop/assets/test-matrix.md");
+const acceptance = read("skills/dev-loop/assets/acceptance-record.md");
+const pr = read("skills/dev-loop/assets/pr-body.md");
+
+// These checks protect instruction wiring. Fresh consuming agents test instruction use.
+test("substantive routes load testing guidance before implementation", () => {
+  const start = skill.split("## Before you start")[1]?.split("### Absence mode")[0] ?? "";
+  assert.match(start, /references\/testing\.md/);
+  assert.match(start, /before implementation/i);
+  for (const route of ["small feature", "small bug", "larger plan"]) {
+    assert.ok(start.includes(route), `missing route: ${route}`);
+  }
+  assert.match(start, /question.*harmless spelling.*formatting.*exempt/i);
+});
+
+test("planning selects proportional detail by impact, not diff size", () => {
+  assert.match(guidance, /compact.*acceptance record/i);
+  assert.match(guidance, /complex.*high.risk.*detailed/i);
+  assert.match(guidance, /impact.*not.*line count/i);
+  assert.match(acceptance, /Test matrix/);
+  assert.match(acceptance, /before implementation/i);
+  assert.match(guidance, /no new owner approval gate/i);
+});
+
+test("the matrix links requirements and risks to executable cases", () => {
+  for (const field of [
+    "Case", "Requirement / risk", "Required?", "Setup / input", "Expected result",
+    "Method", "Test location", "Status", "Evidence", "Tested identity",
+  ]) {
+    assert.ok(matrix.includes(field), `missing case field: ${field}`);
+  }
+  assert.match(matrix, /Detailed cases/);
+  assert.match(matrix, /Category assessment/);
+  assert.match(matrix, /Exclusion reason/);
+  assert.match(guidance, /each acceptance condition.*important.*risk.*case.*gap/i);
+});
+
+test("risk selection includes state, consumer, and failure boundaries", () => {
+  for (const category of [
+    "boundaries", "invalid input", "permissions", "state changes", "concurrency",
+    "retries", "partial failure", "recovery", "existing consumers", "UI",
+    "accessibility", "device", "migration", "performance",
+  ]) {
+    assert.ok(guidance.includes(category), `missing category: ${category}`);
+  }
+  assert.match(guidance, /reuse existing tests/i);
+  assert.match(guidance, /exclusions.*reason/i);
+});
+
+test("build and independent review reassess cases against actual consumers", () => {
+  const build = skill.split("## 3. Build")[1]?.split("## 4. Flow docs")[0] ?? "";
+  const review = skill.split("## 5. Self-review")[1]?.split("## 6. Verify")[0] ?? "";
+  assert.match(build, /affected cases.*evidence/i);
+  assert.match(review, /requirements.*source.*consumers.*missing cases/i);
+  assert.match(guidance, /existing independent review/i);
+  assert.match(guidance, /no separate reviewer/i);
+});
+
+test("case evidence preserves execution status and original identity", () => {
+  for (const status of ["passed", "failed", "blocked", "not run", "not applicable"]) {
+    assert.ok(guidance.includes(status), `missing status: ${status}`);
+  }
+  assert.match(guidance, /matrix.*not.*execution evidence/i);
+  assert.match(guidance, /not relabel.*old.*new.commit/i);
+  assert.match(guidance, /project.*tiers/i);
+  assert.match(guidance, /TDD/);
+});
+
+test("required gaps block ready claims while optional limits remain explicit", () => {
+  assert.match(guidance, /required.*failed.*blocked.*not run/i);
+  assert.match(guidance, /required coverage gap.*not ready/i);
+  assert.match(guidance, /not.*required.*optional.*fails/i);
+  assert.match(guidance, /absence.*dependents/i);
+  assert.match(acceptance, /required.*coverage gap/i);
+  assert.match(pr, /Test coverage/);
+  assert.match(pr, /Required blockers/);
+  assert.match(pr, /Optional limits/);
+  assert.match(skill.split("## Stop conditions")[1] ?? "", /required cases.*coverage gaps/i);
+});
+
+test("CI runs the testing contract alongside existing suites", () => {
+  const workflow = read(".github/workflows/check.yml");
+  for (const suite of ["testing-contract", "independent-review", "branch-maintenance", "device-handoff"]) {
+    assert.ok(workflow.includes(`node --test scripts/${suite}.test.mjs`), `missing CI suite: ${suite}`);
+  }
+});
+
+test("ready gates permit only justified inapplicable required cases", () => {
+  const done = skill.split("- **Done:**")[1]?.split("\n")[0] ?? "";
+  for (const gate of [done, acceptance]) {
+    assert.match(gate, /all applicable required cases pass/i);
+    assert.match(gate, /not applicable.*source.*requirements.*reason/i);
+  }
+  assert.match(guidance, /not.*required case not applicable unless source or requirements/i);
+  assert.match(guidance, /not applicable.*not a pass/i);
+});
