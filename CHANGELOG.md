@@ -20,6 +20,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Independent risky-task review found no confirmed issue in the instruction snapshot and its existing interactions.
     Eight structural assertions failed before implementation; seven passed after the contract, with CI wiring intentionally pending.
     CI now runs the added suite alongside existing suites.
+    Automatic review found conflicting finish wording for justified `not applicable` cases.
+    A fresh baseline agent blocked an approved removed requirement; the revised case permits readiness without claiming a pass.
+    A failed required revocation case still blocks readiness. A ninth structural regression protects both finish clauses.
     Run the plugin check, all CI regression suites, the README application cases, and temporary-home installation and discovery.
     Structural checks establish wiring, not runtime enforcement. Agent simulations do not execute the fixture applications.
     The next weekly review checks missing-case findings, record size, honest identities, and required blockers.

@@ -94,3 +94,13 @@ test("CI runs the testing contract alongside existing suites", () => {
     assert.ok(workflow.includes(`node --test scripts/${suite}.test.mjs`), `missing CI suite: ${suite}`);
   }
 });
+
+test("ready gates permit only justified inapplicable required cases", () => {
+  const done = skill.split("- **Done:**")[1]?.split("\n")[0] ?? "";
+  for (const gate of [done, acceptance]) {
+    assert.match(gate, /all applicable required cases pass/i);
+    assert.match(gate, /not applicable.*source.*requirements.*reason/i);
+  }
+  assert.match(guidance, /not.*required case not applicable unless source or requirements/i);
+  assert.match(guidance, /not applicable.*not a pass/i);
+});

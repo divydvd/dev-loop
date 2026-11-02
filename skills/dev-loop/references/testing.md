@@ -85,6 +85,8 @@ Separate required blockers from optional limits. State optional limits and their
 A required case that is failed, blocked, or not run prevents readiness.
 A required coverage gap means not ready, even when every executed command passes.
 Do not mark a required case not applicable unless source or requirements establish that it truly does not apply.
+A justified not applicable result is not a pass and does not block readiness.
+Record its source or requirements reference and reason. All applicable required cases must pass.
 During active absence mode, defer blocked checks and their actual dependents under `references/absence-mode.md`.
 Continue only eligible independent work. Absence does not waive required evidence or authorize protected actions.
 

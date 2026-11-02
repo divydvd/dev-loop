@@ -191,7 +191,7 @@ Do not claim acceptance is complete when a required decision or check remains bl
 Include the acceptance-to-case evidence links, required blockers, and optional limits under `references/testing.md`.
 
 ## Stop conditions
-- **Done:** each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All required cases pass and no required coverage gaps remain.
+- **Done:** each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass and no required coverage gaps remain. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
 - **Blocked:** 3 failed fixes, missing access, no device, or a product decision that the repo does not answer. Normally, stop and report what you tried, the evidence, and the decision needed. During confirmed active absence mode, use `references/absence-mode.md` to defer affected steps and check independent work. Three failed fixes still require a stop.
 - **Ask the owner** only at the feature design, at a plan for a risky area, and before a destructive action. During active absence mode, record these needs for the handoff; do not execute the blocked work or replace its approval.
 

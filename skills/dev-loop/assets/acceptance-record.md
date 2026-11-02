@@ -12,7 +12,7 @@
 - **Out of scope:** <what this task does not change>
 - **Risky area:** <none | the area from the profile> (a risky area needs the owner's plan review)
 - **Stop conditions:**
-  - Done: each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All required cases pass and no required coverage gap remains.
+  - Done: each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass and no required coverage gap remains. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
   - Blocked: 3 failed fixes, missing access, no device, or a product decision. Normally, stop and report with the evidence. During confirmed active absence mode, defer affected steps and their dependents under the absence reference, then continue only eligible independent work. Stop when none remains. Three failed fixes still require a stop.
 
 ### Compact test matrix
