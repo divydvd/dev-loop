@@ -2,6 +2,28 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.4 (2026-11-02)
+- **Add proportional risk-based test planning.**
+  - **What:** Save a compact matrix for small substantive changes and detailed cases for complex or high-risk changes.
+    Link acceptance conditions and important risks to cases or explicit gaps.
+    Record category exclusions, expected results, methods, locations, statuses, evidence, and tested identities.
+    Extend existing independent review to inspect missing cases against requirements, source, and consumers.
+    Preserve TDD, project tiers, approvals, device safety, and absence dependencies.
+    Required failures and required coverage gaps prevent readiness; optional limits remain explicit.
+    Reassess affected cases after changes without relabeling historical evidence.
+  - **Why:** Five fresh baseline agents applied 13 fixed cases, including five samples of a small validation fix.
+    They selected many useful checks but did not consistently produce per-case method, location, status, and identity fields.
+    One small-fix sample omitted invalid-input cases. Detailed risk records and explicit category assessment were inconsistent.
+    Existing reuse, readiness, device, evidence-drift, consumer-review, exempt-route, absence, and failure controls already passed.
+    These controls are preserved, not reported as newly reproduced unsafe failures.
+  - **Check:** Five fresh revised agents applied the same 13 cases and produced consistent compact records in five small-fix samples.
+    Independent risky-task review found no confirmed issue in the instruction snapshot and its existing interactions.
+    Eight structural assertions failed before implementation; seven passed after the contract, with CI wiring intentionally pending.
+    CI now runs the added suite alongside existing suites.
+    Run the plugin check, all CI regression suites, the README application cases, and temporary-home installation and discovery.
+    Structural checks establish wiring, not runtime enforcement. Agent simulations do not execute the fixture applications.
+    The next weekly review checks missing-case findings, record size, honest identities, and required blockers.
+
 ## 0.5.3 (2026-11-02)
 - **Add owner-activated absence mode.**
   - **What:** Add the `away mode` and `I'm back` messages, a task-scoped reference, durable decision fields, and a blocker handoff.

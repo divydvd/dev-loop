@@ -30,6 +30,9 @@ A plan that touches one of these areas needs the owner's plan review.
 - Use Superpowers `writing-skills` to test a new or changed skill.
 - For design-review changes, use the README application scenarios. Text checks alone do not prove routing or reviewer isolation.
 - For absence-mode changes, use the README application checks. Confirm approval boundaries, dependency handling, and durable decision records.
+- For testing-instruction changes, run `node --test scripts/testing-contract.test.mjs` and the existing CI suites.
+  Use the README risk-based testing application checks with fresh consuming agents before and after instruction changes.
+  Preserve passing baseline controls. Text checks alone do not prove case selection, coverage review, or evidence honesty.
 
 ### Flow docs
 - None. The README is the reference.

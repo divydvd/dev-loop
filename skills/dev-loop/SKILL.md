@@ -13,6 +13,10 @@ Do not skip a step because a change looks small. Each route below says which ste
 - Read `AGENTS.md`. Find its dev-loop profile: commands, test tiers, heavy builds, the device test, risky areas, and the review checklist. If the profile is missing, tell the owner, and propose one from `assets/project-profile.md`.
 - If the repo has `docs/flows/INDEX.md`, read it and the flow docs for the area. Use the `flow-docs` skill. If the profile says that the repo has no flow docs, skip the flow-doc work in each step.
 - To resume a task, find its plan in `docs/superpowers/plans/`. Read the plan, its ledger (`.superpowers/sdd/<plan>/progress.md`) if it has one, and `git log`. Do not do the done tasks again.
+- For each substantive change, read `references/testing.md` before implementation.
+  Apply it to every small feature, small bug, and larger plan.
+  Save the proportional matrix with the acceptance record before implementation; reassess it when resuming.
+  The question and harmless spelling or formatting routes remain exempt.
 
 ### Absence mode
 For the owner's direct `away mode` or `I'm back` instruction, read `references/absence-mode.md` before questions or further task work.
@@ -82,6 +86,7 @@ A review-only request does not start implementation. A late review alone does no
 
 ## 2. Plan
 - Use `writing-plans`. Put the acceptance record (`assets/acceptance-record.md`) at the top of the plan.
+- Save test cases under `references/testing.md` before implementation. Link detailed cases for complex or high-risk work.
 - Make tasks of 2–5 minutes. Mark the tasks that can run in parallel.
 - Estimate the changed lines of production code for each task, and fill in the "Size estimate" of the acceptance record. Tests, docs, and generated files do not count. If the total is more than 400, split the plan into a stack of PRs now, with one concern for each PR. Give each PR its own branch, made from the branch of the PR before it. Name each branch and its base in the plan. Split now, before the build.
 - If a task touches a risky area from the profile, mark the task and the plan "risky". Wait for the owner's plan review only then.
@@ -89,6 +94,7 @@ A review-only request does not start implementation. A late review alone does no
 
 ## 3. Build
 - Follow `executing-plans` or `subagent-driven-development`, as core rule 7 says. Use test-driven development.
+- Update affected cases and evidence under `references/testing.md` when requirements, source, setup, or consumers change.
 - With `executing-plans`, after each task in a risky area, get one independent review: use `requesting-code-review` for the commits of that task. Give the reviewer the task, the acceptance record, and the review checklist. Before the next task, fix the findings that pass `receiving-code-review`. `subagent-driven-development` already reviews each task.
 - If a review subagent fails, here or in step 5, start it again once. If it fails again, do not report the PR ready or put your own review in its place. Write the task or branch in "Not reviewed". You may open the PR, but report "open, not ready: independent review unavailable".
 - Run independent tasks and research in parallel. Run only one heavy build at a time, with the profile's commands.
@@ -103,6 +109,8 @@ A review-only request does not start implementation. A late review alone does no
 Do this step for each substantive change, including small features and small fixes.
 - Do a "simplify" pass. Remove the code, flags, and abstractions that the goal does not need.
 - Check the change against the acceptance record and the profile's review checklist.
+- Extend independent review to check requirements, source, consumers, and missing cases under `references/testing.md`.
+  Give the reviewer the matrix and evidence; a completed table alone does not establish coverage.
 - For UI work, check the reuse decision against the final code, affected consumers, and the required UI evidence.
 - Require independent agent review of the complete PR diff before the first push. This covers code, tests, configuration, dependencies, workflows, rules, skills, and operational instructions, regardless of the plan route.
 - Use `requesting-code-review` in a separate agent context. Give the reviewer the base and head commits, acceptance record, and project checklist. For an uncommitted change, identify the exact working-tree snapshot. Ask the reviewer to check the source and affected callers, not only the author's explanation. Self-review and GitHub Copilot review do not replace this review or the required tests.
@@ -115,6 +123,8 @@ Do this step for each substantive change, including small features and small fix
 ## 6. Verify
 Commit all changes first. Do this step after the last commit to the branch, so that all evidence is at the head commit.
 - Run the test tier for each changed area. Read the output.
+- Record case statuses, actual results, and tested identities under `references/testing.md`.
+  Required failures and required coverage gaps prevent a ready claim. Report optional limits separately.
 - If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, and record the result.
   After a passing device test, keep the tested build installed. Restore only test data and device settings through the project's safe procedure.
   Do not reinstall the pretest or a fixed baseline APK after a pass, also when a monitor grant asks for it.
@@ -178,9 +188,10 @@ Please check: <the one or two things that only a person can check>.
 ```
 During active absence mode or owner return, include the saved decision and blocker handoff from `references/absence-mode.md`.
 Do not claim acceptance is complete when a required decision or check remains blocked.
+Include the acceptance-to-case evidence links, required blockers, and optional limits under `references/testing.md`.
 
 ## Stop conditions
-- **Done:** each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved.
+- **Done:** each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All required cases pass and no required coverage gaps remain.
 - **Blocked:** 3 failed fixes, missing access, no device, or a product decision that the repo does not answer. Normally, stop and report what you tried, the evidence, and the decision needed. During confirmed active absence mode, use `references/absence-mode.md` to defer affected steps and check independent work. Three failed fixes still require a stop.
 - **Ask the owner** only at the feature design, at a plan for a risky area, and before a destructive action. During active absence mode, record these needs for the handoff; do not execute the blocked work or replace its approval.
 

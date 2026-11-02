@@ -10,6 +10,15 @@
 | Unit tests | `<command>` | <N passed> | `<sha7>` |
 | Device test | <scenario, or "not needed: reason"> | <pass or fail, and a note> | `<sha7>` |
 
+## Test coverage
+<Link or include the saved matrix. Use portable paths or evidence links, not machine-specific session paths.
+For a harmless spelling or formatting change, write "not applicable: harmless edit".>
+- Acceptance mapping: <each acceptance condition -> case IDs and actual evidence; include important risks>
+- Category assessment: <relevant case IDs and exclusions with reasons>
+- Required blockers: <failed, blocked, not run, or required coverage gaps; actual dependents, or none>
+- Optional limits: <unexecuted optional checks, reasons, and remaining risks, or none>
+- Reassessment: <affected cases after changes; retain original tested identities for historical evidence>
+
 ## Device handoff
 | Item | Final verified state |
 | --- | --- |
