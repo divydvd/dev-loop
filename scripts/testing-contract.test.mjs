@@ -160,3 +160,31 @@ test("permanent case IDs connect selection and maintenance to task records and r
   assert.match(guidance, /review.*omitted.*flows/i);
   assert.match(guidance, /one.*command.*multiple.*IDs/i);
 });
+
+test("owner reports lead with overall readiness before partial results", () => {
+  const report = skill.split("## 8. Report")[1]?.split("## Stop conditions")[0] ?? "";
+  assert.match(report, /first sentence.*overall.*readiness/i);
+  assert.match(report, /passed scope/i);
+  assert.match(report, /required gaps/i);
+  assert.match(report, /next action/i);
+  assert.match(report, /tested.*published.*identit/i);
+});
+
+test("failure handoffs distinguish product evidence from blocked test execution", () => {
+  assert.match(guidance, /## Failure handoff/);
+  const handoff = guidance.split("## Failure handoff")[1]?.split("## Verify and report")[0] ?? "";
+  assert.match(handoff, /product failure.*tool failure.*environment blocker/i);
+  assert.match(handoff, /unknown.*cause|cause.*unknown/i);
+  assert.match(handoff, /not run.*not.*product failure/i);
+  assert.match(handoff, /recovery.*access/i);
+  assert.match(handoff, /next.*check.*prerequisite/i);
+  assert.match(handoff, /full.*run.*recovery evidence/i);
+});
+
+test("verification routes failed checks through the existing evidence handoff", () => {
+  const verify = skill.split("## 6. Verify")[1]?.split("## 7. Ship")[0] ?? "";
+  assert.match(verify, /failure handoff.*references\/testing\.md/i);
+  assert.match(verify, /product failure/i);
+  assert.match(verify, /tool.*environment/i);
+  assert.match(verify, /recovered prerequisite/i);
+});

@@ -2,6 +2,26 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.6 (2026-11-04)
+- **Clarify validation recovery and readiness reports.**
+  - **What:** Replace the blanket verification-failure route with a product/tool/environment distinction and a short handoff in the existing ledger.
+    Record missing cases, recovery/access state, the next prerequisite check, and required reruns.
+    Require recovery evidence before another full run; a controller edit or review alone is not that evidence.
+    Lead owner reports with overall readiness, then passed scope, required gaps, next action, and differing tested/published identities.
+    Preserve result-validity rules, exact setup, required full runs, final-head tiers, review limits, approvals, and device safeguards.
+  - **Why:** The issue551 investigation found repeated tool failures and agent mistakes after passing original-feature checks.
+    The final run stopped at a process assertion with required dark-mode checks unrun; the latest correction remained unpublished.
+    Five fresh baseline samples avoided false-ready claims, but one buried the readiness verdict after passing results.
+    A separate baseline consumer already handled tool diagnosis, valid/invalid evidence reuse, fresh-install limits, and existing safety controls.
+    These passing controls are preserved, not claimed as newly repaired unsafe behavior.
+  - **Check:** Three new structural checks failed before the guidance changed; all 17 testing-contract checks pass afterward.
+    Five fresh revised samples lead with PR readiness and preserve the small-change controls.
+    A fresh revised recovery consumer preserves the fixed recovery/setup cases and README cases2-13.
+    The retained CI suites pass 248 checks, with one platform-specific skip; the plugin check and temporary-home discovery pass.
+    Repeat the required checks at the committed head before publication.
+    These checks establish wiring and sampled instruction use, not a repaired test tool or actual phone results.
+    The next weekly review checks blind full reruns, recovery evidence, repeated owner status requests, and readiness-first reports.
+
 ## 0.5.5 (2026-11-02)
 - **Add permanent project regression inventory support.**
   - **What:** Add a project-owned matrix template and profile fields for its path, core checks, affected areas, and broad triggers.

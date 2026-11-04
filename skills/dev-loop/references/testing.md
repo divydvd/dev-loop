@@ -111,6 +111,24 @@ Review omitted existing flows, permanent case selection, inventory changes, and 
 Keep the existing independent review requirements and later-change coverage.
 Review is not a test run. A complete matrix is not execution evidence.
 
+## Failure handoff
+When a check stops, record this short handoff in the existing ledger, not a separate tracking system.
+
+| Field | Record |
+| --- | --- |
+| Cause | Product failure, tool failure, environment blocker, or unknown cause. Separate observed facts from an unproved explanation. |
+| Coverage | Passed cases and tested identities; failed, blocked, and not run cases. A not run case is not a product failure. |
+| Recovery and access | Required recovery result, retained evidence, remaining safety limits, and whether access remains authorized. |
+| Next action | The smallest permitted check of the failed prerequisite; the evidence it must produce before another full run. |
+| Rerun scope | Use Build and reassess above: check result validity and dependencies; preserve every required full run and final-head tier. |
+
+For a tool or environment blocker, exercise the failed prerequisite before a full rerun; an edit or clean review is not recovery evidence.
+Capture the failing operation and available process or transport error without reading private data.
+If the evidence cannot identify the cause, keep it unknown; do not infer a product defect or change product code to hide it.
+Do not repeat a full run without recovery evidence. Preserve existing failed-fix limits, grants, safe recovery, and absence dependencies.
+Keep an unavailable safe setup as a coverage gap; do not substitute a different state or clear owner data.
+This handoff adds no approval gate or permission to run diagnostics.
+
 ## Verify and report
 Use these case statuses:
 
