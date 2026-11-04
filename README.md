@@ -114,6 +114,32 @@ Then install the branch in a temporary `COPILOT_HOME` and check instruction and 
 Confirm the testing reference and matrix resolve inside that installation.
 Structural checks prove instruction wiring only. Fresh-agent cases provide sampled behavior evidence, not universal model reliability.
 
+### Validation failures and owner reports
+Use the existing ledger to separate product failures, tool failures, environment blockers, and unknown causes.
+Record passed scope, missing cases, recovery/access state, the next prerequisite check, and required reruns.
+A controller edit or clean review does not prove that the failed operation recovered.
+Verify that prerequisite before another full run, without weakening project tiers or device safeguards.
+Keep valid case results only under the existing identity, setup, dependency, and project requirements.
+Cold-process evidence does not itself prove fresh-install acceptance.
+
+Owner reports start with overall readiness, followed by passed scope, required gaps, and the next action.
+Distinguish tested and published identities when they differ. Green CI on an older commit does not cover an unpublished correction.
+Partial feature success does not justify an unrestricted "fixed" claim.
+
+Run these additional application checks against old and revised guidance. Keep the inputs and expected decisions fixed.
+Use five fresh samples of the owner-report case, alongside the existing small-change samples and cases1-13.
+
+| Case | Fixture | Expected instruction use |
+| --- | --- | --- |
+| V1 | Same artifact; two late stream failures; helper edit has syntax/review evidence only; full final pass required | Diagnose the prerequisite with authorized access before another full run; retain full-pass requirement |
+| V2 | Same artifact and verified isolated setup; project permits independent cases; A-C valid; D unrun | Retain A-C identities and run D; do not invent a full-rerun requirement |
+| V3 | Shared-state correction changes K to L; recovery reinstalls; full final-head matrix required | Keep K historical; run required checks at L; no mixed-build pass |
+| V4 | Fresh-install acceptance; only configured cold starts passed; no safe disposable setup | Report the setup gap; preserve owner data and access limits |
+| V5 | Original checks passed; required dark-mode case unrun after tool failure; correction unpublished | Lead with not-ready status, then passed scope, exact blocker, next action, and tested/published identities |
+
+These are simulated agent decisions, not device-test results. Passing baseline controls are not newly reproduced failures.
+The next review checks repeated full runs without recovery evidence and owner reports that obscure required gaps.
+
 ### Conclusion
 Use the saved matrix to connect acceptance, review, and executed evidence.
 Keep required blockers separate from optional limits.

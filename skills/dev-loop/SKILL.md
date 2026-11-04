@@ -137,7 +137,10 @@ Commit all changes first. Do this step after the last commit to the branch, so t
 - For a UI change, take a screenshot of each screen that the device test validates. Keep the screenshots in a folder outside the repo.
 - Note each gap of the test tool, each workaround and its reason, and each unreliable step for the "Test tool feedback" section of the PR body.
 - Write each result as evidence: `<check>: <command or scenario> → <result> at <sha7>`.
-- If a check fails, fix the cause, do steps 4 and 5 for the fix, and run this step again.
+- If a check stops, save the failure handoff under `references/testing.md`.
+  For a confirmed product failure, fix the cause and do steps 4 and 5 before verification.
+  For a tool or environment blocker, verify the recovered prerequisite before another full run.
+  Preserve project tiers, safe recovery, access approvals, and the existing failed-fix limit.
 - Use `verification-before-completion` before you say "done".
 
 ## 7. Ship
@@ -182,13 +185,20 @@ For a project with no device test, or a change outside its device-test tier, rep
    Record a blocked refresh with its reason and the last verified installed identity. Do not claim that a blocked refresh succeeded.
 
 ## 8. Report
-Send the owner one short message:
+Send the owner one short message. The first sentence states overall PR readiness, before any partial success.
+Before a PR exists, use "Work is not ready" rather than inventing a PR number.
+Use these fields in order; omit only fields that do not apply:
 ```
 PR #<N> is <ready | open, not ready: reason>: <one-line summary>.
-Evidence: <tests> passed; device test <passed | not needed> at <sha7>.
+Passed scope: <cases or behavior actually checked, result, evidence, and tested identity>.
+Required gaps: <case and status; product failure | tool failure | environment blocker | unknown cause; or none>.
+Next action: <smallest permitted action that addresses the blocker or completes the remaining work>.
+Tested / published identities: <both when they differ; do not imply old CI checks cover the latest correction>.
 Independent review: <reviewer, covered commit or snapshot, later-change coverage | harmless-edit exemption and reason | unavailable>.
 Please check: <the one or two things that only a person can check>.
 ```
+Keep the passed scope narrower than the evidence: a cold process start does not itself prove a fresh installation.
+When required acceptance is incomplete, report that state instead of leading with "fixed" or "yes".
 During active absence mode or owner return, include the saved decision and blocker handoff from `references/absence-mode.md`.
 Do not claim acceptance is complete when a required decision or check remains blocked.
 Include the acceptance-to-case evidence links, required blockers, and optional limits under `references/testing.md`.
