@@ -47,11 +47,12 @@ Physical phones, USB events, iOS signing, and protected data are excluded from s
 No throughput target is specified. Existing history and asynchronous rejection contracts remain required.
 
 ## Progress
-- Task 5: in progress.
-- Task 6: not started.
-- Independent enforcement review: not run.
-- Independent risky-task and final integration review: not run.
-- Actual app acceptance: not run; native permission can block it.
+- Task 5: implemented and independently reviewed; actual app handoff passes.
+- Task 6: reference and setup implemented; source checks and CI pass.
+- Independent enforcement review: findings corrected and covered by later integration review.
+- Independent risky-task and final integration review: complete, with focused corrections.
+- Actual app acceptance: passes at `1ae98b7`; owned resources safely removed.
+- Remaining: final evidence-only commit checks, push, and PR readiness checks.
 
 ## Task 5 enforcement and review
 - Initial policy/runner tests fail before implementation; subsequent six cases pass.
@@ -105,7 +106,7 @@ Cost if wrong: app acceptance can block readiness after publication; it must rem
 - Fresh serving-app information reports `1.1.34`, not a local source build.
 - Two disposable chat sessions exist for D6:
   holder `d7e55d08-0494-4b83-bdab-0468ce10b93b`; requester `2885eff8-1517-44f5-88e4-b9df8a8beed9`.
-  Neither has installed source or performed a device action.
+  This is their pre-installation state; the later actual acceptance is recorded below.
 - `device-final-correction-review` covers the later adapter, tests, and reference changes at tree `f31351e685acdb3ed6d045aedf5511554e9394f2`.
   It finds no significant issue and passes 15 focused cases plus 10 queue cases.
   Complete-layer review plus focused corrections account for final substantive source.
@@ -113,7 +114,44 @@ Cost if wrong: app acceptance can block readiness after publication; it must rem
   Tests, documentation, templates, and synthetic fixtures are excluded.
   No required behavior is omitted to meet the estimate.
 
+## Published source and actual acceptance
+- Source `1ae98b7cacf1f8229b759a15591d4993b9530866` is pushed as dependent draft PR #31.
+  Plugin check passes; combined suites report 533 passes, zero failures, and one existing platform skip.
+  All three CI jobs pass, including Node `22.23.4` and `26.12.1`.
+- Both disposable chats install this exact `tools` folder with explicit session scope.
+  Installed entry point and adapter hashes match the source.
+  Neither installation exposes a native prompt; no new native permission claim is made.
+- Holder calls initially return `DEVICE_CONNECTION_FAILED`.
+  A local Node probe connects to the same 122-byte socket.
+  Stop the old empty broker before testing a 46-byte private path.
+  An intermediate socket outside its state directory correctly fails with `UNSAFE_SOCKET`.
+  Move the copied, empty state and socket together; preserve one authority.
+  The actual attached tools then connect without reinstall or source changes.
+- Actual broker snapshot proves holder generation 1 reserved and requester queued with no grant.
+  The requester reports its queue, stops, and receives no coordinator or holder nudge.
+  Its attached SDK delivers the committed reserve event and records admitted notification/message identity.
+  The requester checks fresh status, acknowledges generation 3, runs one stable-ID `act`, verifies, and releases with pass.
+- Holder also runs one `act`, verifies, and releases with pass.
+  Correlated private evidence asserts four completed operation IDs, exactly two `act` entries, and two `verify` entries.
+  Both lanes are safe without holders. Immutable reserve history remains unchanged.
+- The sole synthetic broker shuts down with `{error:null}`.
+  Archive both chats through the app lifecycle.
+  Remove only their two exact session installations and owned enrollment/notification files.
+  Save private state and process evidence before removing the short socket directory.
+- Actual app evidence proves synthetic Android handoff only.
+  Automated tests cover synthetic iOS; no phone, USB, WDA/signing, protected-data, or combined activation claim is made.
+- The setup reference rejects socket paths above 90 UTF-8 bytes before private writes.
+  This conservative setup bound does not claim the host's exact maximum.
+- The coordinator registers native stack 32, order #28, #29, #30, #31, base `main`.
+  No Git ref, PR base, merge setting, or readiness changes during registration.
+  Later evidence-only publication still requires its exact-head checks and focused review.
+- `device-evidence-review` checks all four later documentation files against private acceptance and queued/final snapshots.
+  It finds no significant issue; this is artifact-based review, not personal observation of the app.
+  The plugin check and exact setup boundary check pass: 90 UTF-8 bytes accepted, 91 rejected.
+  Only reviewer-result metadata follows this review.
+
 ## Conclusion
-Build and verify the scoped source without activating it.
-Keep each test result linked to its exact source identity.
-The main risk is treating delivery or task continuation as execution or owner authority.
+Finish the evidence-only review and final publication checks.
+Keep the exact app-tested source identity separate from later documentation.
+Production activation remains unapproved.
+The main risk is treating delivery, synthetic testing, or task continuation as broader owner authority.

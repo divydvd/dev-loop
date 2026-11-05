@@ -150,6 +150,9 @@ Socket tests do not establish that acceptance or authorize activation.
 ## Local broker
 Call `startBroker({ directory, socketPath, policyPath })` from `server.mjs`.
 The socket must be a direct child of the private state directory.
+Keep disposable socket paths within 90 UTF-8 bytes for host portability.
+A 122-byte path failed in the serving extension while the same host's Node client connected.
+The same serving extension connected after the test moved to a 46-byte path.
 The broker creates it with mode `0600`.
 It holds an exclusive SQLite lock in `authority.sqlite` until shutdown.
 This prevents a second broker from granting through the same state, even with a different socket path.
@@ -384,6 +387,8 @@ import path from "node:path";
 import os from "node:os";
 import { createHash, randomBytes } from "node:crypto";
 const root = path.resolve(process.env.DEVICE_TEST_ROOT);
+const socketPath = path.join(root,"state","broker.sock");
+if (Buffer.byteLength(socketPath,"utf8") > 90) throw new Error("SOCKET_PATH_TOO_LONG");
 fs.mkdirSync(root, {mode:0o700});
 const source = path.resolve("tools/device-scheduler/fixtures/synthetic-procedure.mjs");
 const helper = path.join(root, "synthetic-procedure.mjs");
@@ -405,7 +410,7 @@ fs.mkdirSync(enrollments,{recursive:true,mode:0o700});
 const stat = fs.lstatSync(enrollments);
 if (stat.isSymbolicLink() || stat.uid !== process.getuid() || (stat.mode & 0o777) !== 0o700) throw new Error("UNSAFE_ENROLLMENTS");
 for (const {id,token} of policy.sessions) fs.writeFileSync(path.join(enrollments,`${id}.json`),JSON.stringify({
-  sessionId:id,socketPath:path.join(root,"state","broker.sock"),credentials:{token},repository:"synthetic/app-test"
+  sessionId:id,socketPath,credentials:{token},repository:"synthetic/app-test"
 }),{mode:0o600,flag:"wx"});
 fs.writeFileSync(path.join(root,"policy.json"),JSON.stringify(policy),{mode:0o600,flag:"wx"});
 JS

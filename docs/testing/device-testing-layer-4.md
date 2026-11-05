@@ -11,16 +11,16 @@ The [execution ledger](../../.superpowers/sdd/task-continuation-and-device-sched
 The project has no permanent regression inventory or app device tier.
 All D1–D8 cases are required.
 
-| Case | Requirement / risk | Concrete evidence | Status before publication |
+| Case | Requirement / risk | Concrete evidence | Result |
 | --- | --- | --- | --- |
 | D1 | Physical identity, Android serial, iOS UDID/helper, stale program/policy | `policy.test.mjs`, `runner.test.mjs`, `execution-broker.test.mjs` use private synthetic bindings and changed pins | passed on source snapshot |
 | D2 | Unknown procedure, shell text, session and token mismatch | Runner and attached tests deny execution; native permission metadata stays unset | passed on source snapshot |
 | D3 | Admission, duplicate IDs, uncertainty, surviving process | Runner cases assert one action, complete/unknown history, conservative process recovery, and forged-evidence denial | passed on source snapshot |
 | D4 | Safe release, restart, trusted recovery, cancellation | Managed broker tests cover verified handoff, restart, requester-frame denial, and recovery after cancellation | passed on source snapshot |
 | D5 | Busy turns, owner waits, cancellation, reconnect | Attached tests use enqueue mode, owner-wait transitions, native abort, and real socket-recreation delivery | passed on source snapshot; not app proof |
-| D6 | Two disposable actual app sessions | Queue, supported attached grant, resume, one permitted synthetic action | not run before pinned source publication |
+| D6 | Two disposable actual app sessions | Actual queue, attached SDK grant, idle resume, one permitted synthetic action per session | passed at `1ae98b7`; observations below |
 | D7 | New reference and baseline safety | Fresh requester and monitor baseline/candidate agents below | passed as sampled reference decisions |
-| D8 | Existing consumers and installation | Plugin check, all CI suites, temporary-home discovery | passed locally; final-head and remote CI pending |
+| D8 | Existing consumers and installation | Plugin check, all CI suites, temporary-home discovery | passed locally and in both CI runtimes at `1ae98b7` |
 
 Invalid input, authority, concurrency, retries, partial execution, existing consumers, restart, and runtime compatibility apply.
 No physical UI, USB event, signing, protected-data, or phone acceptance claim follows from these synthetic checks.
@@ -75,28 +75,78 @@ The lower continuation evidence remains historical: 21/21 per SDK group with zer
 Its 42 records were rescored after a scorer correction.
 This layer does not describe that rescoring as fresh execution.
 
-## Local checks before publication
+## Published source checks
+- Published and app-tested source: `1ae98b7cacf1f8229b759a15591d4993b9530866`, draft PR #31.
+- Base: `088b91678f62048c637845fef8480aba6508b795`, branch `divydvd-device-scheduler-events`.
 - `node scripts/check.mjs` reports no faults.
 - `node --test scripts/*.test.mjs tools/work-ledger/*.test.mjs tools/task-runtime/*.test.mjs tools/device-scheduler/*.test.mjs`
-  reports 530 passes, zero failures, and one existing platform skip on Node `26.12.1`.
-- A focused correction run reports 48 passes, zero failures.
+  reports 533 passes, zero failures, and one existing platform skip on Node `26.12.1`.
+  The earlier 530-pass result and 48 focused passes preceded the last adapter corrections.
 - A temporary `COPILOT_HOME` registers this local checkout and installs only there.
   `copilot instruction list` discovers `dev-loop: core`.
   `copilot skill list` discovers all five plugin skills, including `device-testing`.
   The local marketplace loads the checkout directly; this is discovery, not a copied installation claim.
 - Existing CI discovery already selects both new test directories on Node `22.23.4` and `26.12.1`.
   No new CI workflow is needed.
-- Node `22.23.4` is not locally installed; remote CI remains required.
+- Remote `check`, `task-runtime (22.23.4)`, and `task-runtime (26.12.1)` pass at this exact source head.
+  Node `22.23.4` is not locally installed.
 - No live work-ledger service, monitor, production guard, or device configuration is read or changed.
   Existing work-ledger source tests run only as the unchanged required CI tier.
 
 ## Actual app acceptance
-Pending pinned-source publication and two disposable session-scoped installations.
-The installer defaults to user scope; every disposable request must specify `scope: "session"`.
-Native permission needs the real owner UI.
-An `ask_user` answer cannot substitute for that permission.
-SDK doubles, socket tests, and CLI runs do not establish this case.
-Retain exact session identities, installed source hash, queued/granted observations, action counts, native decisions, and owned cleanup here.
+Serving app `1.1.34` runs two disposable chats with the device-only entry point.
+Both install `tools` from exact commit `1ae98b7cacf1f8229b759a15591d4993b9530866`.
+Both specify `scope: "session"`; neither uses the default user scope.
+The installed `extension.mjs` SHA-256 is `d4b073c52a08d96fd2c36bcdf705a4f137794044cc7c0138abcf94a7e49c9074`.
+The installed `task-runtime/lib/device-session.mjs` SHA-256 is `3c0ec4338b6f4c0627ea5b97056ec4e133a551039f293644fff6e7caff5d5558`.
+Both hashes match the published source in each session.
+
+| Role | Actual attached session | Observed result |
+| --- | --- | --- |
+| Holder | `d7e55d08-0494-4b83-bdab-0468ce10b93b` | Reserved generation 1; acknowledged; one `act`; one `verify`; released with pass |
+| Requester | `2885eff8-1517-44f5-88e4-b9df8a8beed9` | Queued with no grant; stopped; received attached SDK grant; acknowledged generation 3; one `act`; one `verify`; released with pass |
+
+The broker snapshot confirms holder reservation and requester queue before release.
+No coordinator or holder message resumes the requester after it stops in the queue.
+Its attached SDK notification supplies event `broker/reserve/d9f90ab75da70a8c8ad8daec3af63f17e38a92c45d46563413007fbea9923325:state`.
+The private notification journal records admitted delivery and its SDK message ID.
+The requester reports this same event, checks fresh status, and uses the exact current generation.
+The immutable outgoing snapshot remains reserved while final request state is released.
+Stable operation IDs are `app-holder-act-1`, `app-holder-verify-1`, `app-requester-act-1`, and `app-requester-verify-1`.
+All four outcomes are complete and not replayed.
+The synthetic helper records exactly two `act` entries and two `verify` entries.
+Final state shows both requests released, both grants revoked, and both device lanes safe without holders.
+
+The first 122-byte socket path returns `DEVICE_CONNECTION_FAILED` in the serving extension.
+A local Node client connects to that same socket.
+The old empty broker then shuts down before the sole broker restarts with a 46-byte private socket path.
+The serving extension connects without a source change, reinstall, or permission workaround.
+One incorrect intermediate setup places the socket outside its state directory; startup correctly rejects it with `UNSAFE_SOCKET`.
+The corrected fixture keeps the state and socket together.
+The setup reference now rejects paths above 90 UTF-8 bytes before writing enrollment.
+These observations establish host path sensitivity, not its exact implementation or maximum supported path length.
+
+Neither installation nor device calls expose a native permission prompt in this run.
+No native permission decision is inferred.
+The inherited C1 native UI evidence remains separate.
+A future native prompt still requires the real owner UI; `ask_user` cannot replace it.
+This run proves actual serving-app synthetic Android handoff, not physical phones, USB events, iOS signing, or combined guard activation.
+Synthetic iOS binding and helper enforcement remain automated D1–D4 evidence.
+
+Both released sessions are archived through the supported app lifecycle.
+Their exact returned session installations and owned enrollment/notification files are removed after archival.
+The sole broker reports shutdown `{error:null}`.
+The private short socket directory is removed after saving its database.
+Private state, operation journal, queued/final snapshots, and correlated acceptance record remain in session artifacts.
+No production grant authority, guard, work-ledger service, or live device is activated.
+
+## Stack and publication
+The coordinator registers native stack 32 in order #28, #29, #30, #31, with base `main`.
+The dependent PR bases remain unchanged.
+Lower heads `b2b6cc3`, `ddef9ce`, and `088b916` retain passing CI and automatic Copilot checks.
+PR #31 remains draft while the final documentation review and publication checks finish.
+Its exact final evidence-only head and CI results belong in the PR evidence table.
+Later documentation does not change the app-tested runtime source.
 
 ## Independent coverage
 `device-enforcement-review` covers Task 5 enforcement and the state/broker/adapter interactions.
@@ -110,8 +160,13 @@ Its required combined suites report 531 passes, zero failures, and one existing 
 It finds no significant issue and runs 15 focused cases plus 10 queue cases successfully.
 The plugin check reports no faults.
 Later evidence-only changes record these results; they do not change runtime or instruction behavior.
+`device-evidence-review` checks the later four-file documentation diff against the private acceptance record and queued/final snapshots.
+It finds no significant issue in evidence, setup, authority limits, or cleanup claims.
+This is artifact review, not an independent claim of personally observing the app run.
+Only review-result metadata is added after that focused review.
 
 ## Conclusion
-Publish only with explicit required-gap status until actual app acceptance and final-head checks pass.
-Use synthetic procedures and exact owned cleanup.
-The remaining risk is claiming app recovery from transport-only evidence or bypassing native owner permission.
+Actual serving-app synthetic handoff now passes without a coordinator nudge.
+Finish the documentation review and exact-head publication checks before reporting the stack ready.
+Live cutover still needs a separate owner decision.
+The main risk is extending synthetic evidence into physical-device or production authority.
