@@ -13,6 +13,7 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Independent review reproduces a slow client revoking unrelated grants; the correction isolates response backpressure to that client.
     Automatic review adds first-start compatibility, oversized-delivery isolation, non-string-kind validation, and buffered-command stop regressions.
     Adopt matching validated policy history without a new event. Reject rolled-back configuration without replaying older authority.
+    Close rejected half-open sockets after the terminal error. Publish committed grants even when a release response is oversized.
   - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/device-scheduler/*.test.mjs`.
     CI runs the scheduler cases on both declared Node versions.
     Inspect `docs/testing/device-scheduler-layer-3.md` for case mapping, evidence, and remaining integration gaps.

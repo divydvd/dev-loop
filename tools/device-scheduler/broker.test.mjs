@@ -343,6 +343,54 @@ test("a failed validation response cannot admit the next buffered operation afte
   finally { store.close(); }
 });
 
+test("a half-open rejected client cannot retain enrollment or an active grant", async t => {
+  const f = await setup(t), peer = await raw(f.socketPath, { allowHalfOpen: true });
+  t.after(() => peer.socket.destroy());
+  peer.socket.write(JSON.stringify({ type: "enroll", token: f.tokens.a }) + "\n");
+  await peer.messages.wait(e => e.type === "ready");
+  const input = requestEvent("half-open");
+  peer.socket.write(JSON.stringify({ type: "request", seq: 1, event: input }) + "\n");
+  await peer.messages.wait(e => e.type === "event" && e.event.kind === "reserve");
+  const ended = once(peer.socket, "end");
+  peer.socket.write('{"type":"invalid"}\n');
+  await peer.messages.wait(e => e.type === "error" && e.code === "INVALID_FRAME");
+  await ended;
+  assert.equal(peer.socket.writableEnded, false);
+  const replacement = await f.client("a"), current = (await replacement.reconcile(input.id)).request;
+  assert.equal(current.state, "recovering");
+  assert.equal(current.grant.revoked, true);
+});
+
+test("an oversized release response still publishes the committed next grant", { timeout: 120000 }, async t => {
+  const resources = Array.from({ length: 32 }, (_, i) => `resource-${i}-` + "x".repeat(145));
+  const f = await setup(t, { devices: [
+    { device: "android", policyVersion: 1, resources, enabled: true },
+    { device: "ios", policyVersion: 1, resources: [], enabled: true },
+  ] });
+  const be = inbox(), a = await f.client(), b = await f.client("b", be.receive);
+  const store = openStore({ directory: f.directory }), state = store.read();
+  const staging = { read: () => state, transaction: work => work(state) };
+  const auth = { id: "a", role: "session" };
+  applyEvent(staging, auth, requestEvent("large-history"));
+  const grant = binding(applyEvent(staging, auth, event("reserve", { requestId: "large-history" })).request.grant);
+  applyEvent(staging, auth, event("acknowledge", grant));
+  for (let i = 0; i < 320; i++) {
+    const operationId = "x".repeat(150) + String(i).padStart(6, "0");
+    applyEvent(staging, auth, event("operation_start", { ...grant, operationId, purpose: "test" }));
+    applyEvent(staging, auth, event("operation_finish", { ...grant, operationId, outcome: "complete" }));
+  }
+  const waiting = requestEvent("after-large-release");
+  applyEvent(staging, { id: "b", role: "session" }, waiting);
+  assert.ok(Buffer.byteLength(JSON.stringify(state.requests.find(r => r.id === "large-history"))) > 65536);
+  for (const outgoing of state.outbox) outgoing.acknowledged = true;
+  store.transaction(current => Object.assign(current, state));
+  store.close();
+  const release = event("release", { ...grant, clean: true, result: "pass" });
+  await assert.rejects(a.request(release), /FRAME_TOO_LARGE/);
+  assert.equal((await be.wait(e => e.kind === "reserve")).request.id, "after-large-release");
+  assert.equal((await b.reconcile(waiting.id)).request.state, "reserved");
+});
+
 test("policy and socket paths reject unsafe files without deleting them", async t => {
   const f = await setup(t);
   await f.broker.shutdown();

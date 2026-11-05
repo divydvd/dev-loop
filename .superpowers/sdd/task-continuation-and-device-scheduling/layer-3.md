@@ -102,3 +102,20 @@ The source remains inactive.
   It independently passed all 124 scheduler cases and the plugin check on Node `26.12.1`.
 - The existing complete review plus both focused reviews accounts for final substantive source.
   The following commit records evidence only.
+
+## Automatic review round 2
+- Correction push `51c91c276e9973574dcdc287725ca5a4ab50e72d` passes all three CI jobs.
+  Final local selection: 419 passed, zero failed, one inherited filesystem skip. Plugin check reports no faults.
+- The review confirms all four round-1 corrections and reports two real remaining paths.
+- RED: a raw `allowHalfOpen` client receives rejection but retains enrollment, preventing reconnect with `SESSION_CONNECTED`.
+- Fix: destroy the rejected socket after its terminal error flushes. The close handler quarantines its holder.
+- RED: a release response exceeds 65,536 bytes after 320 completed operations.
+  The next grant commits, but the waiting connection receives no notification.
+- Fix: publish committed changes in the response path's finalization, even after response encoding fails.
+- The large history is staged with the real admission reducer, then committed through the normal validating store.
+  Only allowed delivery acknowledgment metadata is added. No immutable result or outgoing field is rewritten.
+- GREEN: all 126 scheduler cases pass, including the 93 inherited cases.
+- Production source totals 327 lines. No reducer, event kind, or schema change occurs.
+- This is the second and final automatic correction round.
+  Read the next review without another corrective push. Report any remaining required finding honestly.
+- Focused independent review and final-head checks follow before the final correction push.

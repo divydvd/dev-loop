@@ -70,8 +70,8 @@ export async function setup(t, overrides = {}, beforeStart = () => {}) {
     },
   };
 }
-export async function raw(socketPath) {
-  const socket = net.createConnection(socketPath), messages = inbox();
+export async function raw(socketPath, options = {}) {
+  const socket = net.createConnection({ path: socketPath, ...options }), messages = inbox();
   let buffer = "";
   socket.setEncoding("utf8");
   socket.on("data", chunk => {

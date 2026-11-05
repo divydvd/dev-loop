@@ -32,6 +32,8 @@ All rows are required. Results and tested identities are recorded separately.
 | B11 | Existing private history with delivery metadata | Preserve immutable results and ordered outgoing records | `delivery.test.mjs`, inherited scheduler suites |
 | B12 | One authenticated client stops reading responses | Close only that peer; preserve unrelated running grants | `broker.test.mjs` |
 | B13 | First startup over layer-2 policies; old broker policy replay | Adopt identical validated policy; reject rolled-back configuration without rewriting history | `broker.test.mjs` |
+| B14 | Rejected client keeps its write half open | Destroy after the terminal error; remove enrollment and quarantine its holder | `broker.test.mjs` |
+| B15 | Real completed-operation history exceeds 65,536 bytes at release | Report the response limit while delivering the committed next grant | `broker.test.mjs` |
 | P1 | Existing plugin and consumers | Preserve all existing CI suites | `.github/workflows/check.yml` |
 
 Invalid input, authority, concurrency, partial failure, compatibility, and bounded transport apply.
@@ -87,6 +89,20 @@ Focused review and exact final-head verification remain required before the corr
 Reviewer `scheduler-events-round-one-review` covered correction commit `eba4e98` and its affected interactions.
 It found no new Critical or Important issue and independently passed all 124 scheduler cases.
 The plugin check also passed. Node 22/Linux correction evidence still depends on final-head CI.
+
+### Automatic review round 2
+At `51c91c2`, all three CI jobs passed, including both declared Node runtimes.
+The next review confirmed the previous four corrections.
+It reported half-open rejected clients retaining enrollment and a skipped broadcast after oversized responses.
+Both regressions fail before correction: `SESSION_CONNECTED` and a waiting grant notification timeout.
+The correction destroys rejected sockets after the terminal error flushes.
+It broadcasts committed changes independently of response encoding success.
+All 126 scheduler cases pass afterward, including the 93 unchanged inherited cases.
+The large-history case creates 320 completed operations through the real reducer.
+It commits that valid history through the normal validating store transaction.
+Its request snapshot exceeds 65,536 bytes. No result or immutable history is rewritten.
+This is the second and final automatic correction round.
+Read the next review without another corrective push.
 
 ## Required gaps and limits
 - No layer-specific required gap is currently known. Final-head verification and CI are still pending.

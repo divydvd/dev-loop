@@ -103,7 +103,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
     };
     const terminate = (peer, code) => {
       peer.ended = true;
-      peer.socket.end(encode({ type: "error", code }));
+      peer.socket.end(encode({ type: "error", code }), () => peer.socket.destroy());
     };
     const publish = peer => {
       if (!peer.session || peer.ended || peer.socket.destroyed || peer.socket.writableNeedDrain) return;
@@ -137,6 +137,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
       });
       socket.on("data", decoder(frame => {
         if (peer.ended) return;
+        let committed = false;
         try {
           if (!peer.session) {
             if (frame.type !== "enroll") { terminate(peer, "UNAUTHENTICATED"); return; }
@@ -163,13 +164,17 @@ export async function startBroker({ directory, socketPath, policyPath }) {
           } else result = frame.type === "ack" ? acknowledgeDelivery(store, peer.session, frame.eventId)
             : reconcile(store, peer.session, frame.eventId);
           schedule(store);
+          committed = true;
           write(peer, { type: "result", seq: frame.seq, result });
-          broadcast();
         } catch (error) {
           if (error.message === "BACKPRESSURE") { peer.ended = true; peer.socket.destroy(); return; }
           if (!safeCodes.has(error.message)) { abort(); return; }
           try { write(peer, { type: "error", seq: frame.seq, code: error.message }); }
           catch { peer.ended = true; peer.socket.destroy(); }
+        } finally {
+          if (committed && !stopped) {
+            try { broadcast(); } catch { abort(); }
+          }
         }
       }, code => terminate(peer, code)));
     });

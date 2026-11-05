@@ -239,6 +239,7 @@ Reconnection does not restore a revoked grant or prove cleanup.
 Use UTF-8 newline-delimited JSON objects with at most 65,536 bytes before each newline.
 Split UTF-8 sequences and multiple frames per read are supported.
 Malformed, oversized, unauthenticated, and extra-field frames cause explicit errors and connection closure.
+The broker destroys a rejected socket after flushing its terminal error, even if the client keeps its write half open.
 Domain validation errors return safe fixed codes.
 No response contains an enrollment token or raw framework error.
 
@@ -260,6 +261,7 @@ Outgoing frames have the same size limit. A large historical result can cause `F
 An oversized notification closes only its receiving peer. Response backpressure also closes only that peer.
 Neither condition stops the authority or revokes another session's grant.
 An output failure does not roll back an already committed event.
+Committed grants still publish to waiting clients when the submitting client's response exceeds the frame limit.
 Reconcile admission before another action; this layer has no large-result pagination API.
 No physical USB notifications, model calls, serving-app wake-up, or device execution are implemented here.
 
