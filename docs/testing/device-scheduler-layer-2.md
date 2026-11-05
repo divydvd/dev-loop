@@ -70,6 +70,22 @@ The initial review plus focused coverage accounts for the final substantive cont
 Later evidence notes do not change behavior.
 No deferred Minor finding remains.
 
+## Automatic review round 1
+The automatic review at `66877f5` found sparse-array persistence and holder-free owner-wait recovery gaps.
+Both reproduce before correction. Additional cases cover sparse root rows and nested operation/event history.
+Policy validation now checks every resource entry.
+The store validates the serialized snapshot, so missing array entries cannot become accepted nulls.
+Non-holder queued, blocked, and owner-wait states cannot retain grants or operation history.
+Only an owner wait whose saved state is queued can exist without a holder.
+After correction, 40 scheduler tests pass.
+The complete local selection reports 327 passed, zero failed, and the same inherited filesystem skip.
+Production modules total 321 lines.
+Focused review and final-head publication evidence follow in the PR.
+Reviewer `scheduler-round-one-review` covered tree `ba01d5f2e4f5b09365b60e6d69b2c30cad8f7a63`.
+It reproduced the sparse-policy failure against the prior head and found both corrections effective.
+Ten memory-only SQLite scenarios found no new defect in the changed interactions.
+The author's filesystem-backed results remain separate evidence.
+
 ## Conclusion
 Prove state safety before the broker consumes these interfaces.
 Later layers must supply authenticated identities, delivery, and reviewed platform procedures.

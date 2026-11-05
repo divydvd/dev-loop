@@ -29,7 +29,7 @@ function validate(auth, event) {
   for (const key of ["policyVersion", "generation"]) if (key in p && !integer(p[key])) fail("INVALID_EVENT");
   if (kind === "request" && !["repository", "scope", "resumeAction"].every(key => text(p[key]))) fail("INVALID_EVENT");
   if (kind === "policy" && (typeof p.enabled !== "boolean" || !Array.isArray(p.resources) ||
-      p.resources.length > 32 || !p.resources.every(id) || new Set(p.resources).size !== p.resources.length)) fail("INVALID_EVENT");
+      p.resources.length > 32 || !Array.from(p.resources).every(id) || new Set(p.resources).size !== p.resources.length)) fail("INVALID_EVENT");
   if (kind === "operation_start" && !["test", "recovery"].includes(p.purpose)) fail("INVALID_EVENT");
   if (kind === "operation_finish" && !["complete", "unknown"].includes(p.outcome)) fail("INVALID_EVENT");
   if (kind === "release" && (typeof p.clean !== "boolean" || !["pass", "fail", "blocked"].includes(p.result))) fail("INVALID_EVENT");

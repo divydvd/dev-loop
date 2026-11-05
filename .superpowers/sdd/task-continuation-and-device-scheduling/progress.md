@@ -180,3 +180,17 @@ Missing app proof must prevent an integration-ready claim.
   These later evidence notes change no runtime behavior. No deferred Minor finding remains.
 - Task 3 source and review are complete. Final-head checks, publication, and CI evidence belong to the layer PR.
   Keep the earlier layer's host and executed-task gaps separate. No merge or activation is authorized.
+- Publication: PR `https://github.com/divydvd/dev-loop/pull/29`, base `divydvd-task-continuation-guard`.
+  Initial pushed head `66877f5f3944e5788ff75edc8d263b50e95fcfc7` passes all three CI jobs.
+  Both target runtimes pass all 36 scheduler cases with no skip.
+  Existing Linux work-ledger tests skip eight case-insensitive fixtures; local macOS covers them.
+- Automatic review round 1 found two confirmed validation gaps: sparse resource arrays and holder-free owner-wait recovery state.
+  Both findings reproduce before correction. Nested sparse operation/event history reproduces the same serialization fault.
+- Round 1 fixes: check every policy resource; validate serialized state before commit; reject non-holder queued/blocked/owner-wait grants and history.
+  Owner-wait recovery cannot discard its holder. Four added cases fail before correction and pass after it.
+- Round 1 local selection: 327 passed, zero failed, one inherited filesystem skip; scheduler scope 40 tests.
+  Production modules: 321 lines. Focused independent coverage and committed-head verification precede the review-round push.
+- Round 1 focused review: `scheduler-round-one-review` covered tree `ba01d5f2e4f5b09365b60e6d69b2c30cad8f7a63`.
+  It found both fixes effective and no new defect. It checked ten memory-only SQLite interaction scenarios.
+  Filesystem tests and final CI remain the author's evidence, not that reviewer's execution claim.
+  Its exclusions match the earlier source-versus-runtime rulings. Later notes change evidence only.

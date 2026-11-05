@@ -47,6 +47,7 @@ Identifiers contain 1–160 ASCII letters, digits, or `_ . : / -`.
 Policy versions and grant generations are positive safe integers.
 Text fields are nonempty strings of at most 500 characters.
 Resource arrays contain at most 32 unique identifiers.
+Sparse arrays are invalid. The store rejects missing entries before JSON serialization.
 
 The result is `{ request, outgoingEventIds, replayed }`.
 `request` is the committed request snapshot, or `null` for a policy event.
@@ -86,6 +87,7 @@ An older eligible request takes priority on overlapping resources.
 Independent device and host lanes can run together.
 An owner-blocked queued request does not block unrelated work.
 A held owner-blocked request still holds its resources.
+Only a queued owner wait can exist without a holder and grant.
 
 Request states are `queued`, `reserved`, `running`, `waiting_owner`, `recovering`, `blocked`, `released`, and `cancelled`.
 Device safety is separate: `safe`, `uncertain`, or `quarantined`.

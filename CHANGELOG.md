@@ -7,6 +7,7 @@ Each entry says what changed, why (the evidence), and how the next weekly review
   - **What:** Add private SQLite transactions, versioned events, stable request IDs, scoped grants, and an atomic event outbox.
     Reserve exact devices and shared host resources together. Preserve owner waits, uncertain ownership, and recovery after policy revocation.
     Add synthetic concurrency, restart, interrupted-write, path, and transition tests on both target Node versions in CI.
+    Reject sparse policy arrays and malformed state that discards owner-wait recovery ownership.
     Do not start a service, use a real device, or change the live monitor or work-ledger.
   - **Why:** The approved scheduler design needs durable ownership before it can add event delivery.
     A timeout, lost connection, or cancellation cannot prove that a used device is safe.

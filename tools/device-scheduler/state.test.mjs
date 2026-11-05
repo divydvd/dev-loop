@@ -381,3 +381,57 @@ for (const outcome of ["inflight", "complete"]) {
     assert.throws(() => openStore({ directory }), /INVALID_DATABASE_STATE/);
   });
 }
+
+test("sparse policy resources reject before JSON persistence can poison the store", t => {
+  const { store } = fixture(t);
+  const before = store.read();
+  assert.throws(() => send(store, broker, "policy", {
+    device: "synthetic-android", policyVersion: 1, resources: Array(1), enabled: true,
+  }), /INVALID_EVENT/);
+  assert.deepEqual(store.read(), before);
+  policy(store);
+  const configured = store.read();
+  assert.throws(() => store.transaction(state => { state.policies[0].resources = Array(1); }), /INVALID_DATABASE_STATE/);
+  assert.deepEqual(store.read(), configured);
+});
+
+test("sparse saved row arrays reject before serialization", t => {
+  const { store } = fixture(t);
+  const before = store.read();
+  for (const key of ["requests", "policies", "devices", "events", "outbox"]) {
+    assert.throws(() => store.transaction(state => { state[key] = Array(1); }), /INVALID_DATABASE_STATE/);
+    assert.deepEqual(store.read(), before);
+  }
+});
+
+test("owner-wait recovery history cannot lose its holder after a completed operation", t => {
+  const { store, directory } = fixture(t);
+  policy(store);
+  request(store);
+  const grant = acknowledge(store);
+  send(store, alice, "operation_start", { ...binding(grant), operationId: "op-a", purpose: "test" });
+  send(store, alice, "operation_finish", { ...binding(grant), operationId: "op-a", outcome: "complete" });
+  send(store, alice, "wait_owner", binding(grant));
+  send(store, broker, "fault", { ...binding(grant), reason: "crash" });
+  const malformed = store.read();
+  assert.equal(malformed.requests[0].beforeWait, "recovering");
+  malformed.devices[0].holder = null;
+  malformed.devices[0].safety = "safe";
+  const db = new DatabaseSync(path.join(directory, "scheduler.sqlite"));
+  db.prepare("UPDATE scheduler_state SET value=? WHERE id=1").run(JSON.stringify(malformed));
+  db.close();
+  assert.throws(() => eligibleRequests(store), /INVALID_DATABASE_STATE/);
+  assert.throws(() => openStore({ directory }), /INVALID_DATABASE_STATE/);
+});
+
+test("sparse nested history rejects before JSON changes its meaning", t => {
+  const { store } = fixture(t);
+  policy(store);
+  request(store);
+  const grant = acknowledge(store);
+  send(store, alice, "operation_start", { ...binding(grant), operationId: "op-a", purpose: "test" });
+  const before = store.read();
+  assert.throws(() => store.transaction(state => { state.requests[0].operations = Array(1); }), /INVALID_DATABASE_STATE/);
+  assert.throws(() => store.transaction(state => { state.events[0].result.outgoingEventIds = Array(1); }), /INVALID_DATABASE_STATE/);
+  assert.deepEqual(store.read(), before);
+});

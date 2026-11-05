@@ -14,13 +14,14 @@ function validate(state) {
   const identifier = value => typeof value === "string" && /^[A-Za-z0-9_.:/-]{1,160}$/.test(value);
   const positive = value => Number.isSafeInteger(value) && value > 0;
   const resources = value => Array.isArray(value) && value.length <= 32 &&
-    value.every(identifier) && new Set(value).size === value.length;
+    Array.from(value).every(identifier) && new Set(value).size === value.length;
   const unique = (rows, key) => rows.every(row => row && identifier(row[key])) &&
     new Set(rows.map(row => row[key])).size === rows.length;
   const invalid = () => { throw new Error("INVALID_DATABASE_STATE"); };
   if (!state || state.version !== 1 || !Number.isSafeInteger(state.next) || state.next < 0 ||
       Object.keys(state).sort().join() !== "devices,events,next,outbox,policies,requests,version" ||
-      !["devices", "events", "outbox", "policies", "requests"].every(key => Array.isArray(state[key]))) invalid();
+      !["devices", "events", "outbox", "policies", "requests"].every(key => Array.isArray(state[key]) &&
+        Array.from(state[key]).every(row => row && typeof row === "object"))) invalid();
   for (const key of ["devices", "events", "requests"]) if (!unique(state[key], "id")) invalid();
   if (!unique(state.policies, "device") || state.policies.some(p =>
     !positive(p.policyVersion) || typeof p.enabled !== "boolean" || !resources(p.resources))) invalid();
@@ -47,6 +48,8 @@ function validate(state) {
     if (d.holder !== r.id && (g && !g.revoked || ["reserved", "running", "recovering"].includes(r.state))) invalid();
     if (d.holder !== r.id && (r.operations.some(op => op.outcome !== "complete") ||
         r.state === "cancelled" && r.operations.length > 0)) invalid();
+    if (d.holder !== r.id && ["queued", "blocked", "waiting_owner"].includes(r.state) &&
+        (g !== null || r.operations.length > 0 || r.state === "waiting_owner" && r.beforeWait !== "queued")) invalid();
   }
   for (const e of state.events) {
     if (typeof e.signature !== "string" || !e.result || !Array.isArray(e.result.outgoingEventIds) ||
@@ -94,8 +97,9 @@ export function openStore({ directory }) {
     try {
       const state = read(), result = work(state);
       if (result && typeof result.then === "function") throw new Error("ASYNC_TRANSACTION");
-      validate(state);
-      db.prepare("UPDATE scheduler_state SET value=? WHERE id=1").run(JSON.stringify(state));
+      const serialized = JSON.stringify(state);
+      validate(JSON.parse(serialized));
+      db.prepare("UPDATE scheduler_state SET value=? WHERE id=1").run(serialized);
       db.exec("COMMIT");
       return result;
     } catch (error) { db.exec("ROLLBACK"); throw error; }
