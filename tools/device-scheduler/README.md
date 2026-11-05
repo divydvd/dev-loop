@@ -254,6 +254,8 @@ Failed response writes use that path too.
 Each terminal signal removes enrollment and quarantines its holder before transport destruction or output flush.
 Repeated or stale callbacks cannot detach a replacement connection or revoke its renewed grant.
 Quarantine retains the holder, unresolved operations, and all resources until explicit recovery and clean release.
+Authority shutdown marks every connection terminal before quarantine and rejects all remaining buffered commands.
+This also applies after an internal failure. Neither delayed closure nor a transient recovered read restores admission.
 Domain validation errors return safe fixed codes.
 No response contains an enrollment token or raw framework error.
 

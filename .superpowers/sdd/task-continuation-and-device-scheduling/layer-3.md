@@ -192,3 +192,20 @@ The source remains inactive.
 - The coordinator supplied exact lower-base head `1938b5c6cebb65518d019ba17dd28a36b5dbaa5f`.
   Its parents are `ff90b51` and `a407b75`; it changes no scheduler file.
   Commit the correction, merge that exact base, and independently review the integrated lifecycle model before publication.
+- Integrated snapshot `915058f` merges exact base `1938b5c`.
+  The only conflict was the README component table.
+  Preserve the lower serving-app evidence entry and this layer's authenticated broker entry.
+  Plugin check passes. Full integrated selection: 465 passed, zero failed, one inherited filesystem skip.
+- Reviewer `scheduler-terminal-model-review` checks `915058f`, the full terminal model, and affected interactions.
+  It finds one Important internal-shutdown path: buffered frames can still create authority after `stopped`.
+  It also identifies missing explicit reserved-but-unused grants in the new matrix.
+- The fix pass remains inside the authorized lifecycle correction and review cycle.
+  Expand to 48 terminal combinations, six response failures, two real half-closes, and two authority-wide shutdown cases.
+- RED: all 56 controls pass; explicit shutdown and one transient read failure both admit a new request after shutdown.
+- Fix: mark every peer terminal before authority-wide quarantine and reject all frames while stopped.
+- GREEN: all 58 lifecycle cases and 131 prior scheduler cases pass.
+  Full selection: 485 passed, zero failed, one inherited skip. Plugin check reports no faults.
+  Production modules total 338 lines.
+- The coordinator reports a lower fixture-scorer correction in progress and holds publication.
+  Keep all local work. Wait for its exact final base, then include it in final coverage and verification.
+  No further correction cycle, PR merge, activation, real device, or live work-ledger access is authorized.

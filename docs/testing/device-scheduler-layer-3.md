@@ -195,6 +195,31 @@ It changes no scheduler file and contains separately reviewed C1 app evidence.
 Merge that exact update before final independent review and verification.
 Keep the correction local until the integrated snapshot is ready for its single authorized publication.
 
+### Independent lifecycle review reassessment
+Reviewer `scheduler-terminal-model-review` checks integrated `915058f`, including the exact lower base and README conflict resolution.
+It finds one required internal-shutdown fault and one reserved-grant coverage gap.
+This fix pass remains inside the authorized lifecycle correction and review cycle.
+
+Extend B18-M to 48 combinations: distinguish no holder, a reserved unused grant, and a running operation.
+Extend B18-W to six cases using the same three holder states.
+Add B18-S for explicit shutdown and internal read failure with delayed closure and coalesced buffered commands.
+Both must stop all command admission immediately, quarantine existing holders, and preserve immutable history.
+Inject one transient database-read failure only to enter the real failure path.
+Assert validated persisted state after broker closure, not mock call counts.
+Write and run the new failing cases before correcting authority-wide terminal handling.
+The earlier 38-case result remains evidence for its original snapshot, not the expanded matrix.
+
+The expanded pre-fix run passes 56 baseline cases and fails both shutdown cases at `915058f`.
+Both failures admit a new request after shutdown starts; the internal-failure case first triggers the actual abort path.
+The correction marks every peer terminal before authority-wide quarantine and rejects frames while the broker is stopped.
+GREEN: all 58 lifecycle cases and 131 prior scheduler cases pass.
+The full local selection passes 485 cases with zero failures and one inherited filesystem skip.
+The plugin check reports no faults on Node `26.12.1`.
+Production modules total 338 lines.
+This is the single fix pass within the approved review cycle, not another publication round.
+The coordinator now holds publication for a further reviewed lower-base scorer correction.
+Merge its exact final head before final review coverage, checks, and publication.
+
 ## Required gaps and limits
 - Lifecycle cases pass locally. Integrated independent review, final-head verification, and CI remain pending.
 - Overall stack acceptance still needs layer-4 integration and its own actual host evidence.

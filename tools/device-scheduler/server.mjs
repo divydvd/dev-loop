@@ -59,6 +59,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
   const close = () => {
     if (closing) return closing;
     stopped = true;
+    for (const peer of peers) peer.ended = true;
     closing = (async () => {
       try { quarantineHolders(store, "crash"); } catch { failure = "BROKER_FAILED"; }
       for (const peer of peers) peer.socket.destroy();
@@ -144,7 +145,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
         retire(peer);
       });
       socket.on("data", decoder(frame => {
-        if (peer.ended) return;
+        if (stopped || peer.ended) return;
         let committed = false;
         try {
           if (!peer.session) {

@@ -2,14 +2,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { once } from "node:events";
+import { DatabaseSync } from "node:sqlite";
 import { setup, raw, event, requestEvent } from "./broker-test-support.mjs";
 import { binding } from "./test-support.mjs";
 import { applyEvent } from "./lib/queue.mjs";
 import { openStore } from "./lib/store.mjs";
+import { startBroker } from "./server.mjs";
 
 function captureSockets(t) {
   const sockets = [], mocks = [], blockedSockets = [], emit = net.Server.prototype.emit;
-  t.after(() => {
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
     try {
       for (const socket of blockedSockets) {
         delete socket.writableNeedDrain;
@@ -17,13 +22,14 @@ function captureSockets(t) {
       }
       for (const mock of mocks) mock.mock.restore();
     } finally { for (const socket of sockets) socket.destroy(); }
-  });
+  };
+  t.after(release);
   mocks.push(t.mock.method(net.Server.prototype, "emit", function(name, ...args) {
     if (name === "connection") sockets.push(args[0]);
     return Reflect.apply(emit, this, [name, ...args]);
   }));
   return {
-    sockets,
+    sockets, release,
     delayClose(socket, blocked) {
       mocks.push(t.mock.method(socket, "destroy", function() { return this; }));
       blockedSockets.push(socket);
@@ -36,15 +42,17 @@ function read(f) {
   const store = openStore({ directory: f.directory });
   try { return store.read(); } finally { store.close(); }
 }
-function runningHolder(f, sessionId, requestId, device, wide = false) {
+function createHolder(f, sessionId, requestId, device, phase = "running", wide = false) {
   const store = openStore({ directory: f.directory }), auth = { id: sessionId, role: "session" };
   const input = requestEvent(requestId, device);
   if (wide) for (const field of ["repository", "scope", "resumeAction"]) input.payload[field] = "x".repeat(500);
   try {
     applyEvent(store, auth, input);
     const grant = binding(applyEvent(store, auth, event("reserve", { requestId })).request.grant);
-    applyEvent(store, auth, event("acknowledge", grant));
-    applyEvent(store, auth, event("operation_start", { ...grant, operationId: `${requestId}-operation`, purpose: "test" }));
+    if (phase === "running") {
+      applyEvent(store, auth, event("acknowledge", grant));
+      applyEvent(store, auth, event("operation_start", { ...grant, operationId: `${requestId}-operation`, purpose: "test" }));
+    }
     return input;
   } finally { store.close(); }
 }
@@ -61,8 +69,8 @@ function assertHistory(before, after) {
 for (const signal of ["reject", "end", "error", "close"]) {
   for (const blocked of [false, true]) {
     for (const enrolled of [false, true]) {
-      for (const active of [false, true]) {
-        test(`terminal ${signal}, output ${blocked ? "blocked" : "writable"}, ${enrolled ? "enrolled" : "unenrolled"}, holder ${active ? "active" : "unused"}`, async t => {
+      for (const phase of ["none", "reserved", "running"]) {
+        test(`terminal ${signal}, output ${blocked ? "blocked" : "writable"}, ${enrolled ? "enrolled" : "unenrolled"}, holder ${phase}`, async t => {
           const capture = captureSockets(t), f = await setup(t);
           const peer = await raw(f.socketPath, { allowHalfOpen: true });
           t.after(() => peer.socket.destroy());
@@ -72,8 +80,9 @@ for (const signal of ["reject", "end", "error", "close"]) {
             await peer.messages.wait(frame => frame.type === "ready");
           } else existing = await f.client("a");
           const socket = capture.sockets[0];
-          if (active) runningHolder(f, "a", "holder-a", "android");
-          runningHolder(f, "b", "holder-b", "ios");
+          const active = phase !== "none";
+          if (active) createHolder(f, "a", "holder-a", "android", phase);
+          createHolder(f, "b", "holder-b", "ios");
           const before = read(f);
           capture.delayClose(socket, blocked);
           terminal(socket, signal);
@@ -85,11 +94,13 @@ for (const signal of ["reject", "end", "error", "close"]) {
           if (active) {
             const holder = after.requests.find(r => r.id === "holder-a");
             assert.equal(holder.grant.revoked, enrolled);
-            assert.equal(holder.state, enrolled ? "recovering" : "running");
+            assert.equal(holder.state, enrolled ? "recovering" : phase);
             assert.equal(after.devices.find(d => d.id === "android").holder, "holder-a");
-            assert.equal(after.devices.find(d => d.id === "android").safety, enrolled ? "quarantined" : "uncertain");
-            assert.equal(holder.operations[0].id, "holder-a-operation");
-            assert.equal(holder.operations[0].outcome, "inflight");
+            assert.equal(after.devices.find(d => d.id === "android").safety, enrolled ? "quarantined" : phase === "running" ? "uncertain" : "safe");
+            if (phase === "running") {
+              assert.equal(holder.operations[0].id, "holder-a-operation");
+              assert.equal(holder.operations[0].outcome, "inflight");
+            } else assert.deepEqual(holder.operations, []);
           }
           if (!enrolled) {
             assert.deepEqual(await existing.reconcile("missing"), { admitted: false });
@@ -123,15 +134,15 @@ for (const signal of ["reject", "end", "error", "close"]) {
 }
 
 for (const response of ["result", "validation"]) {
-  for (const active of [false, true]) {
-    test(`failed ${response} write detaches before close with ${active ? "active" : "unused"} holder`, async t => {
+  for (const phase of ["none", "reserved", "running"]) {
+    test(`failed ${response} write detaches before close with holder ${phase}`, async t => {
       const capture = captureSockets(t), f = await setup(t);
       const peer = await raw(f.socketPath, { allowHalfOpen: true });
       t.after(() => peer.socket.destroy());
       peer.socket.write(JSON.stringify({ type: "enroll", token: f.tokens.a }) + "\n");
       await peer.messages.wait(frame => frame.type === "ready");
       const socket = capture.sockets[0];
-      if (active) runningHolder(f, "a", "write-holder", "android");
+      if (phase !== "none") createHolder(f, "a", "write-holder", "android", phase);
       capture.delayClose(socket, false);
       const write = socket.write;
       t.mock.method(socket, "write", function(data, ...args) {
@@ -143,7 +154,7 @@ for (const response of ["result", "validation"]) {
       const frame = response === "result" ? { type: "reconcile", seq: 1, eventId: "missing" }
         : { type: "request", seq: 1, event: { kind: null } };
       socket.emit("data", Buffer.from(JSON.stringify(frame) + "\n"));
-      if (active) {
+      if (phase !== "none") {
         const state = read(f);
         assert.equal(state.requests.find(r => r.id === "write-holder").grant.revoked, true);
         assert.equal(state.devices.find(d => d.id === "android").safety, "quarantined");
@@ -163,7 +174,7 @@ for (const blocked of [false, true]) {
     peer.socket.write(JSON.stringify({ type: "enroll", token: f.tokens.a }) + "\n");
     await peer.messages.wait(frame => frame.type === "ready");
     const socket = capture.sockets[0];
-    const input = runningHolder(f, "a", "eof-holder", "android", blocked);
+    const input = createHolder(f, "a", "eof-holder", "android", "running", blocked);
     if (blocked) {
       peer.socket.pause();
       const store = openStore({ directory: f.directory }), state = store.read();
@@ -189,5 +200,71 @@ for (const blocked of [false, true]) {
     assert.equal(state.devices.find(d => d.id === "android").safety, "quarantined");
     const replacement = await f.client("a");
     assert.deepEqual(await replacement.reconcile("missing"), { admitted: false });
+  });
+}
+
+for (const mode of ["shutdown", "internal failure"]) {
+  test(`${mode} rejects buffered authority creation before transport close`, async t => {
+    const capture = captureSockets(t), f = await setup(t);
+    await f.broker.shutdown();
+    const broker = await startBroker(f), peers = [];
+    try {
+      for (const id of ["a", "b"]) {
+        const peer = await raw(f.socketPath, { allowHalfOpen: true });
+        peers.push(peer);
+        peer.socket.write(JSON.stringify({ type: "enroll", token: f.tokens[id] }) + "\n");
+        await peer.messages.wait(frame => frame.type === "ready");
+      }
+      createHolder(f, "b", "before-stop", "ios");
+      const before = read(f);
+      for (const socket of capture.sockets) capture.delayClose(socket, false);
+      const grant = { requestId: "after-stop", device: "android", policyVersion: 1, generation: 1 };
+      const frames = [
+        { type: "reconcile", seq: 1, eventId: "missing" },
+        { type: "request", seq: 2, event: requestEvent("after-stop") },
+        { type: "request", seq: 3, event: event("acknowledge", grant) },
+        { type: "request", seq: 4, event: event("operation_start", {
+          ...grant, operationId: "after-stop-operation", purpose: "test",
+        }) },
+      ];
+      let closing, restore;
+      if (mode === "shutdown") closing = broker.shutdown();
+      else {
+        const prepare = DatabaseSync.prototype.prepare;
+        let failNext = true;
+        const fault = t.mock.method(DatabaseSync.prototype, "prepare", function(sql, ...args) {
+          if (failNext && sql === "SELECT value FROM scheduler_state WHERE id=1") {
+            failNext = false;
+            throw new Error("SYNTHETIC_READ_FAILURE");
+          }
+          return Reflect.apply(prepare, this, [sql, ...args]);
+        });
+        restore = () => fault.mock.restore();
+      }
+      try {
+        const chunk = Buffer.from(frames.map(frame => JSON.stringify(frame)).join("\n") + "\n");
+        capture.sockets[0].emit("data", chunk);
+        capture.sockets[1].emit("data", chunk);
+        restore?.();
+        const after = read(f);
+        assertHistory(before, after);
+        assert.equal(after.requests.some(request => request.id === "after-stop"), false);
+        assert.equal(after.events.length, before.events.length + 1);
+        assert.equal(after.requests.find(request => request.id === "before-stop").grant.revoked, true);
+        assert.equal(after.devices.find(device => device.id === "ios").holder, "before-stop");
+        assert.equal(after.devices.find(device => device.id === "ios").safety, "quarantined");
+      } finally {
+        restore?.();
+        capture.release();
+        await closing;
+      }
+      assert.deepEqual(await broker.closed, { error: mode === "shutdown" ? null : "BROKER_FAILED" });
+      assert.equal(read(f).requests.some(request => request.id === "after-stop"), false);
+    } finally {
+      capture.release();
+      for (const peer of peers) peer.socket.destroy();
+      if (mode === "shutdown") await broker.shutdown();
+      else await assert.rejects(broker.shutdown(), /BROKER_FAILED/);
+    }
   });
 }
