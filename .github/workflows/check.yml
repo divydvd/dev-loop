@@ -16,3 +16,14 @@ jobs:
       - run: node --test scripts/independent-review.test.mjs
       - run: node --test scripts/testing-contract.test.mjs
       - run: node --test tools/work-ledger/*.test.mjs
+  task-runtime:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ["22.23.4", "26.12.1"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --test tools/task-runtime/*.test.mjs
