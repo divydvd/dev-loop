@@ -186,6 +186,8 @@ Session IDs and tokens must be unique. The session ID `broker` is reserved.
 The file permits at most 256 sessions and 32 distinct devices within one MiB.
 Device fields use the state policy contract above.
 Policy versions must increase for changes. Restart accepts unchanged fields in a different property order.
+First startup adopts an identical current policy from validated state history without adding another policy event.
+Startup rejects older versions, including an old policy whose broker event remains in history.
 The broker reads this file once at startup. There is no live enrollment update API.
 Removing a device entry does not revoke saved policy. Submit an increased, disabled policy before removing that device.
 Later integration must define safe credential renewal and policy deployment.
@@ -255,6 +257,8 @@ No response contains an enrollment token or raw framework error.
 It is not a durable event ID.
 Socket writes use backpressure; the client bounds queued command bytes.
 Outgoing frames have the same size limit. A large historical result can cause `FRAME_TOO_LARGE`.
+An oversized notification closes only its receiving peer. Response backpressure also closes only that peer.
+Neither condition stops the authority or revokes another session's grant.
 An output failure does not roll back an already committed event.
 Reconcile admission before another action; this layer has no large-result pagination API.
 No physical USB notifications, model calls, serving-app wake-up, or device execution are implemented here.

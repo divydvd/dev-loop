@@ -79,3 +79,21 @@ The source remains inactive.
 - The complete review plus focused correction coverage accounts for final substantive source.
   Subsequent changes record evidence only.
 - Task 4 source and independent review are complete. Publication and final-head CI remain pending.
+
+## Publication and automatic review round 1
+- PR #30 targets `divydvd-device-scheduler-state`; first push: `5acd3db1283a5c6392068bf0db4749e56f911f90`.
+- Local final-head selection: 414 passed, zero failed, one inherited filesystem skip.
+  Plugin check reports no faults. All three CI jobs pass, including Node `22.23.4` and `26.12.1`.
+- The automatic review found four real faults. Each has a behavioral RED before its correction:
+  matching layer-2 policy history rejects first startup; non-string kinds abort the authority;
+  oversized background delivery aborts unrelated clients; failed validation replies allow trailing buffered admission.
+- First-start correction reads authoritative saved policy. It adopts an identical current policy without another event.
+  It rejects changed equal versions and older configuration. No saved result or history is rewritten.
+- An additional policy rollback RED confirms that exact historical replay must not accept stale startup configuration.
+- Delivery correction closes only the recipient of an oversized notification.
+- Input correction rejects non-string event kinds before reducer property lookup.
+- Socket correction marks the peer ended before destroying it after any validation-response failure.
+- GREEN: all 124 scheduler cases pass. New production modules total 322 lines.
+- The buffered-command case injects a precise socket-write failure; the asserted result is real committed state.
+- The oversized-record case uses valid extra delivery metadata; no immutable field changes.
+- Focused independent review and final-head checks follow before the round-1 correction push.

@@ -31,6 +31,7 @@ All rows are required. Results and tested identities are recorded separately.
 | B10 | Crash before commit, after commit, before acknowledgment | Roll back incomplete work; retain committed state and delivery | `broker.test.mjs`, inherited `state.test.mjs` |
 | B11 | Existing private history with delivery metadata | Preserve immutable results and ordered outgoing records | `delivery.test.mjs`, inherited scheduler suites |
 | B12 | One authenticated client stops reading responses | Close only that peer; preserve unrelated running grants | `broker.test.mjs` |
+| B13 | First startup over layer-2 policies; old broker policy replay | Adopt identical validated policy; reject rolled-back configuration without rewriting history | `broker.test.mjs` |
 | P1 | Existing plugin and consumers | Preserve all existing CI suites | `.github/workflows/check.yml` |
 
 Invalid input, authority, concurrency, partial failure, compatibility, and bounded transport apply.
@@ -66,6 +67,23 @@ New event kinds and reducer changes are not planned.
   It found no new Critical or Important issue and independently passed all 119 scheduler cases.
   A two-holder probe also preserved unrelated authority and quarantined the slow peer's own holder.
   Review coverage now accounts for final substantive source. Later evidence edits do not change behavior.
+
+### Automatic review round 1
+At `5acd3db`, all three CI jobs passed, including both declared Node runtimes.
+Automatic review reported four confirmed issues.
+All four regressions fail before correction:
+- First broker startup rejects an identical policy saved under a layer-2 event ID.
+- A non-string event kind can abort unrelated active grants.
+- An oversized outgoing record during disconnect delivery aborts the authority.
+- A failed validation response leaves later buffered mutations active after socket destruction.
+
+The correction adopts only identical current validated policies, validates kind types, isolates oversized delivery,
+and marks a peer ended on each response-write failure.
+An additional failing-first case rejects an older configuration whose historical broker event still exists.
+All 124 scheduler cases pass after correction, including the 93 unchanged inherited cases.
+The response-write test injects one precise lower-level write failure; it asserts real admission state afterward.
+The large-record test adds valid delivery metadata without changing immutable history.
+Focused review and exact final-head verification remain required before the correction push.
 
 ## Required gaps and limits
 - No layer-specific required gap is currently known. Final-head verification and CI are still pending.

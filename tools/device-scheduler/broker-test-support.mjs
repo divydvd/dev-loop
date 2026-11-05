@@ -34,11 +34,11 @@ export function inbox() {
     },
   };
 }
-export async function setup(t, overrides = {}) {
+export async function setup(t, overrides = {}, beforeStart = () => {}) {
   const root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), "broker-"));
   fs.chmodSync(root, 0o700);
   const directory = join(root, "s"), socketPath = join(directory, "b.sock"), policyPath = join(root, "policy.json");
-  const tokens = { a: randomBytes(32).toString("hex"), b: randomBytes(32).toString("hex") };
+  const tokens = Object.fromEntries(["a", "b", "c"].map(id => [id, randomBytes(32).toString("hex")]));
   fs.writeFileSync(policyPath, JSON.stringify({
     version: 1, sessions: Object.entries(tokens).map(([id, token]) => ({ id, token })),
     devices: [
@@ -46,13 +46,15 @@ export async function setup(t, overrides = {}) {
       { device: "ios", policyVersion: 1, resources: [], enabled: true },
     ], ...overrides,
   }), { mode: 0o600 });
-  let broker = await startBroker({ directory, socketPath, policyPath });
+  let broker;
   const clients = [];
   t.after(async () => {
     await Promise.all(clients.map(client => client.close()));
-    await broker.shutdown();
+    await broker?.shutdown();
     fs.rmSync(root, { recursive: true });
   });
+  beforeStart({ directory });
+  broker = await startBroker({ directory, socketPath, policyPath });
   return {
     root, directory, socketPath, policyPath, tokens,
     get broker() { return broker; },

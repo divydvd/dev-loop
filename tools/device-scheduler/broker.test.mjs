@@ -251,6 +251,98 @@ test("startup schedules a request committed before scheduling or delivery", asyn
   assert.equal((await a.reconcile(input.id)).result.request.state, "queued");
 });
 
+test("first broker startup adopts identical policies from authoritative layer-2 history", async t => {
+  const input = requestEvent("layer-two-request");
+  const f = await setup(t, {}, ({ directory }) => {
+    const store = openStore({ directory });
+    for (const [device, resources] of [["android", ["usb"]], ["ios", []]]) {
+      applyEvent(store, { id: "layer-two", role: "scheduler" }, event("policy", {
+        device, resources, policyVersion: 1, enabled: true,
+      }, `existing-policy-${device}`));
+    }
+    applyEvent(store, { id: "a", role: "session" }, input);
+    store.close();
+  });
+  const events = inbox(), a = await f.client("a", events.receive);
+  assert.equal((await events.wait(e => e.kind === "reserve")).request.id, "layer-two-request");
+  assert.equal((await a.reconcile(input.id)).result.request.state, "queued");
+  const store = openStore({ directory: f.directory });
+  try {
+    const state = store.read();
+    assert.equal(state.policies.length, 2);
+    assert.equal(state.events.filter(e => JSON.parse(e.signature).event.kind === "policy").length, 2);
+  } finally { store.close(); }
+});
+
+test("startup rejects a rolled-back policy even when its old broker event exists", async t => {
+  const f = await setup(t), original = fs.readFileSync(f.policyPath, "utf8"), config = JSON.parse(original);
+  config.devices[0].policyVersion = 2;
+  config.devices[0].enabled = false;
+  fs.writeFileSync(f.policyPath, JSON.stringify(config));
+  await f.restart();
+  await f.broker.shutdown();
+  fs.writeFileSync(f.policyPath, original);
+  let unexpected;
+  try { await assert.rejects(async () => { unexpected = await startBroker(f); }, /POLICY_VERSION/); }
+  finally { await unexpected?.shutdown(); }
+});
+
+test("non-string event kinds cannot shut down unrelated active grants", async t => {
+  const f = await setup(t), events = inbox(), a = await f.client("a", events.receive), b = await f.client("b");
+  await a.request(requestEvent("kind-holder"));
+  const grant = binding((await events.wait(e => e.kind === "reserve")).request.grant);
+  await a.request(event("acknowledge", grant));
+  const operation = event("operation_start", { ...grant, operationId: "kind-operation", purpose: "test" });
+  await a.request(operation);
+  for (const kind of [{ toString: null }, [], 3, null]) {
+    await assert.rejects(b.request(event(kind, {})), /INVALID_EVENT/);
+  }
+  assert.equal((await a.reconcile(operation.id)).request.state, "running");
+});
+
+test("oversized outgoing records during disconnect delivery close only the receiving peer", async t => {
+  const f = await setup(t), events = inbox(), a = await f.client("a", events.receive), b = await f.client("b");
+  const c = await f.client("c");
+  await a.request(requestEvent("size-holder"));
+  const grant = binding((await events.wait(e => e.kind === "reserve")).request.grant);
+  await a.request(event("acknowledge", grant));
+  const operation = event("operation_start", { ...grant, operationId: "size-operation", purpose: "test" });
+  await a.request(operation);
+  const store = openStore({ directory: f.directory }), input = requestEvent("size-target", "ios");
+  try {
+    applyEvent(store, { id: "b", role: "session" }, input);
+    store.transaction(state => { state.outbox.find(e => e.id === input.id + ":state").deliveryDetail = "x".repeat(65536); });
+  } finally { store.close(); }
+  await c.close();
+  assert.equal(await b.closed, "FRAME_TOO_LARGE");
+  const current = (await a.reconcile(operation.id)).request;
+  assert.equal(current.state, "running");
+  assert.equal(current.grant.revoked, false);
+});
+
+test("a failed validation response cannot admit the next buffered operation after peer destruction", async t => {
+  const f = await setup(t), peer = await raw(f.socketPath);
+  t.after(() => peer.socket.destroy());
+  peer.socket.write(JSON.stringify({ type: "enroll", token: f.tokens.b }) + "\n");
+  await peer.messages.wait(e => e.type === "ready");
+  const original = net.Socket.prototype.write;
+  net.Socket.prototype.write = function(data, ...args) {
+    if (typeof data === "string" && data.includes('"code":"INVALID_EVENT"')) throw new Error("BACKPRESSURE");
+    return original.call(this, data, ...args);
+  };
+  t.after(() => { net.Socket.prototype.write = original; });
+  const closed = new Promise(resolve => peer.socket.once("close", resolve));
+  peer.socket.write([
+    { type: "request", seq: 1, event: event("unknown", {}) },
+    { type: "request", seq: 2, event: requestEvent("after-destruction") },
+  ].map(frame => JSON.stringify(frame) + "\n").join(""));
+  await closed;
+  net.Socket.prototype.write = original;
+  const store = openStore({ directory: f.directory });
+  try { assert.equal(store.read().requests.some(r => r.id === "after-destruction"), false); }
+  finally { store.close(); }
+});
+
 test("policy and socket paths reject unsafe files without deleting them", async t => {
   const f = await setup(t);
   await f.broker.shutdown();

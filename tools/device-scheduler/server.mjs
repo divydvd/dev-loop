@@ -84,6 +84,12 @@ export async function startBroker({ directory, socketPath, policyPath }) {
     await clearStaleSocket(socketPath);
     quarantineHolders(store, "crash");
     for (const device of policy.devices) {
+      const saved = store.read().policies.findLast(p => p.device === device.device);
+      if (saved && saved.policyVersion >= device.policyVersion) {
+        if (saved.policyVersion !== device.policyVersion || saved.enabled !== device.enabled ||
+            JSON.stringify(saved.resources) !== JSON.stringify(device.resources)) fail("POLICY_VERSION");
+        continue;
+      }
       const id = createHash("sha256").update(device.device).digest("hex") + "/" + device.policyVersion;
       applyEvent(store, { id: "broker", role: "scheduler" }, {
         version: 1, id: `broker/policy/${id}`, kind: "policy", payload: device,
@@ -103,7 +109,12 @@ export async function startBroker({ directory, socketPath, policyPath }) {
       if (!peer.session || peer.ended || peer.socket.destroyed || peer.socket.writableNeedDrain) return;
       for (const item of pending(store, peer.session)) {
         if (peer.sent.has(item.id)) continue;
-        const data = encode({ type: "event", event: item });
+        let data;
+        try { data = encode({ type: "event", event: item }); }
+        catch (error) {
+          if (error.message !== "FRAME_TOO_LARGE") throw error;
+          terminate(peer, "FRAME_TOO_LARGE"); return;
+        }
         peer.sent.add(item.id);
         if (!peer.socket.write(data)) break;
       }
@@ -145,6 +156,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
           }
           let result;
           if (frame.type === "request") {
+            if (typeof frame.event?.kind !== "string") fail("INVALID_EVENT");
             if (["policy", "fault", "recover", "reserve"].includes(frame.event?.kind) ||
                 typeof frame.event?.id === "string" && frame.event.id.startsWith("broker/")) fail("FORBIDDEN");
             result = applyEvent(store, { id: peer.session, role: "session" }, frame.event);
@@ -157,7 +169,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
           if (error.message === "BACKPRESSURE") { peer.ended = true; peer.socket.destroy(); return; }
           if (!safeCodes.has(error.message)) { abort(); return; }
           try { write(peer, { type: "error", seq: frame.seq, code: error.message }); }
-          catch { peer.socket.destroy(); }
+          catch { peer.ended = true; peer.socket.destroy(); }
         }
       }, code => terminate(peer, code)));
     });
