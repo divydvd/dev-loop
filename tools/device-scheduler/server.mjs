@@ -7,11 +7,15 @@ import { openStore } from "./lib/store.mjs";
 import { applyEvent } from "./lib/queue.mjs";
 import { pending, acknowledgeDelivery, schedule, quarantineHolders, reconcile } from "./lib/delivery.mjs";
 import { decoder, encode, exact, identifier } from "./lib/protocol.mjs";
+import { deviceService } from "./lib/device-service.mjs";
+import { readExecutionPolicy } from "./lib/policy.mjs";
 
 const fail = code => { throw new Error(code); };
 const safeCodes = new Set(("INVALID_EVENT FORBIDDEN EVENT_CONFLICT REQUEST_CONFLICT INVALID_POLICY SESSION_MISMATCH " +
   "INVALID_REQUEST NOT_ELIGIBLE INVALID_TRANSITION INVALID_GRANT GRANT_NOT_ACKNOWLEDGED RECOVERY_ONLY " +
-  "DUPLICATE_OPERATION UNRESOLVED_OPERATION INVALID_OPERATION DELIVERY_NOT_FOUND FRAME_TOO_LARGE").split(" "));
+  "DUPLICATE_OPERATION UNRESOLVED_OPERATION INVALID_OPERATION DELIVERY_NOT_FOUND FRAME_TOO_LARGE " +
+  "STALE_POLICY PIN_MISMATCH INVALID_PROCEDURE OPERATION_ACTIVE SAFE_CHECK_REQUIRED " +
+  "PROCESS_STILL_ACTIVE PROCESS_QUIESCENCE_UNKNOWN").split(" "));
 function privateFile(file, code) {
   const stat = fs.lstatSync(file);
   if (fs.realpathSync(file) !== file || !stat.isFile() || stat.nlink !== 1 ||
@@ -22,7 +26,7 @@ function readPolicy(file) {
   if (fs.statSync(file).size > 1048576) fail("INVALID_POLICY");
   let policy;
   try { policy = JSON.parse(fs.readFileSync(file, "utf8")); } catch { fail("INVALID_POLICY"); }
-  if (!exact(policy, ["version", "sessions", "devices"]) || policy.version !== 1 ||
+  if (!exact(policy, ["version", "sessions", "devices", ...(Object.hasOwn(policy, "execution") ? ["execution"] : [])]) || policy.version !== 1 ||
       !Array.isArray(policy.sessions) || policy.sessions.length > 256 ||
       !Array.isArray(policy.devices) || policy.devices.length > 32 ||
       policy.sessions.some(s => !exact(s, ["id", "token"]) || !identifier(s.id) || s.id === "broker" ||
@@ -34,7 +38,7 @@ function readPolicy(file) {
         !identifier(d.device) || !Number.isSafeInteger(d.policyVersion) || d.policyVersion < 1 ||
         typeof d.enabled !== "boolean" || !Array.isArray(d.resources) || d.resources.length > 32 ||
         !d.resources.every(identifier) || new Set(d.resources).size !== d.resources.length)) fail("INVALID_POLICY");
-  return policy;
+  return readExecutionPolicy(file);
 }
 async function clearStaleSocket(socketPath) {
   let stat;
@@ -53,7 +57,7 @@ async function clearStaleSocket(socketPath) {
 /** Inactive until explicitly called by a trusted host. Owns one authority per state directory. */
 export async function startBroker({ directory, socketPath, policyPath }) {
   const store = openStore({ directory });
-  const peers = new Set(), sessions = new Map(), server = net.createServer();
+  const peers = new Set(), sessions = new Map(), work = new Set(), server = net.createServer();
   let lock, listening = false, stopped = false, inode, closing, failure, finish;
   const closed = new Promise(resolve => { finish = resolve; });
   const close = () => {
@@ -67,6 +71,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
         if (error) failure = "BROKER_FAILED";
         resolve();
       }));
+      await Promise.allSettled([...work]);
       try { store.close(); } catch { failure = "BROKER_FAILED"; }
       try { lock?.close(); } catch { failure = "BROKER_FAILED"; }
       finish({ error: failure ?? null });
@@ -75,7 +80,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
   };
   const abort = () => { failure = "BROKER_FAILED"; void close(); };
   try {
-    const policy = readPolicy(policyPath), lockPath = path.join(directory, "authority.sqlite");
+    const policy = readPolicy(policyPath), service = deviceService(store, policyPath), lockPath = path.join(directory, "authority.sqlite");
     if (path.dirname(socketPath) !== directory || path.normalize(socketPath) !== socketPath) fail("UNSAFE_SOCKET");
     try { fs.closeSync(fs.openSync(lockPath, "wx", 0o600)); }
     catch (error) { if (error.code !== "EEXIST") throw error; }
@@ -156,7 +161,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
             if (!session) { terminate(peer, "UNAUTHENTICATED"); return; }
             if (sessions.has(session.id)) { terminate(peer, "SESSION_CONNECTED"); return; }
             peer.session = session.id; sessions.set(session.id, peer);
-            write(peer, { type: "ready" }); publish(peer); return;
+            write(peer, { type: "ready", sessionId: session.id }); publish(peer); return;
           }
           const field = frame.type === "request" ? "event" : "eventId";
           if (!["request", "ack", "reconcile"].includes(frame.type) ||
@@ -167,7 +172,30 @@ export async function startBroker({ directory, socketPath, policyPath }) {
           let result;
           if (frame.type === "request") {
             if (typeof frame.event?.kind !== "string") fail("INVALID_EVENT");
+            if (typeof frame.event.id === "string" && /^(broker|runner|execute)\//.test(frame.event.id)) fail("FORBIDDEN");
+            if (frame.event.kind.startsWith("device_")) {
+              const operation = service.handle(peer.session, frame.event);
+              work.add(operation);
+              void operation.then(result => {
+                if (stopped) return;
+                schedule(store);
+                try { write(peer, { type: "result", seq: frame.seq, result }); }
+                catch (error) {
+                  if (error.message !== "FRAME_TOO_LARGE") { disconnect(peer); return; }
+                  try { write(peer, { type: "error", seq: frame.seq, code: "FRAME_TOO_LARGE" }); }
+                  catch { disconnect(peer); }
+                }
+                broadcast();
+              }, error => {
+                if (stopped) return;
+                if (!safeCodes.has(error.message)) { abort(); return; }
+                try { write(peer, { type: "error", seq: frame.seq, code: error.message }); broadcast(); }
+                catch { disconnect(peer); }
+              }).catch(abort).finally(() => work.delete(operation));
+              return;
+            }
             if (["policy", "fault", "recover", "reserve"].includes(frame.event?.kind) ||
+                service.managed && ["operation_start", "operation_finish", "release"].includes(frame.event.kind) ||
                 typeof frame.event?.id === "string" && frame.event.id.startsWith("broker/")) fail("FORBIDDEN");
             result = applyEvent(store, { id: peer.session, role: "session" }, frame.event);
           } else result = frame.type === "ack" ? acknowledgeDelivery(store, peer.session, frame.eventId)
@@ -195,6 +223,32 @@ export async function startBroker({ directory, socketPath, policyPath }) {
     server.on("error", abort);
     return {
       closed,
+      status() { return { ...store.read(), sessions: [...sessions.keys()] }; },
+      control(event) {
+        if (stopped) fail("BROKER_CLOSED");
+        if (!["policy", "fault", "recover"].includes(event?.kind)) fail("FORBIDDEN");
+        if (service.active.has(event.payload?.requestId)) fail("OPERATION_ACTIVE");
+        const result = applyEvent(store, { id: "broker", role: "scheduler" }, event);
+        schedule(store); broadcast(); return result;
+      },
+      recover({ requestId, operationId, procedure }) {
+        const operation = (async () => {
+        if (stopped) fail("BROKER_CLOSED");
+        const r = store.read().requests.find(r => r.id === requestId);
+        if (!r?.grant?.recovery || r.grant.revoked) fail("INVALID_GRANT");
+        const grant = Object.fromEntries(["requestId", "device", "policyVersion", "generation"].map(k => [k, r.grant[k]]));
+        applyEvent(store, { id: r.sessionId, role: "session" }, {
+          version: 1, id: `broker/recovery-ack/${requestId}/${r.grant.generation}`, kind: "acknowledge", payload: grant,
+        });
+        await service.handle(r.sessionId, { version: 1, id: "trusted-recovery", kind: "device_run",
+          payload: { grant, operationId, procedure, args: [] } });
+        const result = await service.handle(r.sessionId, { version: 1, id: "trusted-release", kind: "device_release",
+          payload: { grant, result: "blocked" } });
+        schedule(store); broadcast(); return result;
+        })();
+        work.add(operation);
+        return operation.finally(() => work.delete(operation));
+      },
       async shutdown() {
         await close();
         if (failure) fail(failure);

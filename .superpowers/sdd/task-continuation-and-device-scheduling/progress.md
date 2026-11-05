@@ -1,5 +1,10 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-11-05-task-continuation-and-device-scheduling.md
 
+## Current layer handoff
+Tasks 5–6 continue above `088b91678f62048c637845fef8480aba6508b795`.
+See [the layer-4 ledger](layer-4.md) for current execution, rulings, required gaps, and review.
+Earlier records below retain their original identities and historical status.
+
 ## Abstract
 This layer implements Tasks 1 and 2 of the approved plan.
 App acceptance and isolated CLI results remain separate.

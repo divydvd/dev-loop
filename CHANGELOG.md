@@ -3,6 +3,17 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## 0.6.0 (2026-11-05)
+- **Add inactive attached device testing, stack layer 4.**
+  - **What:** Add host-bound device tools, private Android/iOS policy, pinned argument-array procedures, durable operation admission, and verified release.
+    Add a reusable device-testing reference and synthetic private setup, lifecycle, recovery, and cutover preview.
+    Preserve native permissions, review limits, owner decisions, and the inactive production guard.
+  - **Why:** Approved Tasks 5–6 require scoped execution and real attached-session handoff above the durable broker.
+    Failing-first cases cover identity binding, stale policy, duplicate operations, uncertainty, and cleanup.
+    Independent enforcement review adds forged safety evidence, surviving processes, oversized status, reconnect, and token-identity regressions.
+    Fresh reference consumers distinguish missing API knowledge from preserved baseline safety controls.
+  - **Check:** Run `node scripts/check.mjs`, every CI suite, temporary-home instruction/skill discovery, and the layer-4 acceptance matrix.
+    See `docs/testing/device-testing-layer-4.md` for exact source identities, app observations, and required gaps.
+    Synthetic procedures do not prove physical-phone acceptance or authorize monitor cutover.
 - **Add the inactive device event broker, stack layer 3.**
   - **What:** Add private Unix-socket enrollment, automatic eligible scheduling, durable delivery acknowledgments, and admission reconciliation.
     Bind identities from private policy. Keep scheduler authority inside one broker, protected by a process-held SQLite lock.

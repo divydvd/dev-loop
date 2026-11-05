@@ -8,6 +8,7 @@ A Copilot plugin that lets one session run the full development loop from one li
 | Core rules | `com.github.copilot/rules/core.mdc` | The owner's standing instructions. Always on in a repo that turns on the plugin. |
 | `dev-loop` skill | `skills/dev-loop/` | The loop for one task: route, plan, build, flow docs, self-review, verify, PR, and report. Templates: the acceptance record, the PR body, and the project profile. |
 | `design-review` skill | `skills/design-review/` | Optional fresh-context review of a saved design before the existing owner approval. |
+| `device-testing` skill | `skills/device-testing/` | Attached-session device requests, pinned procedures, safe release, and trusted recovery. Live activation remains separate. |
 | `flow-docs` skill | `skills/flow-docs/` | Read, update, and create the flow docs in `docs/flows/`. |
 | `infra-review` skill | `skills/infra-review/` | The weekly review that improves this plugin and the project profiles. |
 | Check script | `scripts/check.mjs` | Exact checks: the rule size, the frontmatter, the links, and the versions. CI runs it on each PR. |
@@ -16,7 +17,7 @@ A Copilot plugin that lets one session run the full development loop from one li
 | Testing contract checks | `scripts/testing-contract.test.mjs` | Structural checks for test planning, evidence fields, coverage review, and readiness instructions. |
 | Work-ledger source | `tools/work-ledger/` | Separate SDK extension with classification corrections, scoped controls, and verified local Maven recovery. Owner installation remains outstanding. The plugin does not load it. |
 | Task continuation source | `tools/task-runtime/` | Separate, inactive SDK extension for a bounded correction of known ready work. A disposable app canary proves attached continuation and event delivery. Production activation remains separate. See its README and layer evidence. |
-| Device scheduler | `tools/device-scheduler/` | Inactive SQLite queue, scoped grants, recovery duties, and authenticated socket delivery. No device operations or live activation. See its README and layer evidence. |
+| Device scheduler | `tools/device-scheduler/` | Inactive SQLite queue, authenticated delivery, and pinned Android/iOS procedures. Synthetic tests do not prove physical-device acceptance. See its README and layer evidence. |
 
 ## Layers
 1. **Superpowers:** the process skills (brainstorming, plans, TDD, debugging, review).
@@ -60,9 +61,9 @@ The `disable` commands keep both plugins off in all other folders and chats. Eac
 ## Check that it works
 In a terminal in the project folder:
 - `copilot instruction list` shows `dev-loop: core` under "Plugin instructions".
-- `copilot skill list` shows `dev-loop`, `design-review`, `flow-docs`, and `infra-review`.
+- `copilot skill list` shows `dev-loop`, `design-review`, `device-testing`, `flow-docs`, and `infra-review`.
 
-In a new app session in the project, ask: "Which skills and custom instructions do you have?" The answer must include the 4 skills and "Dev-loop core rules".
+In a new app session in the project, ask: "Which skills and custom instructions do you have?" The answer must include the 5 skills and "Dev-loop core rules".
 
 In a different folder, or in a folder that is not trusted, they do not show.
 

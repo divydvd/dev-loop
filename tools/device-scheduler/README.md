@@ -1,9 +1,10 @@
 # Durable device scheduler state
 
 ## Abstract
-This directory implements Tasks 3 and 4 of the approved scheduler plan.
+This directory implements Tasks 3–6 of the approved scheduler plan.
 It stores requests, grants, device safety, operation history, and outgoing events in SQLite.
 Its broker can deliver events over a private Unix socket when a trusted host explicitly starts it.
+Pinned procedure execution is available only through an explicitly started, privately configured broker.
 Importing the source does not start a service, execute device commands, or activate installed tools.
 
 ## Store
@@ -159,7 +160,7 @@ An inactive owned socket can be removed within the private directory.
 Trusted code must not bypass this broker with direct grant mutations.
 The lock is not protection against arbitrary code running as the same user.
 
-The handle exposes `shutdown()` and `closed`.
+The handle exposes `shutdown()`, `closed`, `status()`, `control(event)`, and `recover(input)`.
 Await `shutdown()` for explicit cleanup. It is idempotent and rejects with `BROKER_FAILED` after an internal failure.
 Observe `closed`, which resolves to `{ error: null }` or `{ error: "BROKER_FAILED" }`.
 Background state failures close the authority and its connections without publishing database details.
@@ -198,11 +199,15 @@ Clients cannot select their session ID or role.
 All external connections have role `session`; scheduler authority stays inside the single broker.
 Clients cannot submit `policy`, `reserve`, `fault`, or `recover` events.
 The prefix `broker/` is reserved for internal event IDs.
-Layer 4 must define trusted recovery controls; this layer does not expose a recovery-authority endpoint.
+Trusted recovery uses the in-process handle described below, not a requester socket endpoint.
+Execution-enabled brokers also reject raw `operation_start`, `operation_finish`, and `release` frames.
+The prefixes `runner/` and `execute/` are reserved too.
 
 ### Persistent client
 Call `connectBroker({ socketPath, credentials, onEvent })` from `lib/client.mjs`.
 The trusted host supplies `credentials: { token }` outside model tool arguments.
+Attached adapters require `{ token, sessionId }`, using the actual attached host identity.
+The client rejects a different broker-authenticated identity before returning a handle.
 The promise resolves only after enrollment.
 Only one connection can enroll for each session at a time.
 The handle exposes these operations:
@@ -269,7 +274,7 @@ No response contains an enrollment token or raw framework error.
 | Direction | Exact frame |
 | --- | --- |
 | Client enrollment | `{ type: "enroll", token }` |
-| Server enrollment | `{ type: "ready" }` |
+| Server enrollment | `{ type: "ready", sessionId }` |
 | Client command | `{ type: "request", seq, event }` |
 | Client delivery acknowledgment | `{ type: "ack", seq, eventId }` |
 | Client reconciliation | `{ type: "reconcile", seq, eventId }` |
@@ -285,10 +290,189 @@ An oversized notification closes only its receiving peer. Response backpressure 
 Neither condition stops the authority or revokes another session's grant.
 An output failure does not roll back an already committed event.
 Committed grants still publish to waiting clients when the submitting client's response exceeds the frame limit.
-Reconcile admission before another action; this layer has no large-result pagination API.
-No physical USB notifications, model calls, serving-app wake-up, or device execution are implemented here.
+Reconcile admission before another action.
+
+## Platform execution policy
+Use the [synthetic template](../../skills/device-testing/assets/project-policy.json) for disposable tests only.
+Its zero pins and placeholder paths are intentionally unusable until private setup replaces them.
+Never commit a real serial, UDID, token, helper configuration, or enrollment file.
+
+Each `execution` entry defines an alias, platform, exact private identity, pinned helper, and named procedures.
+The stored device key is `physical/` plus SHA-256 of `JSON.stringify([platform, identity])`.
+Changing the physical identity cannot reuse saved authority.
+The broker adds a procedure fingerprint to resource prerequisites.
+Changing helper or procedure policy without increasing `policyVersion` fails at restart.
+Retain the original identity entry for unresolved recovery duties.
+Do not redirect an old alias to another device to clear a hold.
+
+Each procedure declares `program: {path,sha256}`, fixed `arguments`, `scope`, `purpose`, and boolean `safe`.
+Arguments must contain separate `{device}` and `{helper}` slots.
+Other arguments are reviewed literal strings.
+Programs and helpers use canonical absolute paths and SHA-256 pins.
+Android receives the configured serial; iOS receives the configured UDID and helper path.
+The helper pin covers the approved helper configuration.
+Real iOS signing, WDA identity, and protected-data access require their existing owner decisions.
+The synthetic template proves none of them.
+
+`purpose` is `test` or `recovery`.
+`safe: true` means that the reviewed procedure proves permitted cleanup and process quiescence.
+Its implementation must preserve the tested build after PASS.
+Do not mark a launcher or a background helper safe.
+Procedures must wait for all device-affecting child work.
+Arbitrary same-user code and detached descendants are outside this source boundary.
+
+The runner uses argument-array `spawn` with `shell: false`, an empty environment, and discarded command output.
+It checks pins and the private policy before admission.
+It commits `operation_start` before launching anything.
+Its private `<policyPath>.operations` journal records uncertain launch, PID, and observed process exit.
+Duplicate operation IDs return saved state without execution.
+A nonzero exit, signal, missing process proof, or lost connection cannot establish safety.
+Safe release requires every operation complete and the last operation backed by an actual pinned safety admission.
+An acknowledgment with a forged event ID cannot supply that evidence.
+
+Shutdown closes admission, quarantines holders, and waits for admitted procedures before releasing its authority lock.
+After a crash, recovery refuses a live recorded PID.
+PID reuse causes conservative refusal, not release.
+A missing PID or journal entry reports `PROCESS_QUIESCENCE_UNKNOWN`.
+Preserve the journal and escalate that unresolved hold; do not delete it to invent proof.
+Once process exit is known, a successful pinned recovery procedure can reconcile earlier unresolved outcomes.
+An owner wait still blocks execution.
+
+## Attached tools and durable notifications
+The [device-testing skill](../../skills/device-testing/SKILL.md) lists the exact model schemas.
+`tools/extension.mjs` is a device-only entry for supported attached-session installation.
+It does not load the production continuation guard or work-ledger.
+`tools/task-runtime/extension.mjs` also contains the tools for a later separately approved combined activation.
+The plugin itself activates neither entry.
+
+Default enrollment is `~/.copilot/device-scheduler/enrollments/<actual-host-session-id>.json`.
+`DEVICE_SCHEDULER_ENROLLMENT` can select an isolated host-provided file.
+The private file contains `{sessionId,socketPath,credentials:{token},repository}`.
+The label and authenticated token identity must both match the attached host.
+No model argument can select either identity.
+The adapter records notification admission before `session.send`.
+It uses `source: "system"` and `mode: "enqueue"` for busy turns.
+It acknowledges transport delivery only after known admission.
+Uncertain admission remains visible in `device_status`; it is not automatically sent again.
+
+Native cancellation and explicit owner stop close the connection and stop notification delivery.
+Socket loss does not resend an operation.
+The adapter reconnects on transport closure or socket-creation events, without a polling timer.
+Attachment also enrolls immediately so a recreated idle requester can receive durable events.
+Late enrollment cannot admit work after native cancellation.
+Use `generation: null` for an unheld request's owner-wait, resume, or cancellation.
+Held requests require their current integer generation.
+Requester tools still recheck current grants.
+`device_status({})` returns at most 16 recent requests.
+Use `device_status({requestId})` for an earlier known request.
+Oversized replies return an explicit error rather than stopping unrelated authority.
+Task metadata, grant messages, and automatic continuation never replace native permissions or owner approval.
+
+## Exact disposable setup and manual lifecycle
+These commands prepare synthetic policy only. They do not authorize production activation.
+Use Node.js `22.23.4` or `26.12.1`.
+Choose a new private directory and two disposable session IDs from the app's session tool.
+Set `DEVICE_TEST_ROOT`, `DEVICE_TEST_A`, and `DEVICE_TEST_B` in the trusted host shell.
+Do not place credentials in these variables or command arguments.
+
+Run this setup from the reviewed checkout:
+
+```sh
+node --input-type=module <<'JS'
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { createHash, randomBytes } from "node:crypto";
+const root = path.resolve(process.env.DEVICE_TEST_ROOT);
+fs.mkdirSync(root, {mode:0o700});
+const source = path.resolve("tools/device-scheduler/fixtures/synthetic-procedure.mjs");
+const helper = path.join(root, "synthetic-procedure.mjs");
+fs.copyFileSync(source, helper);
+fs.chmodSync(helper, 0o600);
+const hash = file => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+const policy = JSON.parse(fs.readFileSync("skills/device-testing/assets/project-policy.json"));
+const program = fs.realpathSync(process.execPath);
+for (const d of policy.execution) {
+  d.helper = {path:helper,sha256:hash(helper)};
+  for (const p of Object.values(d.procedures)) p.program = {path:program,sha256:hash(program)};
+}
+policy.sessions = [process.env.DEVICE_TEST_A,process.env.DEVICE_TEST_B].map(id => {
+  if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("ACTUAL_SESSION_ID_REQUIRED");
+  return {id,token:randomBytes(32).toString("hex")};
+});
+const enrollments = path.join(os.homedir(),".copilot","device-scheduler","enrollments");
+fs.mkdirSync(enrollments,{recursive:true,mode:0o700});
+const stat = fs.lstatSync(enrollments);
+if (stat.isSymbolicLink() || stat.uid !== process.getuid() || (stat.mode & 0o777) !== 0o700) throw new Error("UNSAFE_ENROLLMENTS");
+for (const {id,token} of policy.sessions) fs.writeFileSync(path.join(enrollments,`${id}.json`),JSON.stringify({
+  sessionId:id,socketPath:path.join(root,"state","broker.sock"),credentials:{token},repository:"synthetic/app-test"
+}),{mode:0o600,flag:"wx"});
+fs.writeFileSync(path.join(root,"policy.json"),JSON.stringify(policy),{mode:0o600,flag:"wx"});
+JS
+```
+
+Start a trusted Node REPL with `node --experimental-repl-await`.
+Use actual canonical paths in the following REPL commands:
+
+```js
+const {startBroker} = await import("file:///ABSOLUTE/REVIEWED/CHECKOUT/tools/device-scheduler/server.mjs")
+const broker = await startBroker({directory:"/PRIVATE/TEST/state",socketPath:"/PRIVATE/TEST/state/broker.sock",policyPath:"/PRIVATE/TEST/policy.json"})
+broker.status()
+```
+
+In each disposable app session, use the supported installer with explicit `scope: "session"`.
+Use the pinned GitHub folder `https://github.com/divydvd/dev-loop/tree/COMMIT/tools`.
+Never omit scope: the default is `user`.
+A native permission denial needs the real owner UI, not another `ask_user` answer.
+Do not install into a live task or implementation session.
+
+Request Android in session A, then queue session B.
+A must acknowledge, run `act`, run `verify`, and release.
+B must receive its attached SDK event, inspect its current grant, acknowledge, and execute `act` once.
+Then run `verify` and release B.
+Inspect `broker.status()` and the private `synthetic-actions.jsonl`.
+These observations prove synthetic scheduling only, not USB events or phone testing.
+
+Use these trusted REPL commands for recovery after the requester connection has actually detached:
+
+```js
+const r = broker.status().requests.find(r => r.id === "HELD_REQUEST")
+const payload = Object.fromEntries(["requestId","device","policyVersion","generation"].map(k => [k,r.grant[k]]))
+broker.control({version:1,id:"trusted/recovery-1",kind:"recover",payload})
+await broker.recover({requestId:r.id,operationId:"recovery-1",procedure:"recover"})
+```
+
+The second command can complete recovery after native cancellation.
+It does not clear an owner question or grant new testing permission.
+For shutdown, run `await broker.shutdown()` and inspect `await broker.closed`.
+Exit the REPL with `.exit`.
+Shutdown is not clean release.
+
+## Cutover preview and rollback
+No cutover is performed by this source, setup example, or approval.
+Before a later decision, identify the old queue, live authority, holders, pending requests, and recovery holds.
+Compare actual device and helper identities with private policy.
+Keep every unresolved holder on its original resources.
+Do not copy a summary that discards operation history.
+Resolve all required owner questions and recovery duties before proposing a cutover.
+
+Only after explicit activation approval can the old grant authority stop.
+Verify that it has stopped before starting the replacement.
+Never run two live grant authorities, even with separate state directories.
+The SQLite lock prevents duplicates only within the same state directory.
+
+For rollback, stop new admission and reconcile all new holders first.
+Safely release or retain each recovery hold.
+Await the new broker's shutdown before restoring the old authority.
+Do not restore an old queue snapshot over newer unresolved ownership.
+Archive disposable app sessions through the supported app lifecycle.
+After archive, remove only their exact owned session installations and enrollment files.
+Retain private state and operation journals until all uncertainty is resolved.
+Never remove global extensions, project configuration, live guard files, or another session's data.
+The scheduler makes no model calls and provides no physical USB notifications.
+Synthetic execution and attached messages do not prove physical-device acceptance.
 
 ## Conclusion
-Use the state and broker contracts before implementing attached-session device tools.
+Use the state, broker, and pinned execution contracts with attached-session device tools.
 Keep the source inactive until the separate activation decision.
 An unresolved operation or uncertain device must never become an available device through elapsed time alone.
