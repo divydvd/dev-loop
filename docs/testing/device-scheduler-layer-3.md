@@ -103,6 +103,9 @@ It commits that valid history through the normal validating store transaction.
 Its request snapshot exceeds 65,536 bytes. No result or immutable history is rewritten.
 This is the second and final automatic correction round.
 Read the next review without another corrective push.
+Reviewer `scheduler-events-round-two-review` covered `51c91c2..41b548f` and affected interactions.
+It found no Critical or Important issue and independently passed all 126 scheduler cases and the plugin check.
+Final-head local and CI evidence is recorded in PR #30 without an evidence-only follow-up push.
 
 ## Required gaps and limits
 - No layer-specific required gap is currently known. Final-head verification and CI are still pending.
