@@ -101,9 +101,21 @@ export async function startBroker({ directory, socketPath, policyPath }) {
       if (peer.socket.writableLength + Buffer.byteLength(data) > 262144) fail("BACKPRESSURE");
       return peer.socket.write(data);
     };
+    const detach = peer => {
+      if (sessions.get(peer.session) !== peer) return;
+      sessions.delete(peer.session);
+      if (!stopped) {
+        try { quarantineHolders(store, "disconnected", peer.session); schedule(store); broadcast(); }
+        catch { abort(); }
+      }
+    };
     const terminate = (peer, code) => {
       peer.ended = true;
+      detach(peer);
+      if (peer.socket.destroyed) return;
+      if (peer.socket.writableNeedDrain || peer.socket.writableLength) { peer.socket.destroy(); return; }
       peer.socket.end(encode({ type: "error", code }), () => peer.socket.destroy());
+      if (peer.socket.writableLength) peer.socket.destroy();
     };
     const publish = peer => {
       if (!peer.session || peer.ended || peer.socket.destroyed || peer.socket.writableNeedDrain) return;
@@ -127,13 +139,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
       socket.on("drain", () => { try { publish(peer); } catch { abort(); } });
       socket.on("close", () => {
         peers.delete(peer);
-        if (peer.session) {
-          sessions.delete(peer.session);
-          if (!stopped) {
-            try { quarantineHolders(store, "disconnected", peer.session); schedule(store); broadcast(); }
-            catch { abort(); }
-          }
-        }
+        detach(peer);
       });
       socket.on("data", decoder(frame => {
         if (peer.ended) return;

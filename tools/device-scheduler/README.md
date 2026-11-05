@@ -227,6 +227,10 @@ If admission is absent, submit that same event. If admission exists, use its sav
 Never replace an uncertain operation with a new operation ID.
 An exact replay has `replayed: true`; it must not execute another device action.
 Callback failure closes the connection with an observable error and leaves delivery unacknowledged.
+Replay callbacks start on the next event-loop turn, after the awaited connection promise returns its handle.
+This boundary also applies when readiness and replay arrive in one socket read.
+Callbacks can use that handle to acknowledge delivery or reconcile admission.
+Invalid connection inputs still reject the promise; they do not throw synchronously.
 
 The broker sends unacknowledged records on enrollment and new records on the persistent socket.
 It schedules the oldest eligible requests after startup and relevant events.
@@ -240,6 +244,10 @@ Use UTF-8 newline-delimited JSON objects with at most 65,536 bytes before each n
 Split UTF-8 sequences and multiple frames per read are supported.
 Malformed, oversized, unauthenticated, and extra-field frames cause explicit errors and connection closure.
 The broker destroys a rejected socket after flushing its terminal error, even if the client keeps its write half open.
+Rejection first removes enrollment and quarantines the affected holder independently of the error write.
+If output is blocked, the broker destroys the socket without waiting for a terminal error to flush.
+The error frame cannot be guaranteed on a blocked connection; unresolved calls remain admission-uncertain.
+Cleanup checks the connection identity, so a delayed old close cannot revoke a replacement connection's grant.
 Domain validation errors return safe fixed codes.
 No response contains an enrollment token or raw framework error.
 

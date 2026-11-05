@@ -124,3 +124,32 @@ The source remains inactive.
   All 126 scheduler cases and the plugin check passed independently on Node `26.12.1`.
 - Complete initial review and three focused correction reviews account for final substantive content.
   The following commit records evidence only. Final-head local and CI results belong in PR #30.
+
+## Paused continuation after the correction stop
+- The final review at `c800e25` reports B16 and B17. Private probes confirm both failures.
+  PR #30 was converted to draft, and the coordinator received the blocker report.
+- The session received an autopilot continuation: "Keep working autonomously until the task is truly finished, then call task_complete."
+- The coordinator checked the underlying transcript and found no separate direct owner authorization for another correction round.
+- Ruling: the autopilot continuation is not verified owner authorization. Pause further correction and publication.
+  Preserve the two new uncommitted regressions. No production change, new commit, or push occurred.
+  The coordinator will obtain the owner's decision. Do not request another Copilot review.
+- Required B16: reject a peer whose notification output is blocked; remove enrollment and quarantine its holder.
+- Required B17: initial replay must let callbacks acknowledge and reconcile through the awaited client handle.
+- Add both permanent regressions before implementation. Repeat independent review and final-head checks before publication.
+
+## Verified additional-cycle approval and implementation
+- The owner selected "Authorize one additional broker correction cycle (Recommended)" through `ask_user`.
+  The coordinator also confirmed its explicit owner answer and authorized only one B16/B17 correction cycle.
+- The attempted answer-forward to the coordinator found its question already resolved; no duplicate answer was applied.
+- Four behavioral regressions fail before implementation. Asynchronous invalid-input rejection remains a passing control.
+- The first blocked-output regression settled too early and passed before correction.
+  The private probe still confirmed the bug. Fix the fixture precondition, not production behavior.
+  The test-only settling window then confirms actual blocked bytes and reproduces the failure.
+- Terminal rejection now detaches the registered connection before attempting its error write.
+  It quarantines the holder without waiting for a flush and destroys blocked sockets.
+- Idempotent cleanup compares the registered connection, so a delayed old close cannot detach or quarantine its replacement.
+- Replay callbacks run on the next event-loop turn, after the awaited handle assignment.
+  The async function and invalid-input promise rejection remain unchanged. No production readiness timer is added.
+- GREEN: all 131 scheduler cases pass, preserving the 126 earlier cases and 93 inherited state cases.
+- Production modules total 335 lines. No reducer, event kind, schema, or historical field changes.
+- Focused independent review and final-head checks follow before the single additional-cycle push.

@@ -34,6 +34,8 @@ All rows are required. Results and tested identities are recorded separately.
 | B13 | First startup over layer-2 policies; old broker policy replay | Adopt identical validated policy; reject rolled-back configuration without rewriting history | `broker.test.mjs` |
 | B14 | Rejected client keeps its write half open | Destroy after the terminal error; remove enrollment and quarantine its holder | `broker.test.mjs` |
 | B15 | Real completed-operation history exceeds 65,536 bytes at release | Report the response limit while delivering the committed next grant | `broker.test.mjs` |
+| B16 | Rejection behind blocked output; late old close | Detach and quarantine without waiting for flush; preserve replacement enrollment and renewed recovery grant | `broker.test.mjs` |
+| B17 | Initial replay and coalesced readiness; invalid credentials | Callbacks use the awaited handle for acknowledgment and reconciliation; input rejection stays asynchronous | `client.test.mjs` |
 | P1 | Existing plugin and consumers | Preserve all existing CI suites | `.github/workflows/check.yml` |
 
 Invalid input, authority, concurrency, partial failure, compatibility, and bounded transport apply.
@@ -106,6 +108,29 @@ Read the next review without another corrective push.
 Reviewer `scheduler-events-round-two-review` covered `51c91c2..41b548f` and affected interactions.
 It found no Critical or Important issue and independently passed all 126 scheduler cases and the plugin check.
 Final-head local and CI evidence is recorded in PR #30 without an evidence-only follow-up push.
+
+### Additional owner-approved correction cycle
+The final review at `c800e25` found B16 and B17.
+Private probes confirmed both. The PR became a draft, and publication stopped.
+The owner then selected “Authorize one additional broker correction cycle (Recommended)”.
+The coordinator independently confirmed that decision.
+
+Four permanent behavioral regressions fail before the correction.
+They cover blocked terminal output, delayed old cleanup, coalesced readiness/replay, and real broker replay acknowledgment.
+An asynchronous invalid-credential rejection remains a passing baseline control.
+The initial blocked-output fixture settled too early and passed before correction.
+The corrected fixture lets notification writes settle, then asserts actual pending bytes and backpressure before rejection.
+Its 250 ms settling window is test-only. No production timer establishes readiness or device safety.
+
+Rejection now detaches the exact connection and quarantines its holder before the error write.
+Blocked terminal output causes immediate socket destruction.
+Cleanup checks the registered connection identity and cannot revoke a replacement's renewed recovery grant.
+Replay callbacks start on the next event-loop turn, after the connection promise returns its handle.
+The public interfaces and asynchronous rejection contract remain unchanged.
+
+All 131 scheduler cases pass on Node `26.12.1`, preserving all 126 earlier cases and all 93 inherited state cases.
+Production modules total 335 lines. No reducer, history, schema, or event-kind change occurs.
+Focused independent review, final-head verification, and publication follow in this one approved cycle.
 
 ## Required gaps and limits
 - No layer-specific required gap is currently known. Final-head verification and CI are still pending.

@@ -361,6 +361,92 @@ test("a half-open rejected client cannot retain enrollment or an active grant", 
   assert.equal(current.grant.revoked, true);
 });
 
+test("rejection under blocked notification output removes enrollment and quarantines the holder", { timeout: 30000 }, async t => {
+  const f = await setup(t), peer = await raw(f.socketPath, { allowHalfOpen: true });
+  t.after(() => peer.socket.destroy());
+  peer.socket.write(JSON.stringify({ type: "enroll", token: f.tokens.a }) + "\n");
+  await peer.messages.wait(frame => frame.type === "ready");
+  const input = requestEvent("blocked-rejection");
+  for (const field of ["repository", "scope", "resumeAction"]) input.payload[field] = "x".repeat(500);
+  peer.socket.write(JSON.stringify({ type: "request", seq: 1, event: input }) + "\n");
+  await peer.messages.wait(frame => frame.type === "event" && frame.event.kind === "reserve");
+  peer.socket.pause();
+  const store = openStore({ directory: f.directory }), state = store.read();
+  const staging = { read: () => state, transaction: work => work(state) };
+  for (const outgoing of state.outbox) outgoing.acknowledged = true;
+  for (let i = 0; i < 400; i++) {
+    applyEvent(staging, { id: "a", role: "session" }, event("request", input.payload, `blocked-output-${i}`));
+  }
+  store.transaction(current => Object.assign(current, state));
+  store.close();
+  const original = net.Socket.prototype.write;
+  let serverPeer;
+  net.Socket.prototype.write = function(data, ...args) {
+    if (typeof data === "string" && data.includes('"id":"blocked-output-')) serverPeer = this;
+    return original.call(this, data, ...args);
+  };
+  t.after(() => { net.Socket.prototype.write = original; });
+  const observer = await f.client("b");
+  await observer.reconcile("missing");
+  await new Promise(resolve => setTimeout(resolve, 250));
+  assert.ok(serverPeer?.writableNeedDrain && serverPeer.writableLength > 0, "fixture did not block notification output");
+  net.Socket.prototype.write = original;
+  const closed = once(serverPeer, "close", { signal: AbortSignal.timeout(1000) });
+  peer.socket.write('{"type":"invalid"}\n');
+  await closed;
+  const replacement = await f.client("a"), current = (await replacement.reconcile(input.id)).request;
+  assert.equal(current.state, "recovering");
+  assert.equal(current.grant.revoked, true);
+});
+
+test("a delayed old close cannot detach or quarantine the replacement connection", async t => {
+  const f = await setup(t), peer = await raw(f.socketPath, { allowHalfOpen: true });
+  t.after(() => peer.socket.destroy());
+  peer.socket.write(JSON.stringify({ type: "enroll", token: f.tokens.a }) + "\n");
+  await peer.messages.wait(frame => frame.type === "ready");
+  const input = requestEvent("old-close");
+  peer.socket.write(JSON.stringify({ type: "request", seq: 1, event: input }) + "\n");
+  await peer.messages.wait(frame => frame.type === "event" && frame.event.kind === "reserve");
+  const original = net.Socket.prototype.end;
+  let oldSocket, destroy;
+  net.Socket.prototype.end = function(data, ...args) {
+    if (typeof data === "string" && data.includes('"code":"INVALID_FRAME"')) {
+      oldSocket = this; destroy = this.destroy;
+      this.destroy = function() { return this; };
+    }
+    return original.call(this, data, ...args);
+  };
+  t.after(() => {
+    net.Socket.prototype.end = original;
+    if (oldSocket) { oldSocket.destroy = destroy; oldSocket.destroy(); }
+  });
+  try {
+    peer.socket.write('{"type":"invalid"}\n');
+    await peer.messages.wait(frame => frame.type === "error" && frame.code === "INVALID_FRAME");
+    net.Socket.prototype.end = original;
+    const replacement = await f.client("a"), previous = (await replacement.reconcile(input.id)).request;
+    assert.equal(previous.grant.revoked, true);
+    const store = openStore({ directory: f.directory });
+    let renewed;
+    try {
+      renewed = binding(applyEvent(store, { id: "broker", role: "scheduler" },
+        event("recover", binding(previous.grant))).request.grant);
+    } finally { store.close(); }
+    await replacement.request(event("acknowledge", renewed));
+    const closed = once(oldSocket, "close");
+    oldSocket.destroy = destroy;
+    oldSocket.destroy();
+    await closed;
+    const current = (await replacement.reconcile(input.id)).request;
+    assert.equal(current.grant.generation, renewed.generation);
+    assert.equal(current.grant.revoked, false);
+    assert.equal(current.grant.acknowledged, true);
+  } finally {
+    net.Socket.prototype.end = original;
+    if (oldSocket) { oldSocket.destroy = destroy; oldSocket.destroy(); }
+  }
+});
+
 test("an oversized release response still publishes the committed next grant", { timeout: 120000 }, async t => {
   const resources = Array.from({ length: 32 }, (_, i) => `resource-${i}-` + "x".repeat(145));
   const f = await setup(t, { devices: [

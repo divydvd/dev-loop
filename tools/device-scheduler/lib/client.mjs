@@ -37,7 +37,9 @@ export async function connectBroker({ socketPath, credentials, onEvent }) {
           close: () => { socket.destroy(); return closed; }, closed,
         });
       } else if (ready && frame.type === "event") {
-        Promise.resolve().then(() => onEvent(frame.event)).catch(() => stop("EVENT_HANDLER_FAILED"));
+        setImmediate(() => {
+          if (!socket.destroyed) Promise.resolve().then(() => onEvent(frame.event)).catch(() => stop("EVENT_HANDLER_FAILED"));
+        });
       } else if (frame.type === "error" && !frame.seq) stop(frame.code);
       else if (ready && waiting.has(frame.seq) && ["result", "error"].includes(frame.type)) {
         const call = waiting.get(frame.seq); waiting.delete(frame.seq);

@@ -14,6 +14,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Automatic review adds first-start compatibility, oversized-delivery isolation, non-string-kind validation, and buffered-command stop regressions.
     Adopt matching validated policy history without a new event. Reject rolled-back configuration without replaying older authority.
     Close rejected half-open sockets after the terminal error. Publish committed grants even when a release response is oversized.
+    After the two-round stop, the owner approved one additional correction cycle for blocked rejection and initial replay.
+    Detach and quarantine before terminal writes. Keep old connection cleanup idempotent.
+    Dispatch replay on the next event-loop turn so callbacks can use the awaited handle without changing asynchronous input rejection.
   - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/device-scheduler/*.test.mjs`.
     CI runs the scheduler cases on both declared Node versions.
     Inspect `docs/testing/device-scheduler-layer-3.md` for case mapping, evidence, and remaining integration gaps.
