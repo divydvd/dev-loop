@@ -254,3 +254,9 @@ The source remains inactive.
 - GREEN: all 208 scheduler cases pass on Node `26.12.1`, preserving all 189 prior cases.
   The plugin and whitespace checks pass. Production modules total 340 lines.
   Focused review and final-head verification remain required before the one authorized publication.
+- Reviewer `scheduler-client-input-review` accepts exact range `5727081..caedd116e5086e6f530a7c49bced7f920fa477e1`.
+  It finds no significant issue in the correction and affected interactions.
+  It independently passes all 24 client cases, all 208 scheduler cases, the plugin check, and exact-range whitespace checks.
+- The full existing CI selection at `caedd11` passes: 508 passed, zero failed, one inherited filesystem skip.
+  The following commit records evidence only. No source, test, or runtime contract changes after review.
+  Rerun final-head checks, publish once, and read the automatic review before the layer-4 handoff.

@@ -267,6 +267,11 @@ All five prior client controls pass; the remaining input controls also pass.
 GREEN with the correction: all 208 scheduler cases pass on Node `26.12.1`, including all 189 prior cases.
 The plugin check and whitespace check pass. Production modules total 340 lines.
 Final-head results and automatic review disposition will be recorded in PR #30.
+Reviewer `scheduler-client-input-review` accepts exact correction `caedd116e5086e6f530a7c49bced7f920fa477e1`.
+It finds no significant issue in the correction and affected interactions.
+It independently passes all 24 client cases, all 208 scheduler cases, the plugin check, and exact-range whitespace checks.
+The full existing CI selection also passes locally at `caedd11`: 508 passed, zero failed, one inherited filesystem skip.
+The following commit records evidence only; it changes no source, test, or runtime contract.
 
 ### Conclusion
 Correct the client input boundary inside this single authorized cycle.
@@ -274,7 +279,8 @@ Keep source approval separate from activation.
 The main risk is reading unvalidated or changed credentials inside a later socket callback.
 
 ## Required gaps and limits
-- Lifecycle cases and integrated independent review pass. Final-head verification, CI, and automatic review observation remain pending.
+- Lifecycle and B19 cases pass with independent review coverage.
+  Final-head verification, CI, and automatic review observation remain pending.
 - Overall stack acceptance still needs layer-4 integration and its own actual host evidence.
   Layer 1 supplies separate serving-app evidence; this layer does not claim it from socket tests.
 - Node `22.23.4` runs in CI, not locally.
