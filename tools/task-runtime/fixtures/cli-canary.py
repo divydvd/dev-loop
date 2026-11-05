@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory(prefix="task-cli-canary-") as directory:
     extension.mkdir(parents=True)
     work.mkdir()
     subprocess.run(["git", "init", "--quiet", "--initial-branch", "canary", str(work)], check=True)
-    shutil.copyfile(Path(__file__).with_name("app-canary.mjs"), extension / "extension.mjs")
+    shutil.copyfile(Path(__file__).with_name("app-canary") / "extension.mjs", extension / "extension.mjs")
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Provider)
     thread = threading.Thread(target=server.serve_forever)
     thread.start()

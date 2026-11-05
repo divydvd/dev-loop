@@ -235,10 +235,83 @@ Cost if wrong: source activation stays blocked; no live configuration change is 
 - The runtime suite now passes 30 tests. Final-head commands and CI results must remain pinned to the published SHA.
 - App acceptance remains blocked by the exposed host capability, not by an alleged absence of SDK hooks.
 
+### Authorized disposable installer recovery
+- The coordinator applied the owner's existing Task 1 approval to a new disposable app session.
+  The coordinator answered the pending input; the owner did not make a new choice.
+  The coordinator lifted its own read-only limit for this isolated session-scoped installation only.
+  No installation in this implementation session, global scope, or live task is permitted.
+- Ruling: package the existing synthetic canary as a standalone installer folder.
+  Keep the old import path as a wrapper and point copy-based probes at the standalone entry.
+  This avoids duplicate fixture logic. A packaging error would block discovery, not authorize another scope.
+- Required cases before publication:
+
+| Case | Expected result | Method |
+| --- | --- | --- |
+| Installer packaging | The folder imports without files outside the folder. | Copy only the folder into a temporary directory and run the existing SDK test adapter. |
+| Discovery gate | No correction occurs before the marker tool executes. | Exercise the actual fixture with a test adapter. |
+| Bounded stop | Exactly one correction occurs; re-entry never blocks. | Exercise the actual fixture and then observe the serving app. |
+| Idle delivery | The admitted logical message ID matches the received message and response origin. | Retain the existing regression and record actual app events. |
+| Native cancellation | The canary requests native abort once and records the actual abort event. | Adapter regression plus actual serving-app observation. |
+| Cleanup | Only the owned installation and disposable session are removed. | Inspect the exact installation, stop the owned session, and verify removal. |
+
+- Keep serving-app acceptance blocked until the actual observations satisfy all required cases.
+  Existing SDK results remain separate. No runtime source, instruction, or skill change is planned.
+- The new packaging regression failed before implementation because `extension.mjs` was absent.
+  All 31 runtime tests pass after implementation. `node scripts/check.mjs` reports no faults.
+- Reviewer `continuation-installer-canary-review` covered the complete later fixture diff against `300337d`.
+  The review found no significant issue. It explicitly excluded serving-app acceptance.
+- The reviewed tree is `366793196ecba88f8d843b6b9f9ab1772f71e1a9`.
+  It is committed and pushed as `ea343c6659db41213653236bbe9388772f0123e7`.
+  Final-head suites pass 296 tests, with zero failures and one platform skip.
+  Raw output is `files/installer-head-suites.log` in this implementation session.
+- Fresh serving-app information reports version `1.1.34`, not a local source build.
+- Disposable project: `688d2526-415e-4a4c-8526-9b48a459bb3b`.
+  Its root is this session's `files/installer-app-project`; it contains only a synthetic text seed.
+  Disposable app session: `f7e2e178-c28c-42e1-b1d8-e468f7070a7b`, named `Session installer canary`.
+  It must invoke the documented installer itself, with explicit session scope and the pinned repository folder.
+  Provider discovery must precede the marker, correction, and cancellation checks.
+- First actual installer request returns `permission_denied_no_interactive_user_response`.
+  The private record is in the canary session's `files/task-canary-install-result.json`.
+  No installed path, marker call, or cancellation call exists at this point.
+- The installer explicitly directs an interactive retry. The coordinator switches only the disposable session to interactive mode.
+  One exact retry is permitted; scope, name, and pinned source remain unchanged.
+  The app then reports `activity.waiting_on: "permission_request"`.
+  A native user decision is required. No agent may substitute metadata approval or bypass this boundary.
+  The coordinator receives this actionable handoff. Keep C1 blocked.
+- The interactive retry succeeds. Both tools appear and the marker executes once.
+  The provider's joined identity matches the app session ID.
+  Source and installed entry both hash to `a41fbb46e968c848752ee7b34af99641426b39427799312a073beeed90c7f745`.
+- Raw records prove one block and one re-entry with `stopHookActive: true`.
+  Admission, received logical message, and assistant origin all match `1e90143b-074b-422e-8bf3-99a5eeef4b45`.
+  Idle precedes admission. These are actual app records, separate from the SDK probe.
+- A separate cancellation step records one request, native abort event, acknowledgment, and idle.
+  No subsequent block or message admission occurs.
+- Raw records are copied into this implementation session's `files/serving-app-installer/`.
+  The parent archives only the disposable session and removes only its exact installation.
+  The archive lifecycle is helper-stop evidence; no separate helper or process-ID probe exists.
+  The installation directory is verified absent. The synthetic project seed remains.
+- `node files/serving-app-installer/validate.mjs` in this implementation session validates actual app acceptance.
+  Its artifact uses `hostKind: "app"` and host version `1.1.34`.
+  The run nonce field retains the observed initial host message ID; it is not cryptographic attestation.
+- C1 now passes. The coordinator receives the exact observations, identities, cleanup, and retained limits.
+- Ruling: the production app guard-and-scheduler flow remains a later integration check.
+  Task 2 requires matched candidate runs and the Task 1 app canary, not production activation.
+  The matched SDK executions satisfy the former; the actual app canary satisfies the latter.
+  The conditional improvement target does not apply to a zero-fault baseline; no improvement claim is made.
+  Wrongly broadening these observations would imply untested production integration.
+- Reviewer `continuation-serving-app-evidence-review` checks the later documentation and retained app evidence.
+  Reviewed snapshot: `f3c8c9464901b9962917c9373e62a23c3ff40e6d`, against `ea343c6`.
+  The review finds no significant issue. It does not independently attest host actions or process termination.
+  The only later additions record this review and the evidence hashes.
+- Raw observation SHA-256: `3dac9b15d3d854793fceb03021540a8b63e2d4446e75d00483586dc4151b07eb`.
+  Acceptance SHA-256: `628fa81f81c7474e95652cc06b4b87f5431b2c7be0df685e5f12e2281a0c7ad1`.
+- The production guard source remains byte-for-byte identical to `2b6b702`.
+  The final evidence update does not change the pinned canary source or the matched execution fixtures.
+
 ## Conclusion
-Publish the reviewed fixtures and independent executable evidence without activation.
+Publish the reviewed fixtures, matched SDK executions, and actual app evidence without production activation.
 Record final-head checks in the PR and work ledger.
-Missing app proof still prevents an integration-ready claim.
+Keep scheduler integration and live activation outside this layer.
 
 ## Layer 2: Task 3 (separate state)
 - Approved scope: durable scheduler state only. Earlier layer evidence above stays unchanged.
@@ -388,3 +461,20 @@ Missing app proof still prevents an integration-ready claim.
 - Review next: one independent review of the exact correction commit and its affected interactions.
   Record reviewer identity, verdict, final-head verification, and CI in the PR/session evidence to preserve the reviewed SHA.
   If review finds a further required correction, stop and report it rather than start another corrective cycle.
+
+### Final lower-base integration
+- Request: merge exact lower head `a407b759e70c4f3d5b5d6046a9edf92915ea648f` into this owning branch.
+  Keep the scheduler unchanged. Obtain focused integration review and publish one update.
+- Acceptance: include both parents, preserve all scheduler files, retain both ledger sections, and pass the combined CI selection.
+  Required evidence: source identity comparisons, plugin check, all existing suites, independent review, and both CI runtimes.
+- Ruling: retain the updated lower-layer conclusion and evidence, then the complete separate Task 3 record.
+  Replace only the obsolete conclusion that app proof is missing. Preserve historical blocked records as history.
+  Cost if wrong: an overbroad claim could confuse disposable app acceptance with production activation.
+- C1 now passes actual serving-app observations: session-scoped provider installation, bounded correction,
+  matching idle logical message IDs, native cancellation, and cleanup.
+  These records come from the lower layer; this integration does not repeat installation or host operations.
+- The production guard is unchanged. Baseline continuation faults remain zero; no improvement percentage is claimed.
+  Production app-and-scheduler integration and activation remain separate.
+- This merge adds no scheduler behavior and starts no scheduler correction cycle.
+  Production source remains 358 lines. No device use, global installation, main merge, rebase, or force push is authorized.
+- Verification and focused review will use the exact merge commit. Record their identities in the PR and session evidence.

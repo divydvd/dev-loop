@@ -25,7 +25,7 @@ async function probe(cancel) {
   fs.mkdirSync(path.dirname(extension), { recursive: true });
   fs.mkdirSync(home);
   execFileSync("git", ["init", "--quiet", "--initial-branch", "canary", work]);
-  fs.copyFileSync(new URL("app-canary.mjs", import.meta.url), extension);
+  fs.copyFileSync(new URL("app-canary/extension.mjs", import.meta.url), extension);
   const client = new CopilotClient({
     connection: RuntimeConnection.forStdio({ path: process.env.TASK_RUNTIME_PATH }),
     baseDirectory: home, workingDirectory: work, gitHubToken: token,
