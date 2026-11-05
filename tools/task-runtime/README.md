@@ -92,6 +92,25 @@ python3 tools/task-runtime/fixtures/cli-canary.py /absolute/private/artifacts
 The CLI canary uses an isolated home and a local deterministic provider.
 It makes no remote model request and never loads the work-ledger guard.
 Its observations remain `hostKind: "cli"` even if they pass.
+`TASK_CANARY_CLI` can select an installed CLI executable. The fixture creates a Git root.
+The public SDK probe uses a separate, owned runtime:
+
+```sh
+# Supply these three absolute paths from the installed host package.
+export TASK_SDK_PATH=/absolute/installed/copilot-sdk
+export TASK_RUNTIME_PATH=/absolute/installed/copilot-runtime
+export TASK_BOOTSTRAP_PATH=/absolute/installed/extension_bootstrap.mjs
+node tools/task-runtime/fixtures/sdk-canary.mjs /absolute/private/sdk-evidence
+```
+
+The probe uses documented extension opt-ins and a restricted launch provider.
+It launches only its copied canary through the installed bootstrap.
+It uses the default model and approves only its synthetic marker tool, once per request.
+It reads the GitHub token through `gh`; it never prints or saves that token.
+It verifies discovery, stop re-entry, correlated idle delivery, native cancellation, and cleanup.
+The logical message ID is `user.message.data.messageId`, not the timeline event ID.
+Success proves the isolated SDK path, not acceptance by the serving app.
+
 Use `app-canary.mjs` as `extension.mjs` only in a disposable app project.
 The documented discovery location is `.github/extensions/task-canary/`.
 The canary has one synthetic tool, one stop correction, and one idle event.
@@ -121,6 +140,29 @@ Do not count a stated next action as an executed repair.
 Do not count preserved safety controls as newly reproduced faults.
 If no fault reproduces, report raw counts and make no improvement claim.
 Actual automatic progress still requires the attached app check.
+
+`fixtures/execution-cases.json` freezes seven separate executable cases and their expected repair counts.
+Use the same installed paths as the SDK probe:
+
+```sh
+node tools/task-runtime/fixtures/execution-runs.mjs baseline /absolute/private/baseline
+node tools/task-runtime/fixtures/execution-runs.mjs candidate /absolute/private/candidate
+```
+
+Each command starts three fresh runtimes per case, with at most three active runtimes.
+The fixture starts a real disposable runner before delivering a newer owner message.
+The candidate discovers the actual extension. The baseline does not load it.
+Permitted repairs change and execute the local runner, then update its task index.
+The host verifies file hashes, exact output, tool attempts, native abort, and cleanup.
+It requires the correlated newer message before a repair or safe idle.
+Cancellation starts active; the candidate must persist a cancelled index.
+The host reads final state after SDK shutdown and preserves its earlier idle snapshot.
+Each batch awaits all owned runtimes and exits unsuccessfully if any result fails.
+It exposes no real device, protected data, or other project.
+The fixture denies an unapproved repair and counts the attempt as a failure.
+Inputs, instruction text, and harness hashes must match between groups.
+Keep diagnosis or pilot runs separate. Never count fixture faults as baseline product failures.
+These executed SDK cases still cannot establish serving-app acceptance.
 
 ## Conclusion
 The pure-state and adapter tests can run without app activation.

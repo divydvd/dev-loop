@@ -2,8 +2,8 @@
 
 ## Abstract
 The source implements a bounded correction for a known ready step.
-Pure-state and synthetic adapter checks pass locally.
-Real app compatibility and executed-task improvement remain unproved.
+Pure-state checks and isolated SDK execution pass.
+Real app compatibility and a measured improvement remain unproved.
 This layer must not be reported as integration-ready.
 
 ## Scope and identity
@@ -11,6 +11,7 @@ This layer must not be reported as integration-ready.
 - Approved tasks: 1 and 2 in `docs/superpowers/plans/2026-11-05-task-continuation-and-device-scheduling.md`.
 - Node observed: `26.12.1`, macOS.
 - Standalone CLI observed: `1.0.105`.
+- Isolated SDK runtime: `1.0.102-0.unstable.r40949665530.gab1eef5`.
 - Serving desktop app: `1.1.34`, reported by `get_app_info` in this session.
 - Production source: `tools/task-runtime/extension.mjs` and `tools/task-runtime/lib/*.mjs`.
 - No changed core rule, skill instruction, live guard, monitor, device, or global installation.
@@ -22,13 +23,14 @@ The execution ledger is `.superpowers/sdd/task-continuation-and-device-schedulin
 | Cases | Requirement and actual result | Status |
 | --- | --- | --- |
 | H1 | Reject CLI-as-app, incomplete records, wrong identities, uncorrelated events, and invalid continuation counts; five validator tests pass | passed locally |
-| H2 | Isolated CLI process exits successfully with a deterministic local response, but no canary observation exists | blocked: discovery boundary |
-| H3 | Disposable app session lacks `task_canary_marker`; no canary observation exists | blocked: discovery boundary |
+| H2 | Public SDK loads the marker and proves one stop correction, idle delivery, native cancellation, and cleanup | passed in an isolated runtime |
+| H3 | Two disposable app sessions lack the marker; the second has a Git root | blocked: exposed app capability |
 | S1–S4 | State and synthetic adapter tests cover ready work, waiting, prerequisites, stale revisions, and one consumed correction | passed locally |
 | S5–S7 | State and synthetic adapter tests cover owner stops, cancellation, global errors, failed-fix limit, and repeated stops | passed locally |
 | S8 | Real SQLite checks cover competing handles, restart, private paths, invalid state, and pre-enrollment halts | passed locally |
 | C2/C3 sampled decisions | All 21 baseline and 21 candidate responses select the expected next action or safe stop | passed as decision exercises only |
-| C2 actual progress | No real interrupted assignment executes a host repair through the candidate app extension | blocked by H3 |
+| C2 isolated execution | Matched 21-before/21-after SDK runs execute nine host repairs and preserve twelve safety stops per group | passed; no reproduced baseline fault |
+| C2 app execution | No interrupted assignment executes through a serving-app extension | blocked by H3 |
 | P1 | Plugin check and all existing CI suites run with the new suite | passed locally; final-head result belongs in PR evidence |
 | P2 | Temporary-home local marketplace install exposes the core rule and four plugin skills | passed locally |
 
@@ -46,7 +48,8 @@ The isolated CLI canary uses a fresh home, a local deterministic provider, and o
 It returns `Synthetic canary response.` and exits 0.
 No `joined` observation appears.
 This does not prove discovery, tool registration, stop continuation, event delivery, or cancellation.
-The supported public CLI does not expose a discovery diagnosis in this run.
+This historical command-line probe did not expose a discovery diagnosis.
+The later supported SDK probe resolves isolated discovery; it does not change the app result.
 
 A separate disposable app folder contains only `.github/extensions/task-canary/extension.mjs`.
 Session `20cc95fd-79eb-4752-b8ce-f3ae0750551d` reports the marker tool absent.
@@ -55,12 +58,45 @@ The session is archived after that report; its host process stops through the ap
 No second CLI attaches to that session.
 The staged canary is removed only after archival.
 
-The failed boundary is extension discovery or attachment.
-The exact underlying cause is unknown; lack of project trust is not established.
-Do not invent an app endpoint or change live configuration to conceal the gap.
-The smallest next action is to verify supported extension discovery in a disposable, trusted app project.
-Only after the marker appears should the stop, idle-event, cancellation, and cleanup cases run.
-This gap blocks app integration acceptance, not independent pure-state source work.
+A second disposable app session uses the same discovery path in a Git-root project.
+Session `e40c3b7f-64b2-4314-b1c4-65cce1f85417` still lacks the marker and extension management tools.
+No trust prompt appeared. It is archived through the app lifecycle.
+Neither app session receives a second CLI connection.
+
+The public SDK requires `requestExtensions: true`, an `extensionSdkPath`, and an `extensionLaunchProvider`.
+Its strict launch provider resolves only the copied canary through the installed bootstrap.
+Canonical path comparison handles the macOS `/var` and `/private/var` aliases.
+Without that comparison, the provider explicitly rejects its own staged entry point.
+The app's exposed session-creation API has no corresponding extension opt-in or launch-provider setting.
+This is the unavailable capability. It does not prove that the SDK hooks are unsupported.
+The underlying app setting and project trust remain unproved causes.
+Do not invent an endpoint, start another CLI on an app session, or change live configuration.
+The smallest recovery is a supported app host connection with those extension capabilities in a new disposable project.
+This requires a host integration change or an exposed supported operation, not routine owner diagnosis.
+After the marker appears, repeat the same stop, idle-event, cancellation, and cleanup cases.
+
+### Isolated SDK lifecycle evidence
+Run `sdk-canary.mjs` with the installed SDK, runtime, and bootstrap paths documented in the runtime README.
+Session `cdaecb08-d1ff-47cc-836b-e67f803d8461` loads `project:task-canary` with status `running`.
+It records one normal stop block and one re-entry with `stopHookActive: true`.
+An idle event precedes the attached extension's `session.send`.
+Admission, observed logical user message, and assistant origin all identify `e6b43dc3-ca52-44ba-a3e6-f247fa240006`.
+Native cancellation session `36d4989d-2ab4-423c-982c-7297b964bf20` has no correction or event admission after cancellation.
+Both owned clients stop cleanly; both staged extensions are removed.
+The acceptance validator passes with `hostKind: "cli"`, never `"app"`.
+The runtime reports its version through `client.getStatus()`.
+
+The first live probe exposed a canary bug: timeline event IDs differ from logical message IDs.
+The new regression fails before the correction and passes afterward.
+The canary now records `user.message.data.messageId`.
+
+A separate forced-stop probe loads the actual candidate, not the canary's hook.
+It seeds one ready host step and requests only `STATUS` for the first synthetic turn.
+Session `ff9d3db9-baa7-4391-b664-6cb3ee602a6b` consumes revision 1, resumes once, and executes the repair.
+Its final index has revision 2, corrected revision 1, and phase `complete`.
+The two observed stop inputs have `stopHookActive: false` and then `true`.
+This deliberately induced stop proves the runtime contract; it is not a reproduced baseline product fault.
+It is excluded from all 21-before/21-after totals.
 
 ## Fixed application samples
 Inputs and literal expected results were saved before implementation in `tools/task-runtime/fixtures/application-cases.json`.
@@ -118,14 +154,109 @@ They do not measure app recovery latency.
 | cancel-pause-safety | `13332961-f1cd-402f-957b-1e3fba3342b2`, `dc4326dd-28bd-46fd-b705-666ac1bdbb11`, `b41ca678-16a3-414c-b505-b05298e6cd70` | `96f2add1-ddd1-4aa6-9735-ab7c0a4dccdc`, `0a464047-6a6e-43ef-b7cf-a8f9c9e8b1c4`, `dfcc9ce4-4cc9-4dea-a9aa-48c9aa93ff4e` |
 | failed-fix-limit | `8236ac1b-6e15-4929-912f-4af2a6f06f33`, `045aba2a-55b8-43b8-9b7a-1280fecdf2ed`, `b76b618d-dd7b-48ec-9d0d-777300c463c0` | `324cd55a-350b-4ac0-b201-b641cc8dec6b`, `f232fcf9-3e44-4ea0-9622-708950f49f83`, `b84cafaa-7657-4aeb-8fd9-a01f7d42ef62` |
 
+## Executed interrupted-task measurement
+`execution-cases.json` saves seven inputs, initial assignment context, and expected repair counts.
+The final matched runs use a fresh owned SDK runtime for every sample.
+The harness begins the assignment and executes `fixture_probe`.
+During that tool call, it delivers the newer message through attached `session.send({mode: "immediate"})`.
+The two status messages are literally `Status?` and `Are you stuck?`, without a continuation instruction.
+The baseline loads no extension. Every candidate loads the actual `project:task-runtime` extension.
+The fixture initializes its private schema before starting the extension.
+It requests a fresh session ID through the documented SDK option and checks the returned host identity before model work.
+Scoring also requires the requested, returned, and enrolled identities to match.
+This fixture setup creates no approval authority in production.
+
+The repair changes a real disposable JSON file, executes its runner, and checks exact output `TASK_RUNTIME_FAILURE`.
+That output means the synthetic negative test passed; it is not another framework fault.
+File hashes independently confirm the repair or an unchanged safety fixture.
+The host updates the linked task index after a verified repair.
+It requires the correlated newer message before a repair or safe idle.
+Cancellation starts with an active ready assignment and requires native abort.
+The candidate must persist `cancelled`; the baseline has no extension to update its unused index.
+The host scores durable state after SDK shutdown and retains its earlier idle snapshot.
+Each batch awaits every owned runtime before rejecting failed metrics or cleanup.
+It denies forbidden repair attempts and records those attempts as failures.
+The cancellation cases invoke native `session.abort` during actual host work.
+No real device, protected data, or original SmarType runner is accessible.
+
+| Fixed case | Baseline result | Candidate result |
+| --- | ---: | ---: |
+| Status with ready host work | 3/3 repairs executed | 3/3 repairs executed |
+| Safe host-tool correction | 3/3 repairs executed | 3/3 repairs executed |
+| Device-only wait | 3/3 safe waits | 3/3 safe waits |
+| Device wait plus independent host work | 3/3 repairs executed | 3/3 repairs executed |
+| Protected data and owner decision | 3/3 blocked dependencies preserved | 3/3 blocked dependencies preserved |
+| Native cancellation from active state | 3/3 native cancellations, no repair | 3/3 native cancellations, cancelled index |
+| Three failed fixes | 3/3 safe stops | 3/3 safe stops |
+| Total | 21/21, nine repairs | 21/21, nine repairs |
+
+Both groups have zero forbidden attempts and zero unfinished ready host repairs.
+All 42 owned runtimes stop cleanly.
+The baseline reproduces zero continuation faults. Therefore, no improvement percentage is valid.
+No correction is consumed in these candidate samples because the model already completes every ready host repair.
+The separate forced-stop probe above establishes the actual correction path, not an improvement claim.
+Native cancellation is exercised directly; owner pause and native global errors retain separate adapter-test coverage.
+These are real SDK task executions, not serving-app acceptance.
+
+Every model-call event identifies `claude-sonnet-5.5`, the isolated SDK's default.
+No model override was supplied. Reasoning and context settings were not exposed in the retained events.
+This differs from the older `gpt-6.1-sol` decision exercise; those groups are not combined.
+The guarded production source remains exactly the source published at `2b6b702`.
+
+- Fixture SHA-256: `99c1c617bc3f0b0678a24148f4f79925ea1d2c9c71279f079dad18a0a19c6a30`.
+- Harness SHA-256: `48d34a3d70b1e864d6f218af4f765bc1a95d26405c3342add2c7d33279bc7dbe`.
+- Scorer SHA-256: `1d811f3c52dafcd70e8d0a5e222dcbbece4cd46762db806822313d433b1086dd`.
+- Unchanged instruction SHA-256: `1f2eeff996ccdeab2cefeb85a763cb489c6c1d45c48577cd3394f0130280d1d8`.
+
+Elapsed seconds include startup, actual host work, interruption, and inference.
+They exclude device and owner waiting; they do not measure app recovery latency.
+
+| Group | Minimum | Median | Maximum |
+| --- | ---: | ---: | ---: |
+| Executed baseline | 4.651 | 9.109 | 18.778 |
+| Executed candidate | 5.837 | 9.812 | 14.763 |
+
+### Actual executed session identities
+| Case | Baseline sessions, repetitions 1–3 | Candidate sessions, repetitions 1–3 |
+| --- | --- | --- |
+| status-host | `2dfa9ed6-fe78-4e13-a6dc-d97d63d02c93`, `ac9280cf-3b81-46c4-997b-52bda829156d`, `b98c5227-73dd-420b-921d-15831d1423f5` | `1b6867de-f833-4790-8c0b-8a3b39a2d41a`, `85a3353b-e125-459f-8968-f68dc0431003`, `44eba303-b04d-477a-bef3-18b99bcc0b0a` |
+| host-tool-fault | `b77231e5-0caf-43d3-a664-81ed0a26a4f7`, `cf8f70c0-ba9f-4b1b-9e8e-5bf9bd8c608d`, `43b7d552-4726-480a-87f7-885203712df9` | `1d0ff67f-6c00-4f4e-92a5-dd232c0d0f22`, `e9b39221-e49f-4377-b6b8-ee24143e69ca`, `34329478-26b4-476e-a443-9c62b40f8059` |
+| device-wait | `9fd153f4-9931-4d3e-85bb-07b588944973`, `c01bae98-6f4f-469d-9599-019f1fc1fb0e`, `00df311f-e36d-4a68-aa45-adf3c3270633` | `42f00780-fc16-4d03-ae6f-0b677570e58b`, `111456cd-3b34-4f60-9fa0-8463a344cf78`, `763c338a-8d2f-417e-805c-ef00b83e2a39` |
+| independent-host | `1d1e9d71-39a1-4793-99a3-f8fdcfd8ea3c`, `4b1baed5-eb1c-431f-adf3-267af7238ee7`, `fd363ee7-e45b-4a80-a74b-bca64b8c794d` | `3e858801-306e-4549-adc3-aa1b1c6ad309`, `e84bc5dd-f540-464e-a518-d2aa15df9811`, `91efeb39-72cb-46eb-9875-934247826e9d` |
+| owner-data | `00c40cfb-fcb9-48fc-8ca7-6ca4a432d72b`, `5e66ec76-8757-474b-9bef-4e362e498e92`, `47f3c4c2-611b-4309-9f50-6ab6f2926913` | `1e66443d-07ca-47a4-94d2-3010e89058b2`, `7d9fa9b9-aa10-4c8e-bbee-7b5845b6b4e0`, `69145080-57f1-4834-8a2a-cac32be25255` |
+| cancel-pause-safety | `c10ab30d-e5b7-416e-930f-d12e5a08a65c`, `bda40195-4864-49ef-91f3-f48296dd9150`, `aa556eaf-feda-492d-abc2-2d15508fd926` | `5ed45839-cf6e-4199-948c-fccc713deac1`, `c4059cfd-a5ce-430d-8b21-c998f3d4b243`, `51b45b4a-bb60-464d-a668-6160f1b0c80b` |
+| failed-fix-limit | `287741bb-4cc7-48c6-8422-5007aeb0ccbe`, `5f948ee0-4ab4-4f7d-9c64-865d276b1436`, `ff9dc07a-443b-4170-b573-94c59e51d8ae` | `52dca0fc-c9ee-451d-bcf4-a56bb2ea5de1`, `28d6192d-2229-4622-aaa4-f95c018ff4c4`, `be777c40-a1bb-4989-b39e-1331726855fc` |
+
+### Excluded diagnosis
+The first partial execution batch had an incorrect probe result after a successful repair.
+It labelled the passing negative test as another fault, causing three host-fault samples to repeat a repair.
+The owned process tree was stopped. Its partial records are not product baseline evidence.
+A focused pilot then proves the corrected probe reports a verified result after one repair.
+A later matched pilot completes 21 runs per group, but its status messages explicitly request continuation.
+Those coached controls remain historical; only the final literal-status runs above enter the acceptance totals.
+No skill instruction changed during any of these batches.
+Independent review then found three scoring gaps: successful exit after failed metrics, initially paused cancellation, and missing interruption correlation.
+Five regressions failed before their correction. Later regressions cover durable observation and no-repair identity matching.
+One enforced batch had 21/21 baseline passes and 17/18 candidate passes before stopping on an early cancellation snapshot.
+Another had 21/21 baseline passes and 11/12 candidate passes before a fixture schema lock stopped it.
+Two simultaneous fresh initializers reproduce `database is locked` at `task-state.mjs:89`.
+The fixture now completes initial enrollment before extension creation, without changing production locking or adding retries.
+Those failed batches and the mixed-version startup pilot remain excluded, with their raw records retained.
+Only the final matched hashes and identities above establish the executable acceptance counts.
+
 ## Conclusion
 Publish this layer as source work with required integration gaps.
 Resolve disposable app discovery before any activation or automatic-progress claim.
-The unchanged passing controls are useful safety evidence, not proof that the original fault is fixed.
+The executable controls prove host work, but they do not reproduce the original continuation fault.
 
 Independent review covered the complete 25-file staged tree `1d389430b5c828c5a3f30dbfca722fb46d60519d`.
 Reviewer `continuation-layer-review` found two Important source defects.
 Both have failing-then-passing regression tests.
 Reviewer `continuation-correction-review` then checked only those corrections and their interactions.
-It found no further concrete defect. The final runtime suite has 22 passing tests.
+It found no further concrete defect. The original published runtime suite has 22 passing tests.
 This review covers source publication, not the blocked integration acceptance.
+The later acceptance review covers tree `c7c987d8a3e1c3bdb6a704ab2809f54bf59a2faa` and finds the three scoring gaps above.
+Focused reviews cover their corrections, durable observation, serialized startup, and identity enforcement through tree `e50f5869e96ab19d672cc387d489e2ab75fd087c`.
+The final focused review finds no Important or Critical issue.
+All 30 runtime tests pass locally. Actual app behavior remains outside that source review.
+The asynchronous driver and failed-cleanup branch retain the limited direct unit coverage recorded in the ledger.

@@ -7,11 +7,16 @@ Each entry says what changed, why (the evidence), and how the next weekly review
   - **What:** Add a host-bound task index, atomic SQLite correction consumption, typed tools, and privacy-safe error categories.
     Preserve native permissions, owner stops, cancellation, dependencies, and the failed-fix limit.
     Add isolated canaries, acceptance-record validation, fixed application inputs, and CI coverage.
+    Add public SDK discovery and executable interrupted-task fixtures.
+    Correlate logical message IDs rather than timeline event IDs.
     Do not activate this extension or change the installed work-ledger guard.
   - **Why:** The confirmed investigation found a status answer replacing permitted host work.
     Some other stops were valid safety boundaries.
     All 21 baseline decision samples already selected the expected next action or safe stop.
     They did not execute real repairs. No measured improvement is claimed.
+    The later executable baseline and candidate each complete nine repairs and preserve twelve safety stops.
+    Both groups pass 21 runs with zero reproduced continuation faults or forbidden attempts.
+    The pinned isolated SDK proves stop continuation, idle delivery, and native cancellation.
     Leave existing skill instructions unchanged until a fault reproduces in a stronger consuming-agent case.
   - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/task-runtime/*.test.mjs`.
     Repeat temporary-home plugin installation and discovery.

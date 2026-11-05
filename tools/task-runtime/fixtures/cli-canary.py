@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 
+cli = os.environ.get("TASK_CANARY_CLI", "copilot")
 
 class Provider(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_):
@@ -38,6 +39,7 @@ with tempfile.TemporaryDirectory(prefix="task-cli-canary-") as directory:
     extension = home / "extensions/canary"
     extension.mkdir(parents=True)
     work.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "canary", str(work)], check=True)
     shutil.copyfile(Path(__file__).with_name("app-canary.mjs"), extension / "extension.mjs")
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Provider)
     thread = threading.Thread(target=server.serve_forever)
@@ -50,7 +52,7 @@ with tempfile.TemporaryDirectory(prefix="task-cli-canary-") as directory:
                TASK_CANARY_OUTPUT=str(root / "observations.jsonl"), USE_TGREP="false")
     try:
         result = subprocess.run(
-            ["copilot", "-p", "Return the synthetic canary marker.", "--trust-folder",
+            [cli, "-p", "Return the synthetic canary marker.", "--trust-folder",
              "--disable-builtin-mcps", "--available-tools", "", "--stream", "off",
              "--no-auto-update", "--silent"],
             cwd=work, env=env, text=True, capture_output=True, timeout=60)
