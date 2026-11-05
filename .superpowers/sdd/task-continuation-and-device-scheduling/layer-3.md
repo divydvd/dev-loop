@@ -56,3 +56,18 @@ The source remains inactive.
 - No rule or skill changes; temporary-home installation is not in this layer's tier.
 - No flow docs exist in this repo; README is updated.
 - No deferred Minor finding is recorded.
+
+## Independent review and correction
+- Reviewer: `scheduler-events-review`, independent code-review agent.
+- Reviewed: complete `ff90b51..378444e` diff, state interactions, matrix, docs, CI, and rulings.
+- It ran all 118 scheduler cases and 64 other non-ledger checks on Node `26.12.1`.
+  Both selections passed. It did not use the installed work-ledger.
+- Finding: one slow client can exhaust its response buffer and abort the complete authority.
+  This revokes unrelated running grants through quarantine.
+- Confirmed RED: the two-client regression fails with the unrelated client's `ADMISSION_UNCERTAIN`.
+- Fix: classify response backpressure as peer-local. Mark that peer ended before destroying its socket.
+  Remaining buffered commands cannot mutate state.
+- GREEN: all 119 scheduler cases pass. The unrelated operation remains running with its grant unchanged.
+- Production source now totals 310 lines. No history, schema, reducer, or event-kind changes.
+- No other finding or deferred Minor was reported.
+- Focused independent coverage of the correction follows before first push.

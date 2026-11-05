@@ -30,6 +30,7 @@ All rows are required. Results and tested identities are recorded separately.
 | B9 | Concurrent authorities, unsafe paths, occupied socket | Refuse; do not unlink an active or unowned socket | `broker.test.mjs` |
 | B10 | Crash before commit, after commit, before acknowledgment | Roll back incomplete work; retain committed state and delivery | `broker.test.mjs`, inherited `state.test.mjs` |
 | B11 | Existing private history with delivery metadata | Preserve immutable results and ordered outgoing records | `delivery.test.mjs`, inherited scheduler suites |
+| B12 | One authenticated client stops reading responses | Close only that peer; preserve unrelated running grants | `broker.test.mjs` |
 | P1 | Existing plugin and consumers | Preserve all existing CI suites | `.github/workflows/check.yml` |
 
 Invalid input, authority, concurrency, partial failure, compatibility, and bounded transport apply.
@@ -55,6 +56,12 @@ New event kinds and reducer changes are not planned.
 - B10 also covers startup scheduling after a request commits before scheduling or delivery.
   It does not claim that socket tests prove physical cleanup or serving-app events.
 - Final-head results and review evidence follow in the PR and layer ledger.
+- Reviewer `scheduler-events-review` covered complete commit `378444e` against `ff90b51`.
+  It found one High issue: response backpressure shut down the whole broker.
+  A two-client reproduction fails before correction with the unrelated client's `ADMISSION_UNCERTAIN`.
+  The correction closes only the slow peer and ignores its remaining buffered commands.
+  All 119 scheduler cases pass afterward, including the 93 unchanged inherited cases.
+  This is correction-candidate evidence; final-head CI is still pending.
 
 ## Required gaps and limits
 - No layer-specific required gap is currently known. Independent review and final-head CI are still pending.

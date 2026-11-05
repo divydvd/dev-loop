@@ -189,6 +189,31 @@ test("different devices sharing a host resource cannot receive competing grants"
   assert.equal((await be.wait(e => e.kind === "reserve")).request.id, "ios-waiter");
 });
 
+test("a slow client's response backpressure does not revoke another client's running grant", { timeout: 30000 }, async t => {
+  const f = await setup(t), events = inbox(), a = await f.client("a", events.receive);
+  await a.request(requestEvent("unrelated-holder"));
+  const grant = binding((await events.wait(e => e.kind === "reserve")).request.grant);
+  await a.request(event("acknowledge", grant));
+  const operation = event("operation_start", { ...grant, operationId: "unrelated-operation", purpose: "test" });
+  await a.request(operation);
+  const peer = await raw(f.socketPath);
+  peer.socket.on("error", () => {});
+  t.after(() => peer.socket.destroy());
+  peer.socket.write(JSON.stringify({ type: "enroll", token: f.tokens.b }) + "\n");
+  await peer.messages.wait(e => e.type === "ready");
+  peer.socket.pause();
+  const peerClosed = new Promise(resolve => peer.socket.once("close", resolve));
+  peer.socket.write(Array.from({ length: 15000 }, (_, index) =>
+    JSON.stringify({ type: "reconcile", seq: index + 1, eventId: "absent" }) + "\n").join(""));
+  await peerClosed;
+  const current = (await a.reconcile(operation.id)).request;
+  assert.equal(current.state, "running");
+  assert.equal(current.grant.revoked, false);
+  assert.equal(current.operations[0].outcome, "inflight");
+  const reconnected = await f.client("b");
+  assert.deepEqual(await reconnected.reconcile("absent"), { admitted: false });
+});
+
 test("second authority and duplicate session are refused without unlinking an active socket", async t => {
   const f = await setup(t), inode = fs.statSync(f.socketPath).ino;
   await assert.rejects(startBroker({

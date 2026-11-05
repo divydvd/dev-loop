@@ -154,6 +154,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
           write(peer, { type: "result", seq: frame.seq, result });
           broadcast();
         } catch (error) {
+          if (error.message === "BACKPRESSURE") { peer.ended = true; peer.socket.destroy(); return; }
           if (!safeCodes.has(error.message)) { abort(); return; }
           try { write(peer, { type: "error", seq: frame.seq, code: error.message }); }
           catch { peer.socket.destroy(); }
