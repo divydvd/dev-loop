@@ -21,6 +21,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Detach and quarantine at the terminal signal, not after output flush. Preserve replacement grants and uncertain resources.
     Fourteen initial lifecycle regressions fail before correction. Model review adds two failing shutdown regressions and explicit reserved-grant coverage.
     Stop buffered admission when authority shutdown starts. All 58 lifecycle cases and 131 prior scheduler cases pass afterward.
+    A separately authorized B19 correction rejects non-string tokens without coercion and saves the validated primitive before socket connection.
+    Permanent child-process cases reproduce the BigInt crash and incorrect rejection errors.
+    Real enrollment cases reproduce session changes through caller mutation and changing getters before correction.
   - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/device-scheduler/*.test.mjs`.
     CI runs the scheduler cases on both declared Node versions.
     Inspect `docs/testing/device-scheduler-layer-3.md` for case mapping, evidence, and remaining integration gaps.

@@ -3,7 +3,9 @@ import { decoder, encode, exact } from "./protocol.mjs";
 
 /** Credentials come from the trusted host adapter, never model tool arguments. */
 export async function connectBroker({ socketPath, credentials, onEvent }) {
-  if (!exact(credentials, ["token"]) || !/^[a-f0-9]{64}$/.test(credentials.token) ||
+  if (!exact(credentials, ["token"])) throw new Error("INVALID_CREDENTIALS");
+  const { token } = credentials;
+  if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token) ||
       typeof onEvent !== "function") throw new Error("INVALID_CREDENTIALS");
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath), waiting = new Map();
@@ -20,7 +22,7 @@ export async function connectBroker({ socketPath, credentials, onEvent }) {
         socket.write(data);
       } catch (error) { waiting.delete(seq); fail(error); }
     });
-    socket.on("connect", () => socket.write(encode({ type: "enroll", ...credentials })));
+    socket.on("connect", () => socket.write(encode({ type: "enroll", token })));
     socket.on("error", () => stop("CONNECTION_FAILED"));
     socket.on("close", () => {
       reject(new Error(failure));

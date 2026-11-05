@@ -233,6 +233,9 @@ Replay callbacks start on the next event-loop turn, after the awaited connection
 This boundary also applies when readiness and replay arrive in one socket read.
 Callbacks can use that handle to acknowledge delivery or reconcile admission.
 Invalid connection inputs still reject the promise; they do not throw synchronously.
+The token must be a primitive string of 64 lowercase hexadecimal characters; coercible non-string values are invalid.
+The client saves the validated token before opening the socket.
+Later changes to the credentials object cannot change the enrolled session.
 
 The broker sends unacknowledged records on enrollment and new records on the persistent socket.
 It schedules the oldest eligible requests after startup and relevant events.

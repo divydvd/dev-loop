@@ -236,6 +236,43 @@ Model, fix-pass, and integration reviews now cover all final substantive content
 The following commit records evidence only.
 Final-head local checks, CI, and automatic review disposition belong in PR #30 without another evidence-only push.
 
+## Owner-approved B19 client-input correction
+### Abstract
+Automatic review at `5727081` finds that a non-string token can crash the client host.
+The owner now instructs: "OKay - so fix the issue".
+Validate a primitive token once, then use that saved value for enrollment.
+
+Goal: reject invalid credentials asynchronously without coercion or a transport callback exception.
+Done when: permanent regressions pass, prior controls pass, focused independent review accepts the correction, and final-head checks pass.
+Required evidence: RED/GREEN client cases, all scheduler cases, the existing CI selection, and automatic review observation.
+Stop conditions: a new required finding after this authorized cycle needs another owner decision.
+Size estimate: two added production lines; remain below 400 total broker lines.
+
+| Case | Required risk and setup | Expected result | Method and location |
+| --- | --- | --- | --- |
+| B19-T | Non-string tokens: BigInt, Symbol, number, boolean, null, undefined, boxed string, array, coercible object, throwing coercion, function | Return a promise that rejects with `INVALID_CREDENTIALS`; no uncaught exception or coercion | Isolated bounded child processes using the real client and private broker; `client.test.mjs` |
+| B19-B | Empty, 63/65-character, uppercase, and non-hex strings | Reject with `INVALID_CREDENTIALS`; preserve the valid 64-character control | Same child checks; existing real enrollment cases |
+| B19-S | Caller mutates credentials before socket connection, or getter changes on later reads | Enrollment uses the validated primitive snapshot and original session | Real broker request and reconciliation; `client.test.mjs` |
+| B17/B18 | Existing replay readiness, asynchronous rejection, terminal cleanup, shutdown, and history cases | Preserve all 189 existing scheduler cases | Entire scheduler suite |
+| B19-C | Existing project and CI checks | No new failures; retain inherited skip | Plugin check and existing CI selection |
+
+These are required cases. UI, devices, migration, and throughput changes do not apply to this client-only correction.
+The existing inventory gap remains; reuse the current suites rather than create a separate inventory.
+Before correction, B19 is confirmed by the isolated BigInt crash at published `5727081`.
+RED at unchanged production `5727081`: the client selection reports 14 passed and 10 failed, including the failed parent case.
+Seven invalid-type cases fail: BigInt, Symbol, boxed string, array, coercible object, throwing coercion, and function.
+BigInt exits the child with an uncaught serialization exception.
+Both snapshot cases enroll session `b` instead of validated session `a`.
+All five prior client controls pass; the remaining input controls also pass.
+GREEN with the correction: all 208 scheduler cases pass on Node `26.12.1`, including all 189 prior cases.
+The plugin check and whitespace check pass. Production modules total 340 lines.
+Final-head results and automatic review disposition will be recorded in PR #30.
+
+### Conclusion
+Correct the client input boundary inside this single authorized cycle.
+Keep source approval separate from activation.
+The main risk is reading unvalidated or changed credentials inside a later socket callback.
+
 ## Required gaps and limits
 - Lifecycle cases and integrated independent review pass. Final-head verification, CI, and automatic review observation remain pending.
 - Overall stack acceptance still needs layer-4 integration and its own actual host evidence.

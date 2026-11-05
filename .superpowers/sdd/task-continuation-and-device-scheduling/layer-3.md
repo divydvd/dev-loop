@@ -229,3 +229,28 @@ The source remains inactive.
   Final-head local checks, CI, and automatic review disposition belong in PR #30 without another status-only push.
 - This is the one authorized lifecycle publication. Read the resulting automatic review without another correction cycle.
   No PR merge, activation, real device, global install, or live work-ledger access is authorized.
+
+## Owner-approved B19 client-input correction
+- Published lifecycle head: `572708103ab02d098ffc651fa29372737b65ef14`.
+  Automatic review `5790002732` finds B19: a BigInt token passes coercive regex validation, then crashes during socket-callback serialization.
+- Stop at the prior correction limit. Preserve the clean source and draft PR until renewed approval.
+- The coordinator relays a new direct owner instruction: "OKay - so fix the issue".
+  This follows its request to fix, test, and independently review invalid tokens that can crash the host.
+  It authorizes this correction and one review cycle, not an Autopilot continuation or coordinator-created permission.
+- Continue Task 4 natively. Save B19-T/B/S/C in `docs/testing/device-scheduler-layer-3.md` before implementation.
+  Preserve every previous result and all 189 scheduler controls.
+- Root cause: regex validation coerces token types; the later connection callback reads and serializes the original mutable object again.
+- Ruling: snapshot the primitive token once before transport creation.
+  This closes the same input-validation gap for mutable credentials and changing getters without a new API or protocol.
+  If wrong, enrollment could use a different credential than the validated input.
+- Obtain focused independent review, final-head checks, one publication, and automatic review observation.
+  No further cycle, installation, activation, merge, or unrelated correction is authorized.
+- RED at unchanged production `5727081`: 14 client cases pass and 10 fail, including one parent case.
+  Seven token-type cases fail for the expected crash, coercion, or wrong rejection.
+  Caller mutation and changing getters both enroll `b` instead of validated `a`.
+  The five prior client controls pass.
+- Fix: validate the exact credential shape, read its token once, reject non-string values before regex validation, and enroll with that primitive.
+  The async function and next-turn replay boundary remain unchanged.
+- GREEN: all 208 scheduler cases pass on Node `26.12.1`, preserving all 189 prior cases.
+  The plugin and whitespace checks pass. Production modules total 340 lines.
+  Focused review and final-head verification remain required before the one authorized publication.

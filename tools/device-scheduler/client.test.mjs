@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { once } from "node:events";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { setup, requestEvent, inbox } from "./broker-test-support.mjs";
 import { connectBroker } from "./lib/client.mjs";
 import { openStore } from "./lib/store.mjs";
@@ -42,6 +44,50 @@ test("invalid client credentials remain an asynchronous rejection", async () => 
   assert.ok(result instanceof Promise);
   await assert.rejects(result, /INVALID_CREDENTIALS/);
 });
+
+test("invalid token types reject asynchronously without crashing the client host", async t => {
+  const f = await setup(t);
+  const cases = [
+    ["undefined", "undefined"], ["null", "null"], ["boolean", "true"], ["number", "1"],
+    ["bigint", 'BigInt("1".repeat(64))'], ["symbol", 'Symbol("synthetic")'],
+    ["boxed string", 'new String("1".repeat(64))'], ["array", '["1".repeat(64)]'],
+    ["coercible object", '({ toString() { return "1".repeat(64); } })'],
+    ["throwing coercion", '({ toString() { throw new Error("COERCION_MUST_NOT_RUN"); } })'],
+    ["function", 'Object.assign(() => {}, { toString() { return "1".repeat(64); } })'],
+    ["empty", '""'], ["short", '"a".repeat(63)'], ["long", '"a".repeat(65)'],
+    ["uppercase", '"A".repeat(64)'], ["non-hex", '"g".repeat(64)'],
+  ];
+  for (const [name, expression] of cases) await t.test(name, async () => {
+    const source = `
+      import assert from "node:assert/strict";
+      import { connectBroker } from ${JSON.stringify(new URL("./lib/client.mjs", import.meta.url).href)};
+      const result = connectBroker({
+        socketPath: ${JSON.stringify(f.socketPath)}, credentials: { token: ${expression} }, onEvent() {},
+      });
+      assert.ok(result instanceof Promise);
+      await assert.rejects(result, { message: "INVALID_CREDENTIALS" });
+    `;
+    await promisify(execFile)(process.execPath, ["--input-type=module", "-e", source], { timeout: 5000 });
+  });
+});
+
+for (const changingGetter of [false, true]) test(
+  `enrollment uses the validated token snapshot with ${changingGetter ? "a changing getter" : "caller mutation"}`,
+  async t => {
+    const f = await setup(t);
+    let reads = 0;
+    const credentials = changingGetter
+      ? { get token() { return ++reads === 1 ? f.tokens.a : f.tokens.b; } }
+      : { token: f.tokens.a };
+    const pending = connectBroker({ socketPath: f.socketPath, credentials, onEvent() {} });
+    if (!changingGetter) credentials.token = f.tokens.b;
+    const client = await pending;
+    t.after(() => client.close());
+    const input = requestEvent("credential-snapshot");
+    await client.request(input);
+    assert.equal((await client.reconcile(input.id)).request.sessionId, "a");
+  },
+);
 
 test("initial replay callbacks can acknowledge and reconcile through the awaited client handle", async t => {
   const f = await setup(t), first = await f.client(), input = requestEvent("initial-handle");
