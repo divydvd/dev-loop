@@ -3,6 +3,34 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## 0.6.0 (2026-11-05)
+- **Add the inactive device event broker, stack layer 3.**
+  - **What:** Add private Unix-socket enrollment, automatic eligible scheduling, durable delivery acknowledgments, and admission reconciliation.
+    Bind identities from private policy. Keep scheduler authority inside one broker, protected by a process-held SQLite lock.
+    Quarantine holders after disconnect or restart. Retain all history and acknowledged outgoing records.
+    Keep device procedures, serving-app attachment, and live cutover outside this layer.
+  - **Why:** The approved Task 4 needs reliable handoff after state commits without polling or repeated logical operations.
+    Failing-first socket cases cover missing source, malformed IDs, partial policy acceptance, background failure, and reordered policy restart.
+    Independent review reproduces a slow client revoking unrelated grants; the correction isolates response backpressure to that client.
+    Automatic review adds first-start compatibility, oversized-delivery isolation, non-string-kind validation, and buffered-command stop regressions.
+    Adopt matching validated policy history without a new event. Reject rolled-back configuration without replaying older authority.
+    Close rejected half-open sockets after the terminal error. Publish committed grants even when a release response is oversized.
+    After the two-round stop, the owner approved one additional correction cycle for blocked rejection and initial replay.
+    Detach and quarantine before terminal writes. Keep old connection cleanup idempotent.
+    Dispatch replay on the next event-loop turn so callbacks can use the awaited handle without changing asynchronous input rejection.
+    A later owner-approved lifecycle correction unifies rejection, readable EOF, transport errors, closure, and failed response writes.
+    Detach and quarantine at the terminal signal, not after output flush. Preserve replacement grants and uncertain resources.
+    Fourteen initial lifecycle regressions fail before correction. Model review adds two failing shutdown regressions and explicit reserved-grant coverage.
+    Stop buffered admission when authority shutdown starts. All 58 lifecycle cases and 131 prior scheduler cases pass afterward.
+    A separately authorized B19 correction rejects non-string tokens without coercion and saves the validated primitive before socket connection.
+    Permanent child-process cases reproduce the BigInt crash and incorrect rejection errors.
+    Real enrollment cases reproduce session changes through caller mutation and changing getters before correction.
+    A separately approved B20 correction destroys the client transport at readable EOF, without waiting for blocked output.
+    Two permanent real-socket cases reproduce unresolved calls before correction.
+    Preserve completed responses and reject pending calls with admission uncertainty; never resend commands.
+  - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/device-scheduler/*.test.mjs`.
+    CI runs the scheduler cases on both declared Node versions.
+    Inspect `docs/testing/device-scheduler-layer-3.md` for case mapping, evidence, and remaining integration gaps.
+    The next weekly review checks lost acknowledgment, competing authority, uncertain admission, and honest separation from app acceptance.
 - **Add inactive durable device scheduler state, stack layer 2.**
   - **What:** Add private SQLite transactions, versioned events, stable request IDs, scoped grants, and an atomic event outbox.
     Reserve exact devices and shared host resources together. Preserve owner waits, uncertain ownership, and recovery after policy revocation.
