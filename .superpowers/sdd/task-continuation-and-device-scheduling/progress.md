@@ -123,3 +123,35 @@ Cost if wrong: this layer does not refresh installed-guard acceptance; unchanged
 Build independent source while preserving all required acceptance gaps.
 The next step is to save fixed inputs and inspect the supported host contract.
 Missing app proof must prevent an integration-ready claim.
+
+## Layer 2: Task 3 (separate state)
+- Approved scope: durable scheduler state only. Earlier layer evidence above stays unchanged.
+- Base: `2b6b7025b03cfc0113e0909ea94e918f610ca61b`.
+- Branch: `divydvd-device-scheduler-state`; PR base: `divydvd-task-continuation-guard`.
+- Execution: native, with TDD and one complete-diff independent review.
+- Matrix: `docs/testing/device-scheduler-layer-2.md`, D1-D12 and P1.
+- Pre-flight: Task 3 produces the store and event reducer; Tasks 4-5 consume them.
+  No existing caller constrains the payload fields beyond the approved interfaces.
+- Ruling: use authenticated `{ id, role }` context from the later broker, not event payload identity.
+  Only the scheduler role can set policies, report infrastructure loss, or issue recovery grants.
+  Cost if wrong: later broker integration needs an explicit adapter; callers cannot self-enroll as scheduler.
+- Ruling: operation records belong in this pure state layer because safe release must reject unresolved operations.
+  Execution and platform procedures remain in later layers. Cost if wrong: those layers must preserve the state protocol.
+- Ruling: preserve this ledger after execution. Earlier evidence and durable layer state must survive cleanup.
+- Status: matrix saved; failing tests next. No runtime acceptance or activation is claimed.
+- RED: the required initial test command reports both absent scheduler modules. This is a missing-feature result, not a behavioral pass.
+- Initial implementation: 22/23 cases pass. The one failed assertion used generation zero, which correctly fails event validation.
+  Correct the fixture to use a positive mismatched generation; all original cases then pass.
+- Additional RED-to-GREEN cases cover malformed relationships, delayed infrastructure generations, maximum-length event IDs,
+  owner-wait preservation, dangling symlinks, and caller-supplied runtime overrides.
+- Ruling: fault and recovery events include the full grant binding. Delayed infrastructure reports must not revoke a newer grant.
+  Cost if wrong: layer 3 needs those fields on its internal reports.
+- Ruling: return a `replayed` flag alongside the request and outgoing IDs.
+  Identical operation-start responses otherwise cannot distinguish admission from transport replay.
+  Cost if wrong: later clients must preserve this flag; it is not proof of completed device execution.
+- The source uses one SQLite row for the atomic snapshot and outbox. Transactions reload it under a writer lock.
+  The store validates saved structure and ownership links before returning availability.
+- Pre-review checks: plugin check passes; combined CI selection reports 319 passed, zero failed, one inherited case-sensitive-filesystem skip.
+  Scheduler scope is 32 tests. Production source is 314 lines.
+  Node `26.12.1` ran locally; Node `22.23.4` remains a CI check.
+- Review next: complete layer diff against `2b6b702`, including source, tests, docs, CI, matrix, and ledger.

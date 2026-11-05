@@ -3,6 +3,16 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## 0.6.0 (2026-11-05)
+- **Add inactive durable device scheduler state, stack layer 2.**
+  - **What:** Add private SQLite transactions, versioned events, stable request IDs, scoped grants, and an atomic event outbox.
+    Reserve exact devices and shared host resources together. Preserve owner waits, uncertain ownership, and recovery after policy revocation.
+    Add synthetic concurrency, restart, interrupted-write, path, and transition tests on both target Node versions in CI.
+    Do not start a service, use a real device, or change the live monitor or work-ledger.
+  - **Why:** The approved scheduler design needs durable ownership before it can add event delivery.
+    A timeout, lost connection, or cancellation cannot prove that a used device is safe.
+  - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/device-scheduler/{state,queue}.test.mjs`.
+    Inspect `docs/testing/device-scheduler-layer-2.md` for the acceptance cases and source-only limits.
+    The next weekly review checks grant conflicts, stale generations, unresolved operations, and honest separation from live acceptance.
 - **Add inactive bounded task-continuation source, stack layer 1.**
   - **What:** Add a host-bound task index, atomic SQLite correction consumption, typed tools, and privacy-safe error categories.
     Preserve native permissions, owner stops, cancellation, dependencies, and the failed-fix limit.
