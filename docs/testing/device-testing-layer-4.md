@@ -165,6 +165,31 @@ It finds no significant issue in evidence, setup, authority limits, or cleanup c
 This is artifact review, not an independent claim of personally observing the app run.
 Only review-result metadata is added after that focused review.
 
+## Automatic review correction round 1
+Automatic review at `4cb2f0f9e620ca958593e9aa97518ac22bd11e59` finds two confirmed defects.
+A later recovery grant can reuse an earlier generation's completed verification.
+A policy change can also reinterpret an earlier unsafe procedure as safety evidence.
+Release now checks the recorded admission against the full current grant binding.
+This includes device, request, policy version, and generation.
+A maximum-length request ID also makes the trusted recovery acknowledgment ID exceed the event limit.
+Hash that request ID, as other internal broker IDs already do.
+
+Three permanent cases fail before correction: stale verification, changed policy safety, and 160-character trusted recovery.
+All 17 focused runner/broker cases pass after correction.
+PR #31 returns to draft while this round receives focused independent review and exact-head checks.
+The attached extension, adapter, client, tool schemas, and enqueue behavior do not change.
+The actual app result above retains its original source identity; this correction is not a new app execution.
+Normal release and fresh recovery remain covered by the focused cases.
+`device-auto-round-one-review` independently checks these changes and runs all 17 focused cases successfully.
+It finds no significant issue.
+It compares all four saved app admission bindings with their final grants; each binding matches.
+Its acceptance ruling requires no new app run for this bounded broker correction.
+This is focused test and artifact coverage, not a claim that the app executed corrected runtime bytes.
+The unchanged attached SDK contract retains its original D6 evidence.
+Combined correction suites report 536 passes, zero failures, and one existing platform skip.
+The complete layer now has 391 added and 11 removed production lines, still about 400.
+Only review-result metadata follows this focused review.
+
 ## Conclusion
 Actual serving-app synthetic handoff now passes without a coordinator nudge.
 Finish the documentation review and exact-head publication checks before reporting the stack ready.

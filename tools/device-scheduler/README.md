@@ -331,6 +331,7 @@ Its private `<policyPath>.operations` journal records uncertain launch, PID, and
 Duplicate operation IDs return saved state without execution.
 A nonzero exit, signal, missing process proof, or lost connection cannot establish safety.
 Safe release requires every operation complete and the last operation backed by an actual pinned safety admission.
+That admission must match the full current grant, including its generation and policy version.
 An acknowledgment with a forged event ID cannot supply that evidence.
 
 Shutdown closes admission, quarantines holders, and waits for admitted procedures before releasing its authority lock.

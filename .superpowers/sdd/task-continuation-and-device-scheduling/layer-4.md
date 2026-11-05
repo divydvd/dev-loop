@@ -52,7 +52,7 @@ No throughput target is specified. Existing history and asynchronous rejection c
 - Independent enforcement review: findings corrected and covered by later integration review.
 - Independent risky-task and final integration review: complete, with focused corrections.
 - Actual app acceptance: passes at `1ae98b7`; owned resources safely removed.
-- Remaining: final evidence-only commit checks, push, and PR readiness checks.
+- Remaining: focused review and publication of automatic-review round 1, then final exact-head checks.
 
 ## Task 5 enforcement and review
 - Initial policy/runner tests fail before implementation; subsequent six cases pass.
@@ -148,6 +148,30 @@ Cost if wrong: app acceptance can block readiness after publication; it must rem
 - `device-evidence-review` checks all four later documentation files against private acceptance and queued/final snapshots.
   It finds no significant issue; this is artifact-based review, not personal observation of the app.
   The plugin check and exact setup boundary check pass: 90 UTF-8 bytes accepted, 91 rejected.
+  Only reviewer-result metadata follows this review.
+
+## Automatic review correction round 1
+- Evidence-only head `4cb2f0f9e620ca958593e9aa97518ac22bd11e59` passes all final checks.
+  Combined suites: 533 passed, zero failed, one existing platform skip.
+  Both CI runtimes pass. Fresh isolated discovery finds the core rule and five skills.
+  All three owned temporary plugin homes are removed after discovery.
+- Readiness starts automatic review run `42105636282`.
+  It finds stale safety admission across recovery grants and an oversized trusted acknowledgment ID.
+  Restore draft state before correction. This is automatic fix round 1.
+- Three permanent regressions fail before the corrections.
+  Require the recorded safety admission's full current grant.
+  Hash the trusted acknowledgment's request ID.
+  All 17 focused cases then pass.
+- These changes preserve attached SDK code and nominal recorded app flow.
+  Retain the original app-tested source identity; do not call historical acceptance fresh execution.
+  Obtain focused independent review before this round's single push.
+- `device-auto-round-one-review` finds no significant issue and independently passes all 17 focused cases.
+  It reviews release/recovery interactions and checks the four actual saved grant bindings.
+  All match. No new app run is required for this bounded correction.
+  This does not claim that the app executed corrected bytes.
+  The original D6 source identity remains explicit.
+- Combined suites pass 536 tests, with zero failures and one existing platform skip.
+  Production size is now 391 added and 11 removed lines: still about 400.
   Only reviewer-result metadata follows this review.
 
 ## Conclusion

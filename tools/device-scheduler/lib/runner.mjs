@@ -95,6 +95,7 @@ export function createRunner({ store, policyPath }) {
             if (e.id !== startId(sessionId, r, { operationId: last.id, procedure, args: [] })) return false;
             const { event, authenticatedSession } = JSON.parse(e.signature);
             return event.kind === "operation_start" && authenticatedSession.id === sessionId &&
+              Object.keys(input.grant).every(k => event.payload[k] === input.grant[k]) &&
               event.payload.operationId === last.id && event.payload.purpose === p.purpose;
           }))) fail("SAFE_CHECK_REQUIRED");
       checkPin(d.helper);

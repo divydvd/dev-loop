@@ -101,3 +101,32 @@ test("uncertain execution retains ownership, trusted recovery verifies and recon
   await runner.run("a", input(recovery, "repair", "recover"));
   assert.equal((await runner.release("a", { grant: binding(recovery), result: "blocked" })).request.state, "released");
 });
+
+test("a recovery grant cannot release using verification from its previous generation", async t => {
+  const f = executionSetup(t), runner = await load(f), r = f.request();
+  await runner.run("a", input(r, "previous-safe", "verify"));
+  applyEvent(f.store, { id: "broker", role: "scheduler" }, event("fault", { ...binding(r), reason: "disconnected" }));
+  applyEvent(f.store, { id: "broker", role: "scheduler" }, event("recover", binding(r)));
+  const recovery = f.store.read().requests[0];
+  f.admit("a", "acknowledge", binding(recovery));
+  await assert.rejects(runner.release("a", { grant: binding(recovery), result: "blocked" }), /SAFE_CHECK_REQUIRED/);
+  assert.equal(f.store.read().devices[0].safety, "quarantined");
+  await runner.run("a", input(recovery, "current-safe", "recover"));
+  assert.equal((await runner.release("a", { grant: binding(recovery), result: "blocked" })).request.state, "released");
+});
+
+test("new policy cannot reinterpret an earlier unsafe admission as recovery safety evidence", async t => {
+  const f = executionSetup(t), runner = await load(f), r = f.request();
+  await runner.run("a", input(r, "previous-action", "act"));
+  f.policy.execution[0].procedures.act.safe = true;
+  f.policy.devices[0].policyVersion = 2; f.save();
+  const replacement = await load(f);
+  applyEvent(f.store, { id: "broker", role: "scheduler" }, event("policy", replacement.policy.devices[0]));
+  const revoked = f.store.read().requests[0];
+  applyEvent(f.store, { id: "broker", role: "scheduler" }, event("recover", binding(revoked)));
+  const recovery = f.store.read().requests[0];
+  f.admit("a", "acknowledge", binding(recovery));
+  await assert.rejects(replacement.release("a", { grant: binding(recovery), result: "blocked" }), /SAFE_CHECK_REQUIRED/);
+  await replacement.run("a", input(recovery, "current-safe", "recover"));
+  assert.equal((await replacement.release("a", { grant: binding(recovery), result: "blocked" })).request.state, "released");
+});

@@ -238,7 +238,7 @@ export async function startBroker({ directory, socketPath, policyPath }) {
         if (!r?.grant?.recovery || r.grant.revoked) fail("INVALID_GRANT");
         const grant = Object.fromEntries(["requestId", "device", "policyVersion", "generation"].map(k => [k, r.grant[k]]));
         applyEvent(store, { id: r.sessionId, role: "session" }, {
-          version: 1, id: `broker/recovery-ack/${requestId}/${r.grant.generation}`, kind: "acknowledge", payload: grant,
+          version: 1, id: `broker/recovery-ack/${createHash("sha256").update(requestId).digest("hex")}/${r.grant.generation}`, kind: "acknowledge", payload: grant,
         });
         await service.handle(r.sessionId, { version: 1, id: "trusted-recovery", kind: "device_run",
           payload: { grant, operationId, procedure, args: [] } });

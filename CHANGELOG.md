@@ -12,6 +12,7 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Independent enforcement review adds forged safety evidence, surviving processes, oversized status, reconnect, and token-identity regressions.
     Fresh reference consumers distinguish missing API knowledge from preserved baseline safety controls.
     Serving-app diagnostics require a short private socket path; disposable setup rejects paths above 90 UTF-8 bytes before writing enrollment.
+    Automatic review adds stale-generation and policy-reinterpretation safety regressions, plus trusted recovery for maximum-length request IDs.
   - **Check:** Run `node scripts/check.mjs`, every CI suite, temporary-home instruction/skill discovery, and the layer-4 acceptance matrix.
     See `docs/testing/device-testing-layer-4.md` for exact source identities, app observations, and required gaps.
     Synthetic procedures do not prove physical-phone acceptance or authorize monitor cutover.

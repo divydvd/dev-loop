@@ -71,9 +71,10 @@ test("changed configured identity cannot reuse saved device authority", async t 
   }), /INVALID_EXECUTION_POLICY/);
 });
 
-test("trusted recovery can complete after the original attached session is cancelled", async t => {
+for (const requestId of ["first", "r".repeat(160)]) {
+test(`trusted recovery after cancellation supports request ID length ${requestId.length}`, async t => {
   const f = await setup(t), a = await f.client("a");
-  await request(a, "first");
+  await request(a, requestId);
   const r = (await status(a)).requests[0];
   await call(a, "acknowledge", binding(r));
   await call(a, "device_run", { grant: binding(r), operationId: "action", procedure: "act", args: [] });
@@ -88,6 +89,7 @@ test("trusted recovery can complete after the original attached session is cance
   const result = await f.broker.recover({ requestId: recovery.id, operationId: "trusted-repair", procedure: "recover" });
   assert.equal(result.request.state, "released");
 });
+}
 
 test("status bounds request history and preserves broker authority", async t => {
   const f = await setup(t), a = await f.client("a"), b = await f.client("b");
