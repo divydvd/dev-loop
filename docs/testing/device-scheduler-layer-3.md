@@ -84,6 +84,9 @@ All 124 scheduler cases pass after correction, including the 93 unchanged inheri
 The response-write test injects one precise lower-level write failure; it asserts real admission state afterward.
 The large-record test adds valid delivery metadata without changing immutable history.
 Focused review and exact final-head verification remain required before the correction push.
+Reviewer `scheduler-events-round-one-review` covered correction commit `eba4e98` and its affected interactions.
+It found no new Critical or Important issue and independently passed all 124 scheduler cases.
+The plugin check also passed. Node 22/Linux correction evidence still depends on final-head CI.
 
 ## Required gaps and limits
 - No layer-specific required gap is currently known. Final-head verification and CI are still pending.

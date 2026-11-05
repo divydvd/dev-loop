@@ -97,3 +97,8 @@ The source remains inactive.
 - The buffered-command case injects a precise socket-write failure; the asserted result is real committed state.
 - The oversized-record case uses valid extra delivery metadata; no immutable field changes.
 - Focused independent review and final-head checks follow before the round-1 correction push.
+- Reviewer `scheduler-events-round-one-review` covered `5acd3db..eba4e98` and the affected interactions.
+  It found no new Critical or Important issue.
+  It independently passed all 124 scheduler cases and the plugin check on Node `26.12.1`.
+- The existing complete review plus both focused reviews accounts for final substantive source.
+  The following commit records evidence only.
