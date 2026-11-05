@@ -152,6 +152,7 @@ function transition(state, auth, { kind, payload: p }) {
         if (r.state === "waiting_owner") fail("INVALID_TRANSITION");
         if (grant.recovery && p.purpose !== "recovery") fail("RECOVERY_ONLY");
         if (r.operations.some(operation => operation.id === p.operationId)) fail("DUPLICATE_OPERATION");
+        if (!grant.recovery && r.operations.some(operation => operation.outcome !== "complete")) fail("UNRESOLVED_OPERATION");
         r.operations.push({ id: p.operationId, outcome: "inflight", purpose: p.purpose });
         if (!grant.recovery) r.state = "running";
         d.safety = grant.recovery ? "quarantined" : "uncertain";

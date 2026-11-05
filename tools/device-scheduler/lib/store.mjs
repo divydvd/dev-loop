@@ -45,6 +45,8 @@ function validate(state) {
     if (d.holder === r.id && (!g || g.generation !== d.generation || ["queued", "blocked", "released"].includes(r.state) ||
         (d.safety === "safe" && (r.operations.length > 0 || g.recovery)))) invalid();
     if (d.holder !== r.id && (g && !g.revoked || ["reserved", "running", "recovering"].includes(r.state))) invalid();
+    if (d.holder !== r.id && (r.operations.some(op => op.outcome !== "complete") ||
+        r.state === "cancelled" && r.operations.length > 0)) invalid();
   }
   for (const e of state.events) {
     if (typeof e.signature !== "string" || !e.result || !Array.isArray(e.result.outgoingEventIds) ||

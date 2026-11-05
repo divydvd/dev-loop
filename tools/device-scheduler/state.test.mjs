@@ -128,8 +128,8 @@ test("policy revocation invalidates use but preserves explicit recovery after qu
   acknowledge(store, alice, recovered);
   assert.throws(() => send(store, alice, "operation_start", { ...binding(recovered), operationId: "op-b", purpose: "test" }), /RECOVERY/);
   assert.throws(() => send(store, alice, "release", { ...binding(recovered), clean: true, result: "blocked" }), /UNRESOLVED/);
-  send(store, alice, "operation_finish", { ...binding(recovered), operationId: "op-a", outcome: "complete" });
   send(store, alice, "operation_start", { ...binding(recovered), operationId: "cleanup", purpose: "recovery" });
+  send(store, alice, "operation_finish", { ...binding(recovered), operationId: "op-a", outcome: "complete" });
   send(store, alice, "operation_finish", { ...binding(recovered), operationId: "cleanup", outcome: "complete" });
   send(store, alice, "release", { ...binding(recovered), clean: true, result: "blocked" });
   assert.equal(store.read().devices[0].holder, null);
@@ -334,3 +334,50 @@ test("a dangling state symlink is rejected before directory creation", t => {
   assert.throws(() => openStore({ directory: path.join(link, "child") }), /UNSAFE_PATH/);
   assert.equal(fs.existsSync(path.join(root, "absent")), false);
 });
+
+for (const outcome of ["inflight", "unknown"]) {
+  test(`an ${outcome} operation blocks new test admission until reconciliation`, t => {
+    const { store } = fixture(t);
+    policy(store);
+    request(store);
+    const grant = acknowledge(store);
+    send(store, alice, "operation_start", { ...binding(grant), operationId: "op-a", purpose: "test" });
+    if (outcome === "unknown") send(store, alice, "operation_finish", {
+      ...binding(grant), operationId: "op-a", outcome: "unknown",
+    });
+    const before = store.read();
+    assert.throws(() => send(store, alice, "operation_start", {
+      ...binding(grant), operationId: "op-b", purpose: "test",
+    }), /UNRESOLVED_OPERATION/);
+    assert.throws(() => send(store, alice, "operation_start", {
+      ...binding(grant), operationId: "op-cleanup", purpose: "recovery",
+    }), /UNRESOLVED_OPERATION/);
+    assert.deepEqual(store.read(), before);
+    send(store, alice, "operation_finish", { ...binding(grant), operationId: "op-a", outcome: "complete" });
+    assert.equal(send(store, alice, "operation_start", {
+      ...binding(grant), operationId: "op-b", purpose: "test",
+    }).replayed, false);
+  });
+}
+
+for (const outcome of ["inflight", "complete"]) {
+  test(`cancelled ${outcome} history cannot lose its holder without safe release`, t => {
+    const { store, directory } = fixture(t);
+    policy(store);
+    request(store);
+    const grant = acknowledge(store);
+    send(store, alice, "operation_start", { ...binding(grant), operationId: "op-a", purpose: "test" });
+    if (outcome === "complete") send(store, alice, "operation_finish", {
+      ...binding(grant), operationId: "op-a", outcome: "complete",
+    });
+    send(store, alice, "cancel", binding(grant));
+    const malformed = store.read();
+    malformed.devices[0].holder = null;
+    malformed.devices[0].safety = "safe";
+    const db = new DatabaseSync(path.join(directory, "scheduler.sqlite"));
+    db.prepare("UPDATE scheduler_state SET value=? WHERE id=1").run(JSON.stringify(malformed));
+    db.close();
+    assert.throws(() => eligibleRequests(store), /INVALID_DATABASE_STATE/);
+    assert.throws(() => openStore({ directory }), /INVALID_DATABASE_STATE/);
+  });
+}

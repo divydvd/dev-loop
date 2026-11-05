@@ -52,7 +52,23 @@ Layer 1 host discovery and executed-task acceptance remain separate required sta
 - Four overlapping requester processes preserve all requests and outbox records.
 - Two overlapping reservation processes admit exactly one grant.
 - Node `22.23.4` evidence remains pending the configured CI matrix; no local run is claimed.
-- Independent review and committed-head evidence remain pending. Pre-commit results are not final-head evidence.
+- At this candidate stage, independent review and committed-head evidence were pending.
+  Pre-commit results are not final-head evidence.
+
+## Independent review and corrections
+Reviewer `scheduler-state-review` covered all 11 changed files at `92dda06db0e3d6d0d00085ccf4334cb736ef9e4e`.
+It found two Important gaps: new operations after unknown outcomes, and malformed cancelled state losing its holder.
+Four regression cases fail before correction.
+The fixes block normal-grant operations until reconciliation and reject cancelled history without a holder.
+Recovery-only grants still permit explicit recovery while an earlier outcome remains unresolved.
+After correction, 36 scheduler tests pass.
+The combined required selection reports 323 passed, zero failed, and the same one inherited filesystem skip.
+Production modules total 317 lines. These are pre-publication results; the layer PR carries exact final-head and CI evidence.
+Reviewer `scheduler-correction-review` covered correction tree `6dc522a34eaeeb2f8d8cbde53785dcec9addd2d0`.
+It found no significant issue in the corrections and affected interactions.
+The initial review plus focused coverage accounts for the final substantive content.
+Later evidence notes do not change behavior.
+No deferred Minor finding remains.
 
 ## Conclusion
 Prove state safety before the broker consumes these interfaces.

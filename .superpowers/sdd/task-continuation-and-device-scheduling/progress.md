@@ -155,3 +155,28 @@ Missing app proof must prevent an integration-ready claim.
   Scheduler scope is 32 tests. Production source is 314 lines.
   Node `26.12.1` ran locally; Node `22.23.4` remains a CI check.
 - Review next: complete layer diff against `2b6b702`, including source, tests, docs, CI, matrix, and ledger.
+- Independent review: `scheduler-state-review` covered the complete 11-file diff at
+  `92dda06db0e3d6d0d00085ccf4334cb736ef9e4e`. It found two Important issues and no Minor issue.
+- Final: fixed unresolved-operation admission — inflight/unknown operation tests RED to GREEN.
+  Normal grants cannot admit another operation before reconciliation. New recovery-only grants preserve explicit recovery.
+- Final: fixed cancelled ownership validation — cancelled inflight/complete history tests RED to GREEN.
+  A malformed snapshot cannot drop that holder without explicit safe release.
+- Combined suites after fixes: 323 passed, zero failed, one inherited filesystem skip. Scheduler scope: 36 tests.
+  Production modules: 317 lines. Focused independent review will cover these corrections before push.
+- Ruling on review exclusions: assignment continuation and socket delivery remain outside this state layer.
+  Cost if wrong: no automatic-task or delivery acceptance can be claimed from this PR.
+- Ruling on review exclusions: physical identity resolution, procedure authorization, owner approval, and cleanup proof remain adapter duties.
+  Cost if wrong: this state API alone cannot authorize safe device operations.
+- Ruling on review exclusions: hostile same-user filesystem replacement is outside the private-path model.
+  Cost if wrong: these paths are not an OS isolation boundary.
+- Ruling on review exclusions: no retention or throughput requirement exists in this layer.
+  Cost if wrong: later deployment needs measured limits and reviewed compaction.
+- Ruling on review exclusions: app discovery, physical devices, and local Node 22 execution were not reviewed.
+  Cost if wrong: runtime acceptance remains incomplete; the CI matrix must establish Node 22 source checks.
+- Focused review: `scheduler-correction-review` checked tree `6dc522a34eaeeb2f8d8cbde53785dcec9addd2d0`.
+  It found no significant issue in the corrections or their affected interactions.
+  Its exclusions match the rulings above; they do not establish device, delivery, or activation acceptance.
+- Review coverage: the initial complete-diff review plus focused corrections covers final substantive content.
+  These later evidence notes change no runtime behavior. No deferred Minor finding remains.
+- Task 3 source and review are complete. Final-head checks, publication, and CI evidence belong to the layer PR.
+  Keep the earlier layer's host and executed-task gaps separate. No merge or activation is authorized.

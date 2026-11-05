@@ -101,6 +101,8 @@ Used cancellation, unclean release, infrastructure loss, and policy revocation r
 Recovery grants preserve those duties after policy revocation; they do not permit new test operations.
 The original session must acknowledge the new grant.
 Recovery can record a reconciled outcome for an earlier unresolved operation.
+An unresolved operation blocks further operations under a normal grant.
+A new recovery-only grant can admit recovery operations while the original outcome remains unresolved.
 A clean release requires every operation to have a known complete outcome.
 Only that explicit release can mark the device safe and free the resources.
 
