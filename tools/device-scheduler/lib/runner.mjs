@@ -61,16 +61,17 @@ export function createRunner({ store, policyPath }) {
       try {
         const args = p.arguments.map(a => a === "{device}" ? device.identity : a === "{helper}" ? device.helper.path : a);
         const outcome = await new Promise((resolve, reject) => {
-          let child, spawnFailed = false;
+          let child, spawnFailed = false, journalError;
           try { child = spawn(p.program.path, args, { shell: false, stdio: "ignore", env: {} }); }
           catch { record(r, op.operationId, { pid: null, exited: true }); resolve("unknown"); return; }
           child.once("error", () => { spawnFailed = true; });
           child.once("close", (code, signal) => {
             try { record(r, op.operationId, { pid: child.pid ?? null, exited: true }); }
-            catch (error) { reject(error); return; }
-            resolve(code === 0 && !signal && !spawnFailed ? "complete" : "unknown");
+            catch (error) { reject(journalError ?? error); return; }
+            if (journalError) reject(journalError); else resolve(code === 0 && !signal && !spawnFailed ? "complete" : "unknown");
           });
-          record(r, op.operationId, { pid: child.pid ?? null, exited: false });
+          try { record(r, op.operationId, { pid: child.pid ?? null, exited: false }); }
+          catch (error) { journalError = error; }
         });
         emit(sessionId, "operation_finish", { ...op.grant, operationId: op.operationId, outcome });
         if (outcome === "unknown") {

@@ -130,3 +130,31 @@ test("new policy cannot reinterpret an earlier unsafe admission as recovery safe
   await replacement.run("a", input(recovery, "current-safe", "recover"));
   assert.equal((await replacement.release("a", { grant: binding(recovery), result: "blocked" })).request.state, "released");
 });
+
+test("post-spawn journal failure retains execution until the admitted child exits", async t => {
+  const f = executionSetup(t), runner = await load(f), r = f.request();
+  const rename = fs.renameSync;
+  let writes = 0, pid;
+  fs.renameSync = (from, to) => {
+    if (to === `${f.policyPath}.operations` && ++writes === 2) {
+      pid = Object.values(JSON.parse(fs.readFileSync(from, "utf8")))[0].pid;
+      throw Object.assign(new Error("injected PID persistence failure"), { code: "EIO" });
+    }
+    return rename(from, to);
+  };
+  t.after(async () => {
+    fs.renameSync = rename;
+    const deadline = Date.now() + 3000;
+    while (pid) {
+      try { process.kill(pid, 0); }
+      catch (error) { if (error.code === "ESRCH") break; throw error; }
+      assert.ok(Date.now() < deadline, "owned synthetic child must exit");
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+  });
+  await assert.rejects(runner.run("a", input(r, "journal-fault", "slow")), /injected PID persistence failure/);
+  assert.ok(Number.isSafeInteger(pid));
+  assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  assert.equal(runner.active.has(r.id), false);
+  assert.equal(f.store.read().requests[0].operations[0].outcome, "inflight");
+});

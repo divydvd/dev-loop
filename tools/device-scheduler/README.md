@@ -335,6 +335,7 @@ That admission must match the full current grant, including its generation and p
 An acknowledgment with a forged event ID cannot supply that evidence.
 
 Shutdown closes admission, quarantines holders, and waits for admitted procedures before releasing its authority lock.
+If PID persistence fails after spawn, the runner retains that error and waits for child exit before rejecting.
 After a crash, recovery refuses a live recorded PID.
 PID reuse causes conservative refusal, not release.
 A missing PID or journal entry reports `PROCESS_QUIESCENCE_UNKNOWN`.
@@ -360,8 +361,12 @@ It acknowledges transport delivery only after known admission.
 Uncertain admission remains visible in `device_status`; it is not automatically sent again.
 
 Native cancellation and explicit owner stop close the connection and stop notification delivery.
+All later requester calls, including status, fail with `SESSION_STOPPED` without reconnecting.
+Use trusted `broker.status()` to inspect recovery after requester cancellation.
 Socket loss does not resend an operation.
 The adapter reconnects on transport closure or socket-creation events, without a polling timer.
+`FRAME_TOO_LARGE` remains a transport error and stops immediate retries.
+After repair, an explicit call or later socket-creation event can reconnect.
 Attachment also enrolls immediately so a recreated idle requester can receive durable events.
 Late enrollment cannot admit work after native cancellation.
 Use `generation: null` for an unheld request's owner-wait, resume, or cancellation.

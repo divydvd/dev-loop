@@ -52,7 +52,7 @@ No throughput target is specified. Existing history and asynchronous rejection c
 - Independent enforcement review: findings corrected and covered by later integration review.
 - Independent risky-task and final integration review: complete, with focused corrections.
 - Actual app acceptance: passes at `1ae98b7`; owned resources safely removed.
-- Remaining: focused review and publication of automatic-review round 1, then final exact-head checks.
+- Remaining: focused review and publication of automatic-review round 2, then final exact-head checks.
 
 ## Task 5 enforcement and review
 - Initial policy/runner tests fail before implementation; subsequent six cases pass.
@@ -149,6 +149,30 @@ Cost if wrong: app acceptance can block readiness after publication; it must rem
   It finds no significant issue; this is artifact-based review, not personal observation of the app.
   The plugin check and exact setup boundary check pass: 90 UTF-8 bytes accepted, 91 rejected.
   Only reviewer-result metadata follows this review.
+
+## Automatic review correction round 2
+- Corrected head `739f72bb7816e58e097d8685d90d1d7f45d13e66` passes 536 tests, one platform skip, and both CI runtimes.
+  Run `42107644652` confirms the first two findings resolved.
+  It finds a post-spawn journal failure escaping the barrier, stopped status revoking recovery, and permanent-frame reconnect loops.
+- Restore draft state. This is the second and final permitted automatic fix round.
+  Three permanent regressions fail before correction.
+  Retain post-spawn errors until child exit.
+  Reject stopped status before enrollment.
+  Preserve `FRAME_TOO_LARGE` and stop immediate retries.
+- The first corrected run exposes two fixture issues: unresolved outcome is `inflight`, and a later filesystem event can legitimately reconnect.
+  Correct the outcome assertion and isolate closure-triggered retries from filesystem events.
+  Retain separate real socket-creation reconnect coverage.
+  All 26 focused cases pass.
+- Require focused independent review and acceptance reassessment for the changed adapter lifecycle.
+  Keep actual app observations pinned to `1ae98b7`; never imply those sessions executed later bytes.
+- `device-auto-round-two-review` finds no significant issue and independently passes all 26 focused cases.
+  It requires no new app run for these bounded lifecycle changes.
+  This is focused runtime and artifact evidence, not execution of corrected bytes in the app.
+- All combined suites pass 539 tests, with zero failures and one existing platform skip.
+  Final production size is 393 added and 11 removed lines: about 400.
+  Publish this second round once, then stop fix iterations.
+  The PR body records final commit identity, exact-head checks, and any remaining automatic findings.
+  No third correction round is authorized.
 
 ## Automatic review correction round 1
 - Evidence-only head `4cb2f0f9e620ca958593e9aa97518ac22bd11e59` passes all final checks.

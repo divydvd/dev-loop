@@ -77,9 +77,10 @@ export function attachDeviceSession(session, {
       } });
       if (stopped || halted()) { await client.close(); fail("SESSION_STOPPED"); }
       connection = client; transportError = null;
-      client.closed.then(() => {
+      client.closed.then(reason => {
         if (connection === client) connection = undefined;
-        if (!stopped && !halted()) setImmediate(resume);
+        transportError = reason;
+        if (!stopped && !halted() && reason !== "FRAME_TOO_LARGE") setImmediate(resume);
       });
       return client;
     })().finally(() => { connecting = undefined; });
@@ -95,7 +96,7 @@ export function attachDeviceSession(session, {
   });
   const adapter = {
     async call(name, input) {
-      if (name !== "device_status" && (stopped || halted())) fail("SESSION_STOPPED");
+      if (stopped || halted()) fail("SESSION_STOPPED");
       const client = await connect(), e = enrollment();
       if (name === "device_status") return { ...await client.request(event(name, input)), notifications: notices, transportError };
       if (stopped || halted()) fail("SESSION_STOPPED");

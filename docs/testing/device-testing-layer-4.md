@@ -190,6 +190,33 @@ Combined correction suites report 536 passes, zero failures, and one existing pl
 The complete layer now has 391 added and 11 removed production lines, still about 400.
 Only review-result metadata follows this focused review.
 
+## Automatic review correction round 2
+Automatic review at `739f72bb7816e58e097d8685d90d1d7f45d13e66` confirms the first round resolved both earlier findings.
+It reports three further concrete faults.
+A failed PID-journal write after spawn can clear the execution barrier while the child remains alive.
+A stopped status call can reconnect and revoke a later trusted recovery grant.
+An oversized durable notification can cause immediate enrollment loops.
+
+Three permanent cases fail before correction.
+The runner now retains the persistence error until actual child exit.
+All stopped requester calls fail before connection, including status.
+The adapter preserves `FRAME_TOO_LARGE` and waits for explicit retry or a later socket event.
+Existing socket-creation tests still prove idle reconnection.
+The closure-loop case controls filesystem events to test immediate retries alone.
+An initial check also uses the wrong unresolved outcome value; the actual reducer value is `inflight`.
+All 26 focused runner, broker, attached-session, and reconnect cases pass after correction.
+This is the second and final permitted automatic fix round.
+Final independent coverage, exact-head checks, and acceptance reassessment remain required before publication.
+`device-auto-round-two-review` finds no significant issue and independently passes all 26 focused cases.
+It reviews persistence, shutdown barriers, cancelled-session recovery, repaired retry, and retained socket-creation coverage.
+Its acceptance ruling requires no new actual-app D6 run for these bounded changes.
+The historical app source remains explicit; the reviewer does not claim that the app executed corrected bytes.
+Combined correction suites report 539 passes, zero failures, and one existing platform skip.
+The final production count is 393 added and 11 removed lines: about 400.
+Only reviewer-result metadata follows the focused review.
+The PR evidence table records the final committed/pushed identity and exact-head CI.
+No third fix round is authorized.
+
 ## Conclusion
 Actual serving-app synthetic handoff now passes without a coordinator nudge.
 Finish the documentation review and exact-head publication checks before reporting the stack ready.
