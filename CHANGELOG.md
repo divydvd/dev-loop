@@ -10,9 +10,13 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Reject sparse policy arrays and malformed state that discards owner-wait recovery ownership.
     Retain policy history to validate pinned resources and reject conflicting saved holders.
     Reject restored normal grants on quarantined or revoked ownership while preserving recovery-only grants.
+    Compare saved summaries, event results, and outgoing snapshots with committed event history through the same state reducer.
+    Reject erased operations and restored recovery authority without guessing a repair or discarding held resources.
     Do not start a service, use a real device, or change the live monitor or work-ledger.
   - **Why:** The approved scheduler design needs durable ownership before it can add event delivery.
     A timeout, lost connection, or cancellation cannot prove that a used device is safe.
+    Three final probes admitted duplicate operations or withdrawn recovery grants after isolated saved-state changes.
+    The owner approved one state-model correction and review cycle; persistence regressions fail before the correction.
   - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/device-scheduler/{state,queue}.test.mjs`.
     Inspect `docs/testing/device-scheduler-layer-2.md` for the acceptance cases and source-only limits.
     The next weekly review checks grant conflicts, stale generations, unresolved operations, and honest separation from live acceptance.

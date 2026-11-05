@@ -32,6 +32,10 @@ All cases are required. Results and reviewed identities are recorded after execu
 | D11 | Public modes, symlinks, hard links, malformed database | Reject unsafe state without modifying foreign targets | `state.test.mjs` |
 | D12 | Unsupported version/schema, supported Node targets | Explicit rejection; run on Node 22.23.4 and 26.12.1 | `state.test.mjs`, CI matrix |
 | D13 | Clear a saved revoked flag after fault, cancellation, or policy revocation | Reject the old normal grant; require recovery | Six RED-to-GREEN cases in `state.test.mjs`; history below |
+| D14 | Erase completed, inflight, or unknown operation history during running or owner wait | Reject inconsistent summaries before replay, admission, cancellation, or release | Event-history cases in `state.test.mjs` |
+| D15 | Restore revoked normal/recovery grants after repeated fault, policy withdrawal, or cancellation | Reject withdrawn authority; retain holder/resources; require a fresh acknowledged recovery generation | Event-history cases in `state.test.mjs` |
+| D16 | Missing, malformed, reordered, or inconsistent event/result/outbox records | Explicit failure on read, reopen, eligibility, or mutation; no partial writes or inferred repair | Event-history cases in `state.test.mjs` |
+| D17 | Valid restart, duplicate event/request, owner wait, recovery renewal, and stale generations | Preserve replay semantics, recovery-only scope, owner waits, and atomic state/outbox | Event-history cases plus existing D2, D5-D10 |
 | P1 | Existing plugin and runtime controls | Preserve passing behavior | Existing CI suites and plugin check |
 
 ## Selection and limits
@@ -41,6 +45,7 @@ Select all current CI suites and add the scheduler cases.
 Invalid input, authority, concurrency, recovery, storage, and compatibility apply.
 No UI, accessibility, network delivery, or device procedure exists in this layer.
 Performance has no measured target; bounded event input is required, not a throughput claim.
+The history correction adds replay work on state access. No throughput or retention claim is made.
 Layer 1 serving-app attachment and app-executed acceptance remain separate required stack gaps.
 The updated lower layer proves executable SDK repairs and safety stops, but baseline continuation faults remain zero.
 No measured improvement is claimed.
@@ -147,6 +152,40 @@ Live normal grants now require a current enabled policy and reserved/running sta
 Quarantined ownership requires a recovery-only grant; cancelled requests cannot retain live grants.
 Operation admission checks the same safety context before it can change request or device state.
 Existing recovery-only operations retain their original policy bindings.
+
+## Event-history authority correction
+The final review at `558aa97` found two remaining state-model gaps.
+Erasing operation history admitted a duplicate start during running and owner wait.
+Restoring a revoked recovery flag admitted a recovery operation without a new grant.
+The owner approved the plan's event-history addendum and one bounded implementation/review cycle.
+
+The store now reconstructs domain state from existing event signatures through the same admission reducer.
+It validates historical input, event order, stored results, and immutable outgoing snapshots.
+It rejects a mismatch before returning state or committing a change.
+It never persists the reconstructed state or guesses missing authority.
+Delivery metadata remains separate from immutable outgoing fields; no delivery protocol is implemented.
+This is private-state consistency, not protection against rewriting the whole database.
+
+| Cases | Method and observed result before correction |
+| --- | --- |
+| D14 | Six normal-operation cases fail for erased inflight, unknown, and complete history, with and without owner wait |
+| D15 | Six recovery cases fail after fault, repeated fault, and policy withdrawal, with and without owner wait |
+| D16 | Ten missing or inconsistent history/result cases and one invalid transaction write fail |
+| D13, D15, D17 controls | Twelve cases already pass, including normal revocation, recovery cancellation, missing outbox, and valid recovery/restart |
+
+The saved RED run has 35 cases: 23 fail and 12 pass at unchanged production source `558aa97`.
+Eight further controls cover erased recovery operations, forged unused state, and separate delivery metadata.
+All 93 scheduler cases pass with the correction on Node `26.12.1`.
+The combined project selection reports 389 tests: 388 pass, zero fail, and one inherited filesystem skip.
+`node scripts/check.mjs` reports no faults. Production modules total 358 lines.
+These are candidate results. Exact committed-head verification, independent review, CI, and remaining findings follow in the PR and session record.
+
+The existing D1-D13 and P1 checks remain selected and unchanged.
+They cover concurrent handles/processes, independent lanes, resource conflicts, interruption, cancellation, and atomic state/outbox writes.
+D17 adds a positive restart and replay case with repeated faults, policy withdrawal, owner wait, and renewed recovery.
+It checks stale generations, recovery-only scope, duplicate operation rejection, reconciliation, and explicit release.
+No live device, delivery, service, or serving-app acceptance is inferred.
+The approved one-cycle boundary remains in force after publication.
 
 The full integrated selection reports 345 passed, zero failed, and one inherited filesystem skip.
 All 50 scheduler tests pass, including the six D13 cases.

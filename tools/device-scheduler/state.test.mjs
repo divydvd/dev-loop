@@ -520,3 +520,197 @@ for (const cause of ["fault", "cancel", "policy"]) {
     assert.deepEqual(store.read(), before);
   });
 }
+
+function rejectSavedHistory({ store, directory }, change, action) {
+  const saved = store.read();
+  change(saved);
+  const serialized = JSON.stringify(saved);
+  const db = new DatabaseSync(path.join(directory, "scheduler.sqlite"));
+  try {
+    db.prepare("UPDATE scheduler_state SET value=? WHERE id=1").run(serialized);
+    assert.throws(() => store.read(), /INVALID_DATABASE_STATE/);
+    assert.throws(() => {
+      const reopened = openStore({ directory });
+      reopened.close();
+    }, /INVALID_DATABASE_STATE/);
+    assert.throws(() => eligibleRequests(store), /INVALID_DATABASE_STATE/);
+    assert.throws(action, /INVALID_DATABASE_STATE/);
+    assert.equal(db.prepare("SELECT value FROM scheduler_state WHERE id=1").get().value, serialized);
+  } finally { db.close(); }
+}
+
+for (const outcome of ["inflight", "unknown", "complete"]) {
+  for (const waiting of [false, true]) {
+    test(`event history rejects erased ${outcome} operations${waiting ? " during owner wait" : ""}`, t => {
+      const setup = fixture(t), { store } = setup;
+      policy(store);
+      request(store);
+      const grant = acknowledge(store), bound = binding(grant);
+      send(store, alice, "operation_start", { ...bound, operationId: "op-a", purpose: "test" }, "original-start");
+      if (outcome !== "inflight") send(store, alice, "operation_finish", { ...bound, operationId: "op-a", outcome });
+      if (waiting) send(store, alice, "wait_owner", bound);
+      rejectSavedHistory(setup, state => { state.requests[0].operations = []; }, () => {
+        if (waiting) send(store, alice, "resume", bound);
+        send(store, alice, "operation_start", { ...bound, operationId: "op-a", purpose: "test" }, "duplicate-start");
+      });
+    });
+  }
+}
+
+for (const outcome of ["inflight", "unknown", "complete"]) {
+  for (const waiting of [false, true]) {
+    test(`event history rejects erased ${outcome} recovery operations${waiting ? " during owner wait" : ""}`, t => {
+      const setup = fixture(t), { store } = setup;
+      policy(store);
+      request(store);
+      const normal = acknowledge(store);
+      send(store, broker, "fault", { ...binding(normal), reason: "crash" });
+      const recovery = send(store, broker, "recover", binding(normal)).request.grant;
+      acknowledge(store, alice, recovery);
+      const bound = binding(recovery);
+      send(store, alice, "operation_start", { ...bound, operationId: "cleanup", purpose: "recovery" });
+      if (outcome !== "inflight") send(store, alice, "operation_finish", { ...bound, operationId: "cleanup", outcome });
+      if (waiting) send(store, alice, "wait_owner", bound);
+      rejectSavedHistory(setup, state => { state.requests[0].operations = []; }, () => {
+        if (waiting) send(store, alice, "resume", bound);
+        send(store, alice, "operation_start", { ...bound, operationId: "cleanup", purpose: "recovery" });
+      });
+    });
+  }
+}
+
+for (const recovery of [false, true]) {
+  for (const cause of ["fault", "repeated-fault", "policy", "cancel"]) {
+    for (const waiting of [false, true]) {
+      test(`event history rejects restored ${recovery ? "recovery" : "normal"} authority after ${cause}${waiting ? " during owner wait" : ""}`, t => {
+        const setup = fixture(t), { store } = setup;
+        policy(store);
+        request(store);
+        let grant = acknowledge(store);
+        send(store, alice, "operation_start", { ...binding(grant), operationId: "op-a", purpose: "test" });
+        send(store, alice, "operation_finish", { ...binding(grant), operationId: "op-a", outcome: "complete" });
+        if (recovery) {
+          send(store, broker, "fault", { ...binding(grant), reason: "crash" });
+          grant = send(store, broker, "recover", binding(grant)).request.grant;
+          acknowledge(store, alice, grant);
+        }
+        if (waiting) send(store, alice, "wait_owner", binding(grant));
+        if (cause === "policy") policy(store, "synthetic-android", [], 2, false);
+        else if (cause === "cancel") send(store, alice, "cancel", binding(grant));
+        else {
+          send(store, broker, "fault", { ...binding(grant), reason: "crash" });
+          if (cause === "repeated-fault") send(store, broker, "fault", { ...binding(grant), reason: "timeout" });
+        }
+        rejectSavedHistory(setup, state => { state.requests[0].grant.revoked = false; }, () => {
+          send(store, alice, "operation_start", {
+            ...binding(grant), operationId: "unexpected", purpose: recovery ? "recovery" : "test",
+          });
+        });
+      });
+    }
+  }
+}
+
+const historyChanges = [
+  ["missing events", state => { state.events = []; }],
+  ["missing start record", state => { state.events = state.events.filter(e => e.id !== "original-start"); }],
+  ["missing grant record", state => { state.events = state.events.filter(e => e.result.request?.state !== "reserved"); }],
+  ["reordered events", state => { state.events.reverse(); }],
+  ["invalid signature JSON", state => { state.events[0].signature = "{"; }],
+  ["invalid historical event", state => {
+    const saved = JSON.parse(state.events[0].signature);
+    saved.event.version = 2;
+    state.events[0].signature = JSON.stringify(saved);
+  }],
+  ["inconsistent historical result", state => { state.events.at(-1).result.request.operations = []; }],
+  ["inconsistent outbox snapshot", state => { state.outbox.at(-1).request.operations = []; }],
+  ["changed operation identity", state => { state.requests[0].operations[0].id = "forgotten"; }],
+  ["invented completion", state => { state.requests[0].operations[0].outcome = "complete"; }],
+  ["invented unused reservation", state => {
+    state.requests[0].operations = [];
+    state.requests[0].state = "reserved";
+    state.devices[0].safety = "safe";
+  }],
+  ["missing outbox", state => { state.outbox = []; }],
+];
+for (const [name, change] of historyChanges) {
+  test(`event history rejects ${name} without repairing or admitting a replay`, t => {
+    const setup = fixture(t), { store } = setup;
+    policy(store);
+    request(store);
+    const grant = acknowledge(store);
+    const payload = { ...binding(grant), operationId: "op-a", purpose: "test" };
+    send(store, alice, "operation_start", payload, "original-start");
+    rejectSavedHistory(setup, change, () => send(store, alice, "operation_start", payload, "original-start"));
+  });
+}
+
+test("event history rejects inconsistent transaction writes atomically", t => {
+  const { store } = fixture(t);
+  policy(store);
+  request(store);
+  const grant = acknowledge(store);
+  send(store, alice, "operation_start", { ...binding(grant), operationId: "op-a", purpose: "test" });
+  const before = store.read();
+  assert.throws(() => store.transaction(state => { state.requests[0].operations = []; }), /INVALID_DATABASE_STATE/);
+  assert.deepEqual(store.read(), before);
+});
+
+test("event history retains outgoing records while allowing separate delivery metadata", t => {
+  const { store, directory } = fixture(t);
+  policy(store);
+  store.transaction(state => { state.outbox[0].deliveryAcknowledged = true; });
+  request(store);
+  const reopened = openStore({ directory });
+  t.after(() => reopened.close());
+  assert.equal(reopened.read().outbox[0].deliveryAcknowledged, true);
+  assert.equal(reopened.read().outbox.length, 2);
+});
+
+test("event history preserves restart, replay, owner waits, and renewed recovery after withdrawal", t => {
+  const { store, directory } = fixture(t);
+  policy(store, "synthetic-android", ["shared-host"]);
+  policy(store, "synthetic-ios", ["shared-host"]);
+  request(store);
+  request(store, bob, "request-b", "synthetic-ios");
+  const normal = acknowledge(store), bound = binding(normal);
+  const payload = { ...bound, operationId: "op-a", purpose: "test" };
+  const original = send(store, alice, "operation_start", payload, "stable-start");
+  send(store, alice, "operation_finish", { ...bound, operationId: "op-a", outcome: "unknown" });
+  send(store, alice, "wait_owner", bound);
+  send(store, broker, "fault", { ...bound, reason: "crash" });
+  let recovery = send(store, broker, "recover", bound).request.grant;
+  acknowledge(store, alice, recovery);
+  policy(store, "synthetic-android", [], 2, false);
+  send(store, broker, "fault", { ...binding(recovery), reason: "disconnected" });
+  send(store, broker, "fault", { ...binding(recovery), reason: "timeout" });
+  const stale = recovery;
+  recovery = send(store, broker, "recover", binding(stale)).request.grant;
+  assert.equal(recovery.generation, stale.generation + 1);
+  const beforeRestart = store.read(), reopened = openStore({ directory });
+  t.after(() => reopened.close());
+  assert.deepEqual(reopened.read(), beforeRestart);
+  assert.deepEqual(send(reopened, alice, "operation_start", payload, "stable-start"), { ...original, replayed: true });
+  assert.deepEqual(reopened.read(), beforeRestart);
+  assert.equal(request(reopened).request.state, "waiting_owner");
+  acknowledge(reopened, alice, recovery);
+  assert.throws(() => send(reopened, alice, "acknowledge", binding(stale)), /INVALID_GRANT/);
+  assert.throws(() => send(reopened, alice, "operation_start", {
+    ...binding(recovery), operationId: "cleanup", purpose: "recovery",
+  }), /INVALID_TRANSITION/);
+  assert.deepEqual(eligibleRequests(reopened), []);
+  send(reopened, alice, "resume", binding(recovery));
+  assert.throws(() => send(reopened, alice, "operation_start", {
+    ...binding(recovery), operationId: "cleanup", purpose: "test",
+  }), /RECOVERY_ONLY/);
+  assert.throws(() => send(reopened, alice, "operation_start", {
+    ...binding(recovery), operationId: "op-a", purpose: "recovery",
+  }), /DUPLICATE_OPERATION/);
+  send(reopened, alice, "operation_start", { ...binding(recovery), operationId: "cleanup", purpose: "recovery" });
+  send(reopened, alice, "operation_finish", { ...binding(recovery), operationId: "cleanup", outcome: "complete" });
+  send(reopened, alice, "operation_finish", { ...binding(recovery), operationId: "op-a", outcome: "complete" });
+  send(reopened, alice, "release", { ...binding(recovery), clean: true, result: "blocked" });
+  assert.equal(reopened.read().devices[0].holder, null);
+  assert.equal(reopened.read().devices[0].safety, "safe");
+  assert.deepEqual(eligibleRequests(reopened).map(r => r.id), ["request-b"]);
+});

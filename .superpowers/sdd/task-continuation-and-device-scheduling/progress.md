@@ -353,3 +353,38 @@ Missing app proof still prevents an integration-ready claim.
   Production modules: 337 lines. The final candidate includes base `300337d` and integration review at `6bc5ec5`.
   The final focused reviewer will inspect the exact candidate commit; publish that same commit if no further source change is needed.
   Record final review/CI in the PR and session execution record to avoid changing the reviewed commit for evidence notes.
+
+### Owner-authorized state-model correction
+- Authority: the coordinator reports the owner selected
+  "Approve the state-model correction and one review cycle (Recommended)".
+  The plan contains the exact approved event-history addendum. One implementation/review cycle and publication are permitted.
+  No further corrective cycle, merge, or activation is authorized.
+- Start identity: `558aa97c5a452ceba124dedd06827d81285cd846`; the integrated base remains `300337d`.
+- Root cause: validation checks mutable summaries without reconciling committed event signatures and recorded results.
+  Erasing operations removes duplicate evidence. Clearing recovery revocation restores an old acknowledged generation.
+- Required matrix saved before implementation: D14-D17 extend D1-D13 and P1 in `docs/testing/device-scheduler-layer-2.md`.
+- Ruling: replay existing validated events through the same reducer into a detached state, then compare with saved summaries and records.
+  Reject differences; never write the reconstructed state, infer missing events, or release ownership.
+  This uses committed history, not another mutable permission flag.
+  Cost if wrong: deterministic reducer changes need explicit compatibility review; replay adds work as history grows.
+- Public interfaces, authenticated contexts, event payloads, and generation bindings stay unchanged.
+  No socket, delivery, platform, work-ledger, installation, or device operation is in scope.
+- Estimated added production source: about 30-45 lines; complete layer remains below 400.
+- Current status: regression tests next; the two prior failures remain preserved until the corrected model passes.
+- RED at unchanged production head `558aa97`: 35 history cases ran; 23 failed with missing expected rejection.
+  Twelve controls already passed, including normal revocation, recovery cancellation, missing outbox, and valid recovery/restart.
+  The failures include all erased-operation variants, six recovery-revocation variants, and inconsistent history/result snapshots.
+  Full output is retained as `scheduler-history-red.log` in session files.
+- Ruling: compare domain state, complete event records, and immutable outgoing fields after deterministic replay.
+  Keep optional delivery metadata outside that comparison, as the existing store contract allows later acknowledgment fields.
+  Cost if wrong: layer 3 must define and validate its delivery metadata without changing immutable outgoing records.
+- GREEN: all 93 scheduler cases pass. The 23 observed RED failures now reject inconsistent saved history.
+  Eight additional controls cover erased recovery history, forged unused state, and separate delivery metadata.
+  The combined selection reports 389 tests: 388 pass, zero fail, one inherited case-sensitive-filesystem skip.
+  `node scripts/check.mjs` reports no faults. Production modules total 358 lines.
+- The reducer has one admission helper for live events and history reconstruction.
+  The store performs comparison on read and on the serialized snapshot before commit.
+  Public results and event payloads remain unchanged. No reconstruction result is written as a repair.
+- Review next: one independent review of the exact correction commit and its affected interactions.
+  Record reviewer identity, verdict, final-head verification, and CI in the PR/session evidence to preserve the reviewed SHA.
+  If review finds a further required correction, stop and report it rather than start another corrective cycle.

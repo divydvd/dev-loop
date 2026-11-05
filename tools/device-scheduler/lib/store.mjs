@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { validateHistory } from "./queue.mjs";
 
 function privatePath(file, directory) {
   const stat = fs.lstatSync(file);
@@ -72,6 +73,7 @@ function validate(state) {
       state.outbox.some(e => !e || typeof e.id !== "string" || !e.id.endsWith(":state") ||
       !identifier(e.id.slice(0, -6)) || !identifier(e.sessionId) || typeof e.kind !== "string" ||
       !(e.request === null || e.request && identifier(e.request.id)))) invalid();
+  validateHistory(state);
   return state;
 }
 

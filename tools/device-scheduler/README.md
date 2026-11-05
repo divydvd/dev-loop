@@ -21,6 +21,13 @@ It rejects other schema versions, malformed state, and failed SQLite integrity c
 The state retains each policy version in increasing order for each device.
 The last policy for a device controls new requests; saved requests retain their original resource prerequisites.
 Missing policy history, mismatched resources, and conflicting resource holders cause explicit rejection.
+Committed event signatures are the authority for request and grant history.
+On each read and before commit, the store replays validated events through the same reducer into a detached state.
+It compares that state with saved requests, devices, policies, event results, and immutable outgoing fields.
+Missing or inconsistent records cause `INVALID_DATABASE_STATE`, including before an exact event replay.
+The store never writes the reconstructed state, restores authority, or frees a holder to repair a mismatch.
+This is private-state consistency, not protection against code that can rewrite the complete database and its history.
+The existing schema remains version 1. Consistent earlier snapshots remain valid; inconsistent snapshots fail without migration or repair.
 `BEGIN IMMEDIATE` serializes writers across handles and processes.
 `synchronous=FULL` commits the state and outbox together.
 A process interruption before commit leaves neither change visible.
@@ -35,7 +42,10 @@ Only trusted scheduler code can use this handle.
 Use `applyEvent` for domain changes. Do not edit grants or device safety through `transaction`.
 The later delivery layer can use a transaction to record outbox acknowledgments.
 Retain outgoing records because duplicate events refer to their IDs.
+Delivery metadata may extend outgoing records but cannot change their IDs, session, kind, or request snapshots.
+This layer does not define or validate a delivery acknowledgment protocol.
 No retention, compaction, throughput target, or network acknowledgment API is provided here.
+History replay adds work as records grow. Future retention or reducer changes need an explicit compatibility design.
 
 ## Authenticated events
 Use `applyEvent(store, authenticatedSession, event)` from `lib/queue.mjs`.

@@ -176,24 +176,43 @@ function transition(state, auth, { kind, payload: p }) {
   return r;
 }
 
+function admit(state, authenticatedSession, event) {
+  const signature = canonical({ authenticatedSession, event });
+  const previous = state.events.find(record => record.id === event.id);
+  if (previous) {
+    if (previous.signature !== signature) fail("EVENT_CONFLICT");
+    return { ...structuredClone(previous.result), replayed: true };
+  }
+  const request = transition(state, authenticatedSession, event);
+  const outgoing = {
+    id: `${event.id}:state`, sessionId: request?.sessionId ?? authenticatedSession.id,
+    kind: event.kind, request: structuredClone(request),
+  };
+  state.outbox.push(outgoing);
+  const result = { request: structuredClone(request), outgoingEventIds: [outgoing.id], replayed: false };
+  state.events.push({ id: event.id, signature, result });
+  return result;
+}
+
+/** Reconstruct only for comparison. Never repair state or recover authority by replay. */
+export function validateHistory(state) {
+  const replay = { version: 1, next: 0, requests: [], devices: [], policies: [], events: [], outbox: [] };
+  try {
+    for (const record of state.events) {
+      const { authenticatedSession, event } = JSON.parse(record.signature);
+      validate(authenticatedSession, event);
+      if (admit(replay, authenticatedSession, event).replayed) fail("DUPLICATE_HISTORY");
+    }
+    const outgoing = state.outbox.map(({ id, sessionId, kind, request }) => ({ id, sessionId, kind, request }));
+    if (["next", "requests", "devices", "policies", "events"].some(key =>
+      canonical(state[key]) !== canonical(replay[key])) || canonical(outgoing) !== canonical(replay.outbox)) fail("INCONSISTENT_HISTORY");
+  } catch (cause) {
+    throw new Error("INVALID_DATABASE_STATE", { cause });
+  }
+}
+
 /** Accept only broker-authenticated context. Event payloads never select the session. */
 export function applyEvent(store, authenticatedSession, event) {
   validate(authenticatedSession, event);
-  return store.transaction(state => {
-    const signature = canonical({ authenticatedSession, event });
-    const previous = state.events.find(record => record.id === event.id);
-    if (previous) {
-      if (previous.signature !== signature) fail("EVENT_CONFLICT");
-      return { ...structuredClone(previous.result), replayed: true };
-    }
-    const request = transition(state, authenticatedSession, event);
-    const outgoing = {
-      id: `${event.id}:state`, sessionId: request?.sessionId ?? authenticatedSession.id,
-      kind: event.kind, request: structuredClone(request),
-    };
-    state.outbox.push(outgoing);
-    const result = { request: structuredClone(request), outgoingEventIds: [outgoing.id], replayed: false };
-    state.events.push({ id: event.id, signature, result });
-    return result;
-  });
+  return store.transaction(state => admit(state, authenticatedSession, event));
 }
