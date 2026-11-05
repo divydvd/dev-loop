@@ -153,3 +153,11 @@ The source remains inactive.
 - GREEN: all 131 scheduler cases pass, preserving the 126 earlier cases and 93 inherited state cases.
 - Production modules total 335 lines. No reducer, event kind, schema, or historical field changes.
 - Focused independent review and final-head checks follow before the single additional-cycle push.
+- Reviewer `scheduler-events-approved-cycle-review` covered `c800e25..18d1e8a` and the affected lifecycle interactions.
+  It found no Critical or Important issue.
+  It independently passed all 131 scheduler cases and the plugin check on Node `26.12.1`.
+  Supplemental probes checked callback order, callback suppression after close, ignored rejected commands, and retained resources.
+- The earlier complete review and focused reviews account for all substantive content.
+  The following commit records review evidence only. Final-head local and CI evidence belongs in PR #30.
+- This uses the single additional owner-approved correction cycle.
+  Read any automatic review after publication. Do not start another correction cycle, merge, or activate services.

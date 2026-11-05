@@ -130,7 +130,12 @@ The public interfaces and asynchronous rejection contract remain unchanged.
 
 All 131 scheduler cases pass on Node `26.12.1`, preserving all 126 earlier cases and all 93 inherited state cases.
 Production modules total 335 lines. No reducer, history, schema, or event-kind change occurs.
-Focused independent review, final-head verification, and publication follow in this one approved cycle.
+Reviewer `scheduler-events-approved-cycle-review` covered `c800e25..18d1e8a` and the affected lifecycle interactions.
+It found no Critical or Important issue and independently passed all 131 scheduler cases and the plugin check.
+Supplemental probes checked callback order, suppression after close, ignored rejected commands, and retained resources.
+Later changes record review evidence only.
+Final-head local and CI evidence is recorded in PR #30 without an evidence-only follow-up push.
+This is the single additional owner-approved correction cycle. No further cycle, merge, or activation is authorized.
 
 ## Required gaps and limits
 - No layer-specific required gap is currently known. Final-head verification and CI are still pending.
