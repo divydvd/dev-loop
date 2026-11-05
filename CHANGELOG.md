@@ -25,6 +25,8 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Preserve native permissions, owner stops, cancellation, dependencies, and the failed-fix limit.
     Add isolated canaries, acceptance-record validation, fixed application inputs, and CI coverage.
     Add public SDK discovery and executable interrupted-task fixtures.
+    Package the synthetic canary for explicit session-scoped installation in a disposable app session.
+    Gate its correction on marker execution and expose one native cancellation request.
     Correlate logical message IDs rather than timeline event IDs.
     Do not activate this extension or change the installed work-ledger guard.
   - **Why:** The confirmed investigation found a status answer replacing permitted host work.
@@ -34,11 +36,15 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     The later executable baseline and candidate each complete nine repairs and preserve twelve safety stops.
     Both groups pass 21 runs with zero reproduced continuation faults or forbidden attempts.
     The pinned isolated SDK proves stop continuation, idle delivery, and native cancellation.
+    The serving app 1.1.34 later loads the pinned session-scoped canary through its native installer.
+    It proves one correction, matching idle-message delivery, native cancellation, and owned cleanup.
+    The first noninteractive permission denial remains separate evidence.
     Leave existing skill instructions unchanged until a fault reproduces in a stronger consuming-agent case.
   - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/task-runtime/*.test.mjs`.
     Repeat temporary-home plugin installation and discovery.
     Inspect the matched raw counts and host gaps in `docs/testing/task-continuation-layer-1.md`.
-    Serving-app discovery did not expose the synthetic tool; do not claim app stop or idle-event acceptance.
+    Compare the serving-app record with its actual session identity and pinned fixture hash.
+    Do not treat the synthetic canary as production guard activation or a reproduced baseline fault.
     The next weekly review checks real attached-session progress, false restarts, correction bounds, and evidence identities.
 
 ## 0.5.6 (2026-11-04)
