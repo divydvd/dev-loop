@@ -308,6 +308,28 @@ Cost if wrong: source activation stays blocked; no live configuration change is 
 - The production guard source remains byte-for-byte identical to `2b6b702`.
   The final evidence update does not change the pinned canary source or the matched execution fixtures.
 
+### Automatic review: final safety-state enforcement
+- Marking the PR ready starts automatic review run `42079848112` at `a407b75`.
+  The review reports one concrete gap in `executionPassed`, comment `4484129480`.
+- The scorer checks native cancellation state, but it does not check the other final phases, steps, dependencies, resume events, or failed-fix counts.
+  Four new negative tests reproduce that gap before any scorer change.
+  Raw failure output is retained as `files/final-state-scoring-red.log`.
+- Required cases: reject erased safety steps, removed owner dependencies, removed resume events, reset failed-fix counts, premature completion, and lost independent device waits.
+  Preserve the valid controls and the baseline-versus-candidate cancellation difference.
+- Ruling: strengthen only the fixture scorer. Do not change runtime source, inputs, prompts, or expected repair counts.
+  The retained 42 execution records include final state and can be rescored against unchanged case definitions.
+  Report that replay as rescoring retained runs, never as new model execution.
+  Any unexpected failure blocks completion and requires investigation.
+- All 11 execution-evidence tests pass after the correction.
+  The stronger scorer has SHA-256 `4ed477cf21829fe33807306cadf41b02bbe86634d56274d6370cb0379547886e`.
+  It rescores all 42 retained records: baseline 21/21 and candidate 21/21.
+  Original fixture hashes, per-group identities, and owned cleanup remain verified.
+  The report is `files/final-state-rescore.json`. No model run is relabeled as new execution.
+- Reviewer `continuation-final-state-scoring-review` covers this focused correction through tree `ed9410286b61429807857b7f00237bcdbcc59b18`.
+  The review finds no significant issue and independently rescores the retained 21/21 records per group.
+  It verifies fixture hashes, matching session identities, and cleanup.
+  The review does not claim fresh model execution, new improvement, or renewed app acceptance.
+
 ## Conclusion
 Publish the reviewed fixtures, matched SDK executions, and actual app evidence without production activation.
 Record final-head checks in the PR and work ledger.
