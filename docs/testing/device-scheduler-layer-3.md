@@ -224,8 +224,20 @@ It confirms both findings are addressed and finds no new required regression.
 It independently passes all 189 scheduler cases, the plugin check, and whitespace checks on Node `26.12.1`.
 Final lower-base integration and final-head CI remain pending; this verdict does not claim either.
 
+### Settled lower-base integration
+The coordinator supplies exact lower base `ddef9ce41516f208f9f00168356985c64a071268` after its focused scorer review.
+Merge `b6ad9be` includes that exact base.
+The scheduler README conflict preserves the entire broker section and both refreshed C1 evidence sentences.
+Scheduler source, tests, and fixtures remain byte-identical to reviewed `86e8f81`.
+Lower scorer, tests, and app evidence remain byte-identical to the supplied base.
+Reviewer `scheduler-final-integration-review` verifies that integration and finds no required issue.
+The plugin check and both parent-relative whitespace checks pass.
+Model, fix-pass, and integration reviews now cover all final substantive content.
+The following commit records evidence only.
+Final-head local checks, CI, and automatic review disposition belong in PR #30 without another evidence-only push.
+
 ## Required gaps and limits
-- Lifecycle cases pass locally. Integrated independent review, final-head verification, and CI remain pending.
+- Lifecycle cases and integrated independent review pass. Final-head verification, CI, and automatic review observation remain pending.
 - Overall stack acceptance still needs layer-4 integration and its own actual host evidence.
   Layer 1 supplies separate serving-app evidence; this layer does not claim it from socket tests.
 - Node `22.23.4` runs in CI, not locally.

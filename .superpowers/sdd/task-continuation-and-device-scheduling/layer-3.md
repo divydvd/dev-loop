@@ -216,3 +216,16 @@ The source remains inactive.
   The narrow fresh check covers only the fix pass, not another full model audit or correction cycle.
 - Current substantive source has model and fix-pass review coverage.
   Final lower-base integration and final-head evidence remain pending. Do not publish before the coordinator releases its hold.
+- The coordinator supplies settled lower base `ddef9ce41516f208f9f00168356985c64a071268` and authorizes final publication after checks.
+  Its parents are `1938b5c` and `b2b6cc3`; lower scorer changes have their own focused review.
+- Merge `b6ad9be` includes that exact base.
+  Resolve the scheduler README conflict by preserving the complete broker section and both refreshed C1 evidence sentences.
+  No scheduler source, test, or fixture changes after `86e8f81`.
+- Reviewer `scheduler-final-integration-review` accepts exact merge `b6ad9be`.
+  It verifies ancestry, byte-preserved scheduler source/tests, lower scorer and evidence bytes, and both README resolutions.
+  Plugin and parent-relative whitespace checks pass. No required finding remains in its scope.
+- Complete earlier coverage, the model review, fix-pass review, and final integration review account for all substantive content.
+  The following commit records evidence only.
+  Final-head local checks, CI, and automatic review disposition belong in PR #30 without another status-only push.
+- This is the one authorized lifecycle publication. Read the resulting automatic review without another correction cycle.
+  No PR merge, activation, real device, global install, or live work-ledger access is authorized.
