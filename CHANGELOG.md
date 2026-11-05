@@ -8,6 +8,8 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Preserve native permissions, owner stops, cancellation, dependencies, and the failed-fix limit.
     Add isolated canaries, acceptance-record validation, fixed application inputs, and CI coverage.
     Add public SDK discovery and executable interrupted-task fixtures.
+    Package the synthetic canary for explicit session-scoped installation in a disposable app session.
+    Gate its correction on marker execution and expose one native cancellation request.
     Correlate logical message IDs rather than timeline event IDs.
     Do not activate this extension or change the installed work-ledger guard.
   - **Why:** The confirmed investigation found a status answer replacing permitted host work.

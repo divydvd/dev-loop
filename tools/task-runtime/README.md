@@ -111,12 +111,21 @@ It verifies discovery, stop re-entry, correlated idle delivery, native cancellat
 The logical message ID is `user.message.data.messageId`, not the timeline event ID.
 Success proves the isolated SDK path, not acceptance by the serving app.
 
-Use `app-canary.mjs` as `extension.mjs` only in a disposable app project.
-The documented discovery location is `.github/extensions/task-canary/`.
-The canary has one synthetic tool, one stop correction, and one idle event.
+The standalone installer folder is `fixtures/app-canary/`.
+Its `extension.mjs` needs no other repository files.
+The old `app-canary.mjs` import remains available as a wrapper.
+Use the folder only in a new disposable app session.
+The documented desktop installer accepts a pinned GitHub folder URL and explicit `scope: "session"`.
+Installation writes files and reloads providers. The omitted scope defaults to `user`; never omit it for this test.
+Do not install this fixture into an implementation session or a live task.
+Copy-based CLI probes use the standalone entry directly.
+Project discovery, when tested separately, uses `.github/extensions/task-canary/`.
+The canary has a marker tool, a native cancellation control, one stop correction, and one idle event.
+The marker must execute before the canary can request a correction.
 Its event uses the supported attached `session.send` API.
 It records message IDs rather than private message content.
 An `abort` event cancels an event that has not been sent.
+`task_canary_cancel` requests `session.abort()` once and records its acknowledgment separately from the native abort event.
 It never grants a device or changes protected data.
 
 Compare observations against independently obtained app and session identities.
