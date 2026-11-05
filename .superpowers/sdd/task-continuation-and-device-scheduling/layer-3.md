@@ -289,3 +289,9 @@ The source remains inactive.
 - GREEN: all 212 scheduler cases pass, preserving all 208 earlier cases.
   The plugin and whitespace checks pass on Node `26.12.1`. Production modules total 341 lines.
   Focused review and final-head verification remain required before the one authorized push.
+- Reviewer `scheduler-client-eof-review` accepts exact range `ac13ac6..6af10e873b4e00b2bab76037b72d42410a17e022`.
+  It finds no significant issue in the EOF correction, real-socket cases, or affected interactions.
+  It independently passes 28 client cases, 212 scheduler cases, the plugin check, and whitespace checks.
+- The full existing CI selection at `6af10e8` reports 512 passed, zero failed, and one inherited filesystem skip.
+  The following commit records evidence only. No source, test, or runtime contract changes after review.
+  Rerun final-head checks, publish once, and observe automatic review before the layer-4 handoff.

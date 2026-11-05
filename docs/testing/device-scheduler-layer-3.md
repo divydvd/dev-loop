@@ -310,6 +310,11 @@ One case receives its completed result but still times out waiting for `closed`.
 GREEN with the EOF listener: all 212 scheduler cases pass on Node `26.12.1`, preserving all 208 prior cases.
 The plugin and whitespace checks pass. Production modules total 341 lines.
 Final-head checks, independent review, CI, and automatic review observation remain pending.
+Reviewer `scheduler-client-eof-review` accepts exact correction `6af10e873b4e00b2bab76037b72d42410a17e022`.
+It finds no significant issue in the EOF correction, real-socket cases, or affected interactions.
+It independently passes 28 client cases, 212 scheduler cases, the plugin check, and whitespace checks.
+The full existing CI selection at `6af10e8` reports 512 passed, zero failed, and one inherited filesystem skip.
+The following commit records evidence only. Final-head local, CI, and automatic-review results belong in PR #30.
 
 ### Conclusion
 Correct the missing terminal signal inside this single authorized cycle.
@@ -318,7 +323,7 @@ The main risk is waiting for physical close when blocked output prevents it.
 
 ## Required gaps and limits
 - Lifecycle and B19 cases retain independent review coverage.
-  B20 cases pass locally; focused review, final-head verification, CI, and automatic review observation remain pending.
+  B20 cases pass with focused independent review; final-head verification, CI, and automatic review observation remain pending.
 - Overall stack acceptance still needs layer-4 integration and its own actual host evidence.
   Layer 1 supplies separate serving-app evidence; this layer does not claim it from socket tests.
 - Node `22.23.4` runs in CI, not locally.
