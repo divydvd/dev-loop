@@ -46,9 +46,10 @@ No UI or physical device test applies: this repository has no app, and this laye
 Latency is recorded separately from owner or device waiting. No speed target is invented.
 
 ## Task state
-- Task 1: source and validator implemented; actual host acceptance blocked.
-- Task 2: pure-state and adapter source implemented; final review and publication pending.
+- Task 1: isolated SDK lifecycle passed; serving-app acceptance remains blocked.
+- Task 2: source published at `2b6b702`; matched executable SDK evidence passed.
 - Independent risky-task and complete-diff review: covered; both Important findings corrected.
+- Later acceptance fixtures require focused review before their next push.
 
 ## Implementation evidence and rulings
 - Baseline project suites: 265 passed, zero failed, one platform-specific skip at base `4cdb718`.
@@ -79,8 +80,8 @@ Metadata cannot clear them or replace the assignment. A new task needs a new hos
 Cost if wrong: an intended same-session resume needs a later reviewed API, rather than silently restarting unsafe work.
 
 ## Required gaps
-- H2/H3: discovery or attachment boundary; exact cause unknown.
-- C2: actual interrupted-task execution remains blocked by H3.
+- H3: the app tool interface does not expose extension opt-in or a launch provider.
+- C2: app execution remains blocked by H3; isolated SDK execution is separate evidence.
 - Baseline fault count is zero; no improvement percentage is valid.
 - Node `22.23.4` is not installed locally; CI covers both declared target runtimes.
 - No project permanent regression inventory is configured. Existing required suites remain selected.
@@ -119,10 +120,125 @@ Ruling: do not run the work-ledger installed-guard lifecycle fixture.
 The owner permits it only as read-only prior art.
 Cost if wrong: this layer does not refresh installed-guard acceptance; unchanged guard suites still run.
 
+## Post-publication acceptance recovery
+- Source publication: draft PR #28, pushed SHA `2b6b7025b03cfc0113e0909ea94e918f610ca61b`.
+  All three CI jobs passed. Final-head local suites passed 287 checks, with one platform skip.
+- App `1.1.34` was checked again with `get_app_info`.
+  The second disposable project has a Git root.
+  Session `e40c3b7f-64b2-4314-b1c4-65cce1f85417` still lacks the marker and extension management tools.
+  No trust prompt appeared. Both app sessions are archived through the app lifecycle.
+- Public SDK discovery needs `requestExtensions`, `extensionSdkPath`, and an `extensionLaunchProvider`.
+  A strict provider must compare canonical paths because macOS resolves `/var` through `/private/var`.
+  The installed bootstrap starts only the disposable canary; no installed guard runs.
+- The pinned runtime is `1.0.102-0.unstable.r40949665530.gab1eef5`.
+  `sdk-canary.mjs` proves one stop correction and a correlated idle event in a new owned runtime.
+  Lifecycle session: `cdaecb08-d1ff-47cc-836b-e67f803d8461`.
+  Native cancellation session: `36d4989d-2ab4-423c-982c-7297b964bf20`.
+  Both clients stop cleanly. Their staged extensions are removed.
+- Actual SDK events distinguish the timeline event ID from `user.message.data.messageId`.
+  The canary regression fails with the former and passes with the latter.
+- `execution-cases.json` freezes seven executable cases before any instruction edit.
+  No instruction edit has occurred. Each case starts actual host work before a newer message arrives.
+  The candidate loads the real extension through the public SDK.
+  A disposable runner executes; a permitted correction changes its parser input and fixed error report.
+  Native abort preserves cancellation. No real device or protected data is exposed.
+
+Ruling: discard the first incomplete execution batch as fixture diagnosis, not baseline product evidence.
+Its probe incorrectly labelled an already-passing negative test as another fault.
+Three host-fault samples therefore repeated a successful repair.
+The owned process tree was stopped; its partial raw records remain separate.
+The corrected host-fault pilot executes one repair and reports the verified negative test.
+The corrected cancellation pilot receives native abort and performs no repair.
+Cost if wrong: the invalid batch could distort the measured fault count; it is excluded from all acceptance totals.
+
+Ruling: report public SDK success separately from serving-app support.
+The exposed app creation interface supplies neither an extension opt-in nor a launch-provider profile.
+No evidence proves that the underlying SDK hooks are unsupported or that project trust caused the app result.
+The smallest recovery is a supported app host connection with those extension capabilities in a new disposable project.
+Cost if wrong: source activation stays blocked; no live configuration change is justified.
+
+### Matched execution before acceptance review
+- Final baseline: 21/21 passed, nine actual host repairs, twelve safety stops, zero forbidden attempts.
+- Final candidate: 21/21 passed, nine actual host repairs, twelve safety stops, zero forbidden attempts.
+- Every run uses a fresh owned runtime and the actual default model `claude-sonnet-5.5`.
+- The baseline loads no extension. Every candidate loads the real continuation extension.
+- The latest status messages are literally `Status?` and `Are you stuck?`.
+  Initial assignment context carries the approval; the status messages contain no continuation instruction.
+- All 42 runtimes stop cleanly. Native abort occurs in three samples per group.
+- No baseline continuation fault reproduces. No measured improvement is claimed.
+  No candidate correction is needed in this matched set.
+- The separate forced-stop session `ff9d3db9-baa7-4391-b664-6cb3ee602a6b` consumes one actual correction and executes a host repair.
+  Final state: revision 2, corrected revision 1, phase `complete`.
+  This induced contract check is excluded from baseline and candidate totals.
+- The earlier matched coached controls remain historical, not acceptance measurements.
+- Fixture: `16b637e2a35b40f3449e7c88632f5b72708b295f92dc16c50d474218efc6e90c`.
+- Harness: `6315c8a30ebfb40ce406262ba8cfc89820c03520d4b818f048fe9828c2898973`.
+- Instructions remain `1f2eeff996ccdeab2cefeb85a763cb489c6c1d45c48577cd3394f0130280d1d8`.
+- All session identities and latency results are in `docs/testing/task-continuation-layer-1.md`.
+- The later canary regression passes with the other 22 runtime checks. The plugin check reports no faults.
+
+### Later acceptance review and corrections
+- Reviewer `continuation-acceptance-review` covers eleven later files in staged tree `c7c987d8a3e1c3bdb6a704ab2809f54bf59a2faa`.
+  The published production source is unchanged.
+- Three Important findings are confirmed:
+  failed records do not fail the command; cancellation starts paused; interruption receipt is not required by scoring.
+- Five behavioral regressions fail before correction and pass afterward.
+  The complete runtime suite now passes 28 checks.
+- `execution-evidence.mjs` requires logical message receipt before repair or safe idle.
+  Native cancellation starts active and requires an observed abort.
+  Candidate cancellation also requires a cancelled index.
+- The batch awaits all owned runtimes before it rejects any failed record.
+- Real SDK recovery pilots pass:
+  active cancellation `5a1e76d9-b554-4933-89a6-41d86d23af29`;
+  receipt before repair `0f3829aa-bad9-45fb-9999-fa546828877e`.
+- The prior matched results remain historical because their scorer did not enforce these conditions.
+  A new full matched batch uses the corrected scorer. Its source and fixture hashes must match between groups.
+- Reviewer `continuation-evidence-correction-review` covers the corrections in tree `1a1a45625fb07298666accd9a11925e8c4044f69`.
+  It finds no Important or Critical issue.
+- The enforced batch passes all 21 baseline runs but stops during candidate cancellation.
+  One candidate receives abort while its early index snapshot remains active.
+  The command exits 1 rather than concealing the failed check. No repair or forbidden attempt occurs.
+- A new real-SQLite regression fails with the early snapshot and passes with final durable observation.
+  The fixture now awaits SDK shutdown before reading final state and closing the observer.
+  It preserves `stateAtIdle`; it adds no sleep, retry, or production fallback.
+- All 29 runtime tests pass. Three fresh active-cancellation recovery pilots pass.
+  Final cancellation must still persist; a final active index remains a failure.
+- Reviewer `continuation-settlement-review` covers only this delta through tree `2723a06cca245f2e0d1ad4093cd7fb3ed3458fd6`.
+  It finds no Important or Critical issue.
+- Coverage limits: the SQLite regression is not a full asynchronous SDK-driver test.
+  The batch's failed-cleanup branch lacks a direct negative assertion.
+  Actual runtime cases and existing path/error tests provide separate evidence; they do not erase these limits.
+
+### Serialized startup and final evidence
+- The next enforced batch passes 21/21 baseline cases, then stops at candidate 11/12.
+  The failure is `database is locked` before model work.
+- Two synchronized workers reproduce simultaneous fresh initialization at `task-state.mjs:89`.
+  The fixture had initialized its observer while the copied extension initialized the same schema.
+- The fixture now initializes and enrolls its private state before SDK session creation.
+  It uses the SDK's documented requested session ID and checks the actual returned identity.
+  Production identity still comes from `joinSession`. No source locking or permission rule changes.
+- Reviewer `continuation-startup-review` finds that the first assertion placement only covers repaired cases.
+  A no-repair identity regression fails before correction.
+  The assertion now immediately follows SDK creation, and scoring requires all three identities to match.
+- Reviewer `continuation-identity-correction-review` covers that delta through tree `e50f5869e96ab19d672cc387d489e2ab75fd087c`.
+  It finds no Important or Critical issue.
+- Final matched execution: baseline 21/21 and candidate 21/21.
+  Each group executes nine repairs, preserves twelve safety stops, and has zero forbidden attempts.
+  All 42 requested, returned, and enrolled identities match. All owned runtimes stop cleanly.
+  Three native cancellations occur per group; all candidate final indexes are cancelled.
+- Baseline continuation faults: zero. No improvement percentage is claimed.
+  Earlier failed, coached, and mixed-version batches remain historical and are excluded.
+- Fixture: `99c1c617bc3f0b0678a24148f4f79925ea1d2c9c71279f079dad18a0a19c6a30`.
+- Harness: `48d34a3d70b1e864d6f218af4f765bc1a95d26405c3342add2c7d33279bc7dbe`.
+- Scorer: `1d811f3c52dafcd70e8d0a5e222dcbbece4cd46762db806822313d433b1086dd`.
+- All groups retain instruction hash `1f2eeff996ccdeab2cefeb85a763cb489c6c1d45c48577cd3394f0130280d1d8`.
+- The runtime suite now passes 30 tests. Final-head commands and CI results must remain pinned to the published SHA.
+- App acceptance remains blocked by the exposed host capability, not by an alleged absence of SDK hooks.
+
 ## Conclusion
-Build independent source while preserving all required acceptance gaps.
-The next step is to save fixed inputs and inspect the supported host contract.
-Missing app proof must prevent an integration-ready claim.
+Publish the reviewed fixtures and independent executable evidence without activation.
+Record final-head checks in the PR and work ledger.
+Missing app proof still prevents an integration-ready claim.
 
 ## Layer 2: Task 3 (separate state)
 - Approved scope: durable scheduler state only. Earlier layer evidence above stays unchanged.
@@ -208,3 +324,9 @@ Missing app proof must prevent an integration-ready claim.
   It reproduced all three malformed-state gaps against the prior head and found the corrections effective.
   Additional memory-only checks covered interleaved history, current admission, revocation, recovery, release, and rollback.
   It found no significant issue. Earlier exclusions remain in effect; no filesystem or live acceptance is inferred.
+- Updated base: merge lower-layer head `300337ddc309d58528e73a7c175e9da5f9c240e5` as directed by the coordinator.
+  Preserve all lower-layer evidence and the separate Task 3 section. Resolve the ledger conflict by retaining both sections.
+  No scheduler production source changes during this integration.
+  The lower layer now proves executable SDK repairs and safety stops, with zero baseline continuation faults.
+  Actual serving-app attachment remains blocked. No measured improvement or app acceptance is claimed.
+  This base-integration push is not a third scheduler fix round and does not request another review.

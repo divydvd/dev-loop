@@ -40,7 +40,9 @@ Select all current CI suites and add the scheduler cases.
 Invalid input, authority, concurrency, recovery, storage, and compatibility apply.
 No UI, accessibility, network delivery, or device procedure exists in this layer.
 Performance has no measured target; bounded event input is required, not a throughput claim.
-Layer 1 host discovery and executed-task acceptance remain separate required stack gaps.
+Layer 1 serving-app attachment and app-executed acceptance remain separate required stack gaps.
+The updated lower layer proves executable SDK repairs and safety stops, but baseline continuation faults remain zero.
+No measured improvement is claimed.
 
 ## Execution evidence
 - Required scheduler cases D1-D12: 32 tests pass on Node `26.12.1`, before the review commit.
@@ -100,6 +102,13 @@ Reviewer `scheduler-round-two-review` covered tree `fd5aa853814d1d1929de3ef195d1
 It reproduced all three malformed-state cases against the prior head and confirmed rejection in the correction.
 Memory-only checks also covered interleaved policy history, latest-policy admission, revocation, recovery, release, and rollback.
 It found no significant issue in the corrections or affected interactions.
+
+## Updated base integration
+The coordinator requested integration of lower-layer head `300337ddc309d58528e73a7c175e9da5f9c240e5`.
+Merge that branch without rebasing and preserve the separate layer records.
+The lower-layer guard code is unchanged; acceptance fixtures and evidence changed.
+The scheduler production source remains unchanged.
+Repeat integration review and all required checks before the integration push.
 
 ## Conclusion
 Prove state safety before the broker consumes these interfaces.

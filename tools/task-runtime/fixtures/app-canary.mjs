@@ -26,7 +26,7 @@ const session = await joinSession({
   }],
 });
 emit({ kind: "joined", sessionId: session.sessionId });
-session.on("user.message", e => emit({ kind: "message", id: e.id, source: e.data?.source }));
+session.on("user.message", e => emit({ kind: "message", id: e.data?.messageId, source: e.data?.source }));
 session.on("assistant.message", e => emit({ kind: "response", origin: e.data?.originatingMessageId }));
 session.on("session.idle", () => {
   emit({ kind: "idle" });
