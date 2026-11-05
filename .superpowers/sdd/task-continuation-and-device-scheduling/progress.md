@@ -330,3 +330,26 @@ Missing app proof still prevents an integration-ready claim.
   The lower layer now proves executable SDK repairs and safety stops, with zero baseline continuation faults.
   Actual serving-app attachment remains blocked. No measured improvement or app acceptance is claimed.
   This base-integration push is not a third scheduler fix round and does not request another review.
+- Base integration review: `scheduler-base-integration-review` covered merge `6bc5ec5e1a73f845e2187068df0e58edc3bb9ea6`.
+  It confirmed both layer records, unchanged production source/tests, and no new integration issue.
+  The combined selection reports 339 passed, zero failed, one inherited filesystem skip.
+- Final scheduler automatic review at `ca09d94` reports one previously missed saved-state issue.
+  Clearing only a saved revoked flag admits an old normal grant after fault, cancellation, or policy revocation.
+  Three synthetic SQLite probes reproduce the fault at `6bc5ec5`. No actual device operation runs.
+- Required case D13 is failed: confirmed product validation failure. The passing suite does not establish this missing safety invariant.
+  Preserve quarantine/recovery duties. Source remains inactive; no live state or work-ledger changed.
+- The two permitted automatic fix rounds are exhausted. Stop corrective work and report open, not ready.
+  Owner direction is needed for an additional round. Do not request another automatic review.
+  The updated-base integration can still be published as directed; it changes no scheduler production source.
+- Additional owner authority: the coordinator reports the owner selected
+  “Authorize one additional correction round (Recommended)” after the confirmed D13 fault and round limit were explained.
+  Scope: one focused correction, regressions, independent review, verification, and publication.
+  No further round, merge, or activation is authorized. Keep the updated base in the reviewed snapshot.
+- Authorized correction: six D13 cases fail before the fix and pass after it.
+  Saved-state validation rejects live cancelled grants and live normal grants on quarantined or obsolete-policy ownership.
+  Operation admission checks state, safety, and current policy before it changes the snapshot.
+  Recovery-only grants retain their historical policy bindings and existing recovery controls.
+- Integrated candidate selection: 345 passed, zero failed, one inherited filesystem skip. Scheduler scope 50 tests.
+  Production modules: 337 lines. The final candidate includes base `300337d` and integration review at `6bc5ec5`.
+  The final focused reviewer will inspect the exact candidate commit; publish that same commit if no further source change is needed.
+  Record final review/CI in the PR and session execution record to avoid changing the reviewed commit for evidence notes.

@@ -46,6 +46,13 @@ function validate(state) {
     if (g !== null && (!g || g.requestId !== r.id || g.sessionId !== r.sessionId || g.device !== r.device ||
         g.policyVersion !== r.policyVersion || !positive(g.generation) || g.generation > d.generation ||
         !["acknowledged", "revoked", "recovery"].every(key => typeof g[key] === "boolean"))) invalid();
+    if (g && !g.revoked) {
+      const phase = r.state === "waiting_owner" ? r.beforeWait : r.state;
+      const current = state.policies.findLast(p => p.device === r.device);
+      if (g.recovery ? phase !== "recovering" || d.safety !== "quarantined"
+        : !["reserved", "running"].includes(phase) || d.safety === "quarantined" ||
+          !current?.enabled || current.policyVersion !== g.policyVersion) invalid();
+    }
     if (d.holder === r.id && (!g || g.generation !== d.generation || ["queued", "blocked", "released"].includes(r.state) ||
         (d.safety === "safe" && (r.operations.length > 0 || g.recovery)))) invalid();
     if (d.holder !== r.id && (g && !g.revoked || ["reserved", "running", "recovering"].includes(r.state))) invalid();

@@ -97,6 +97,9 @@ Device safety is separate: `safe`, `uncertain`, or `quarantined`.
 Starting an operation makes device safety uncertain.
 All grant-bound actions check the session, exact device, policy version, and generation.
 A stale infrastructure report cannot revoke a newer generation.
+Normal grants must match the current enabled policy and a reserved or running request, including its saved owner-wait state.
+Quarantined devices require recovery-only grants. Cancelled requests cannot retain live grants.
+Operation admission checks the request state, policy, and device safety again before changing state.
 Owner waits survive infrastructure faults and recovery grants.
 
 Cancellation frees an unused reservation only when its operation history is empty and device safety is still safe.

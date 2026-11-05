@@ -477,3 +477,46 @@ test("saved holders cannot share a resource even when their individual grant bin
   }
   assert.throws(() => openStore({ directory }), /INVALID_DATABASE_STATE/);
 });
+
+for (const cause of ["fault", "cancel", "policy"]) {
+  function revokedFixture(t) {
+    const setup = fixture(t), { store } = setup;
+    policy(store);
+    request(store);
+    const grant = acknowledge(store);
+    send(store, alice, "operation_start", { ...binding(grant), operationId: "original", purpose: "test" });
+    send(store, alice, "operation_finish", { ...binding(grant), operationId: "original", outcome: "complete" });
+    if (cause === "fault") send(store, broker, "fault", { ...binding(grant), reason: "crash" });
+    else if (cause === "cancel") send(store, alice, "cancel", binding(grant));
+    else policy(store, "synthetic-android", [], 2, false);
+    return { ...setup, grant };
+  }
+
+  test(`saved revocation cannot be cleared after ${cause}`, t => {
+    const { store, directory, grant } = revokedFixture(t);
+    const malformed = store.read();
+    assert.equal(malformed.requests[0].grant.revoked, true);
+    malformed.requests[0].grant.revoked = false;
+    const db = new DatabaseSync(path.join(directory, "scheduler.sqlite"));
+    db.prepare("UPDATE scheduler_state SET value=? WHERE id=1").run(JSON.stringify(malformed));
+    db.close();
+    assert.throws(() => openStore({ directory }), /INVALID_DATABASE_STATE/);
+    assert.throws(() => send(store, alice, "operation_start", {
+      ...binding(grant), operationId: "unexpected", purpose: "test",
+    }), /INVALID_DATABASE_STATE/);
+  });
+
+  test(`operation admission cannot hide invalid revocation state after ${cause}`, t => {
+    const { store, grant } = revokedFixture(t);
+    const before = store.read();
+    assert.throws(() => store.transaction(state => {
+      state.requests[0].grant.revoked = false;
+      // Exercise admission before the enclosing store validates the resulting snapshot.
+      applyEvent({ transaction: work => work(state) }, alice, {
+        version: 1, id: "invalid-admission", kind: "operation_start",
+        payload: { ...binding(grant), operationId: "unexpected", purpose: "test" },
+      });
+    }), /INVALID_GRANT/);
+    assert.deepEqual(store.read(), before);
+  });
+}

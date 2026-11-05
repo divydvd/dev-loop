@@ -9,6 +9,7 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Add synthetic concurrency, restart, interrupted-write, path, and transition tests on both target Node versions in CI.
     Reject sparse policy arrays and malformed state that discards owner-wait recovery ownership.
     Retain policy history to validate pinned resources and reject conflicting saved holders.
+    Reject restored normal grants on quarantined or revoked ownership while preserving recovery-only grants.
     Do not start a service, use a real device, or change the live monitor or work-ledger.
   - **Why:** The approved scheduler design needs durable ownership before it can add event delivery.
     A timeout, lost connection, or cancellation cannot prove that a used device is safe.

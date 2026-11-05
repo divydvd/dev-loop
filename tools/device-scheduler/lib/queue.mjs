@@ -149,6 +149,10 @@ function transition(state, auth, { kind, payload: p }) {
       if (!grant.acknowledged) fail("GRANT_NOT_ACKNOWLEDGED");
       if (kind === "operation_start") {
         if (r.state === "waiting_owner") fail("INVALID_TRANSITION");
+        const policy = state.policies.findLast(policy => policy.device === r.device);
+        if (grant.recovery ? r.state !== "recovering" || d.safety !== "quarantined"
+          : !["reserved", "running"].includes(r.state) || !["safe", "uncertain"].includes(d.safety) ||
+            !policy?.enabled || policy.policyVersion !== grant.policyVersion) fail("INVALID_GRANT");
         if (grant.recovery && p.purpose !== "recovery") fail("RECOVERY_ONLY");
         if (r.operations.some(operation => operation.id === p.operationId)) fail("DUPLICATE_OPERATION");
         if (!grant.recovery && r.operations.some(operation => operation.outcome !== "complete")) fail("UNRESOLVED_OPERATION");
