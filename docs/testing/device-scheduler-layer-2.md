@@ -46,9 +46,9 @@ Invalid input, authority, concurrency, recovery, storage, and compatibility appl
 No UI, accessibility, network delivery, or device procedure exists in this layer.
 Performance has no measured target; bounded event input is required, not a throughput claim.
 The history correction adds replay work on state access. No throughput or retention claim is made.
-Layer 1 serving-app attachment and app-executed acceptance remain separate required stack gaps.
-The updated lower layer proves executable SDK repairs and safety stops, but baseline continuation faults remain zero.
-No measured improvement is claimed.
+Layer 1's disposable serving-app canary passes attachment, bounded correction, idle delivery, native cancellation, and cleanup.
+All 42 retained SDK records pass explicit stronger rescoring. Baseline continuation faults remain zero; no improvement percentage is claimed.
+Production guard-and-scheduler integration and activation remain separate required steps.
 
 ## Execution evidence
 - Required scheduler cases D1-D12: 32 tests pass on Node `26.12.1`, before the review commit.

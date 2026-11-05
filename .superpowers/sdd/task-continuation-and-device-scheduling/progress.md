@@ -308,6 +308,28 @@ Cost if wrong: source activation stays blocked; no live configuration change is 
 - The production guard source remains byte-for-byte identical to `2b6b702`.
   The final evidence update does not change the pinned canary source or the matched execution fixtures.
 
+### Automatic review: final safety-state enforcement
+- Marking the PR ready starts automatic review run `42079848112` at `a407b75`.
+  The review reports one concrete gap in `executionPassed`, comment `4484129480`.
+- The scorer checks native cancellation state, but it does not check the other final phases, steps, dependencies, resume events, or failed-fix counts.
+  Four new negative tests reproduce that gap before any scorer change.
+  Raw failure output is retained as `files/final-state-scoring-red.log`.
+- Required cases: reject erased safety steps, removed owner dependencies, removed resume events, reset failed-fix counts, premature completion, and lost independent device waits.
+  Preserve the valid controls and the baseline-versus-candidate cancellation difference.
+- Ruling: strengthen only the fixture scorer. Do not change runtime source, inputs, prompts, or expected repair counts.
+  The retained 42 execution records include final state and can be rescored against unchanged case definitions.
+  Report that replay as rescoring retained runs, never as new model execution.
+  Any unexpected failure blocks completion and requires investigation.
+- All 11 execution-evidence tests pass after the correction.
+  The stronger scorer has SHA-256 `4ed477cf21829fe33807306cadf41b02bbe86634d56274d6370cb0379547886e`.
+  It rescores all 42 retained records: baseline 21/21 and candidate 21/21.
+  Original fixture hashes, per-group identities, and owned cleanup remain verified.
+  The report is `files/final-state-rescore.json`. No model run is relabeled as new execution.
+- Reviewer `continuation-final-state-scoring-review` covers this focused correction through tree `ed9410286b61429807857b7f00237bcdbcc59b18`.
+  The review finds no significant issue and independently rescores the retained 21/21 records per group.
+  It verifies fixture hashes, matching session identities, and cleanup.
+  The review does not claim fresh model execution, new improvement, or renewed app acceptance.
+
 ## Conclusion
 Publish the reviewed fixtures, matched SDK executions, and actual app evidence without production activation.
 Record final-head checks in the PR and work ledger.
@@ -478,3 +500,17 @@ Keep scheduler integration and live activation outside this layer.
 - This merge adds no scheduler behavior and starts no scheduler correction cycle.
   Production source remains 358 lines. No device use, global installation, main merge, rebase, or force push is authorized.
 - Verification and focused review will use the exact merge commit. Record their identities in the PR and session evidence.
+
+### Verified scorer-base and C1 documentation integration
+- Request: merge exact `b2b6cc3eb0f15e3a253350b5032ed6f8d368d7dc` and bundle the two confirmed stale current-status C1 blocks.
+  The coordinator verified the open lower PR, remote head, passing CI, and completed review.
+- Acceptance: include both parents; preserve scheduler production, tests, and approved plan; retain both layer records and historical results.
+  Correct only the current C1 handoff in the scheduler README and layer-2 selection section.
+- Required evidence: exact source identity comparisons, plugin check, all CI suites, focused independent integration/doc review,
+  both runtime jobs, and final automatic-review disposition. Resolve the Low thread only after publication.
+- Current C1: the disposable serving-app canary passes. Production guard-and-scheduler integration and activation remain separate.
+  All 42 retained SDK records pass explicit stronger rescoring. Baseline faults remain zero; no improvement percentage is claimed.
+- Scope: lower scorer/test/evidence integration plus the two requested documentation blocks and this record.
+  Scheduler production remains 358 lines. The production guard and pinned app canary remain unchanged.
+- Publish once after focused review and verification. Send the exact pushed head immediately so layer 3 can merge it.
+  Do not start a scheduler correction cycle, rebase, force push, merge main, install globally, or activate.

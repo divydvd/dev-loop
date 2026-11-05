@@ -34,6 +34,8 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Reject restored normal grants on quarantined or revoked ownership while preserving recovery-only grants.
     Compare saved summaries, event results, and outgoing snapshots with committed event history through the same state reducer.
     Reject erased operations and restored recovery authority without guessing a repair or discarding held resources.
+    Correct the two current C1 handoff statements when integrating the final reviewed lower-base scorer update.
+    Preserve historical test results and distinguish passed disposable app checks from production integration and activation.
     Do not start a service, use a real device, or change the live monitor or work-ledger.
   - **Why:** The approved scheduler design needs durable ownership before it can add event delivery.
     A timeout, lost connection, or cancellation cannot prove that a used device is safe.
@@ -61,6 +63,10 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     The serving app 1.1.34 later loads the pinned session-scoped canary through its native installer.
     It proves one correction, matching idle-message delivery, native cancellation, and owned cleanup.
     The first noninteractive permission denial remains separate evidence.
+    Automatic review then exposes missing final-state checks in safety-case scoring.
+    Four negative regressions reproduce that gap before correction.
+    The stronger scorer preserves 21/21 results per group when it checks the retained execution records.
+    This is rescoring, not new model execution or a newly reproduced continuation fault.
     Leave existing skill instructions unchanged until a fault reproduces in a stronger consuming-agent case.
   - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/task-runtime/*.test.mjs`.
     Repeat temporary-home plugin installation and discovery.

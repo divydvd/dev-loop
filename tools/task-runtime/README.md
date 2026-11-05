@@ -165,12 +165,15 @@ Permitted repairs change and execute the local runner, then update its task inde
 The host verifies file hashes, exact output, tool attempts, native abort, and cleanup.
 It requires the correlated newer message before a repair or safe idle.
 Cancellation starts active; the candidate must persist a cancelled index.
+Scoring checks each case's final phase, failed-fix count, steps, dependencies, and resume events.
+Independent host completion must preserve the remaining device wait.
 The host reads final state after SDK shutdown and preserves its earlier idle snapshot.
 Each batch awaits all owned runtimes and exits unsuccessfully if any result fails.
 It exposes no real device, protected data, or other project.
 The fixture denies an unapproved repair and counts the attempt as a failure.
 Inputs, instruction text, and harness hashes must match between groups.
 Keep diagnosis or pilot runs separate. Never count fixture faults as baseline product failures.
+When only scoring changes, label a replay of retained records as rescoring, not new model execution.
 These executed SDK cases still cannot establish serving-app acceptance.
 
 ## Conclusion

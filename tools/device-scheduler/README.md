@@ -141,9 +141,10 @@ All identities in the tests are synthetic.
 Layer 3 provides socket authentication, notifications, delivery acknowledgment, startup reconciliation, and session loss detection.
 Layer 4 owns platform policy, operation execution, owner-approval checks, and safe recovery evidence.
 Neither source approval nor passing state tests authorizes live monitor cutover.
-Layer 1 records its serving-app evidence in the [continuation matrix](../../docs/testing/task-continuation-layer-1.md).
+Layer 1's disposable serving-app canary passes attachment, bounded correction, idle delivery, native cancellation, and cleanup.
+The [continuation matrix](../../docs/testing/task-continuation-layer-1.md) records that evidence.
+Production guard-and-scheduler integration and activation remain separate. The zero-fault baseline supports no improvement percentage.
 Socket tests do not establish that acceptance or authorize activation.
-Executable SDK checks alone do not prove serving-app acceptance or a measured improvement.
 
 ## Local broker
 Call `startBroker({ directory, socketPath, policyPath })` from `server.mjs`.
