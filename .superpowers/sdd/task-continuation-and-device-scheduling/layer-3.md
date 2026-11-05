@@ -71,3 +71,11 @@ The source remains inactive.
 - Production source now totals 310 lines. No history, schema, reducer, or event-kind changes.
 - No other finding or deferred Minor was reported.
 - Focused independent coverage of the correction follows before first push.
+- Reviewer `scheduler-events-correction-review` covered `378444e..1601122`.
+  It found no new Critical or Important issue.
+  Its two-holder probe preserved the unrelated grant, quarantined the slow peer's own holder,
+  ignored trailing mutation commands, and retained immutable event/outbox history.
+  All 119 scheduler cases passed independently.
+- The complete review plus focused correction coverage accounts for final substantive source.
+  Subsequent changes record evidence only.
+- Task 4 source and independent review are complete. Publication and final-head CI remain pending.

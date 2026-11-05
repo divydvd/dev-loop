@@ -62,9 +62,13 @@ New event kinds and reducer changes are not planned.
   The correction closes only the slow peer and ignores its remaining buffered commands.
   All 119 scheduler cases pass afterward, including the 93 unchanged inherited cases.
   This is correction-candidate evidence; final-head CI is still pending.
+- Reviewer `scheduler-events-correction-review` covered `378444e..1601122`.
+  It found no new Critical or Important issue and independently passed all 119 scheduler cases.
+  A two-holder probe also preserved unrelated authority and quarantined the slow peer's own holder.
+  Review coverage now accounts for final substantive source. Later evidence edits do not change behavior.
 
 ## Required gaps and limits
-- No layer-specific required gap is currently known. Independent review and final-head CI are still pending.
+- No layer-specific required gap is currently known. Final-head verification and CI are still pending.
 - Overall stack acceptance remains blocked on serving-app attachment and later layer-4 integration.
 - Node `22.23.4` runs in CI, not locally.
 - No permanent regression inventory is configured. Existing suites remain selected without inventing a second inventory.
