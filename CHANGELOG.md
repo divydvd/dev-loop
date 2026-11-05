@@ -17,6 +17,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     After the two-round stop, the owner approved one additional correction cycle for blocked rejection and initial replay.
     Detach and quarantine before terminal writes. Keep old connection cleanup idempotent.
     Dispatch replay on the next event-loop turn so callbacks can use the awaited handle without changing asynchronous input rejection.
+    A later owner-approved lifecycle correction unifies rejection, readable EOF, transport errors, closure, and failed response writes.
+    Detach and quarantine at the terminal signal, not after output flush. Preserve replacement grants and uncertain resources.
+    Fourteen lifecycle regressions fail before correction; all 38 lifecycle cases and 131 prior scheduler cases pass afterward.
   - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/device-scheduler/*.test.mjs`.
     CI runs the scheduler cases on both declared Node versions.
     Inspect `docs/testing/device-scheduler-layer-3.md` for case mapping, evidence, and remaining integration gaps.

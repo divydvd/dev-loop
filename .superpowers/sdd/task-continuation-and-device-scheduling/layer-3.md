@@ -161,3 +161,34 @@ The source remains inactive.
   The following commit records review evidence only. Final-head local and CI evidence belongs in PR #30.
 - This uses the single additional owner-approved correction cycle.
   Read any automatic review after publication. Do not start another correction cycle, merge, or activate services.
+
+## Owner-approved root-cause lifecycle correction
+- The automatic review at `8062595` reports B18: readable EOF can wait behind blocked output before cleanup.
+  A private probe confirms replacement `SESSION_CONNECTED`, an unrevoked running grant, and missing quarantine.
+- Publication stopped, and PR #30 returned to draft. No source correction followed before renewed approval.
+- The coordinator confirms the owner's explicit selection:
+  "Authorize the lifecycle correction and one review cycle (Recommended)".
+- Scope: one idempotent terminal-cleanup path for rejection, EOF, transport errors, closure, and failed response writes.
+  Detach and quarantine at the terminal signal, independently of outbound flush.
+- Save the 32-combination lifecycle matrix and write-failure and real half-close cases before implementation.
+  Matrix: `docs/testing/device-scheduler-layer-3.md`, owner-approved lifecycle section.
+- Ruling: delay physical destruction only in deterministic tests.
+  Inspect real admission, persisted quarantine, retained resources, and replacement grants before old closure.
+  Real half-close and backpressure cases separately validate the transport behavior.
+- Preserve all 131 prior scheduler cases, B16/B17, asynchronous input rejection, and authoritative history validation.
+- The coordinator reports new C1 app evidence, not this layer's own acceptance.
+  It will supply the final lower-base update through layer 2.
+  Keep this correction local until that update can enter the final reviewed and published snapshot.
+- No further correction cycle, merge, activation, real device, global install, or live work-ledger access is authorized.
+- RED: 14 of 38 lifecycle cases fail at unchanged `8062595`; 24 baseline controls pass.
+  The failures cover enrolled EOF/error, both response-write failure paths, and real writable/blocked half-close.
+- Fixture preparation exposed a Node inherited-getter mock restoration error that prevented teardown.
+  Exact test processes were stopped. Configurable own getters now restore safely before socket and broker teardown.
+- GREEN: all 169 scheduler cases pass on Node `26.12.1`, preserving every prior case.
+  Terminal rejection, EOF, transport errors, closure, and failed response writes now share idempotent retirement.
+  Retirement marks buffered callbacks terminal before checking exact enrollment identity.
+  It quarantines before physical closure or output flush and never frees uncertain resources.
+- Production modules total 337 lines. No reducer, history, schema, kind, or public-interface change occurs.
+- The coordinator supplied exact lower-base head `1938b5c6cebb65518d019ba17dd28a36b5dbaa5f`.
+  Its parents are `ff90b51` and `a407b75`; it changes no scheduler file.
+  Commit the correction, merge that exact base, and independently review the integrated lifecycle model before publication.

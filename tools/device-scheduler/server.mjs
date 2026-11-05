@@ -101,7 +101,8 @@ export async function startBroker({ directory, socketPath, policyPath }) {
       if (peer.socket.writableLength + Buffer.byteLength(data) > 262144) fail("BACKPRESSURE");
       return peer.socket.write(data);
     };
-    const detach = peer => {
+    const retire = peer => {
+      peer.ended = true;
       if (sessions.get(peer.session) !== peer) return;
       sessions.delete(peer.session);
       if (!stopped) {
@@ -109,9 +110,9 @@ export async function startBroker({ directory, socketPath, policyPath }) {
         catch { abort(); }
       }
     };
+    const disconnect = peer => { retire(peer); peer.socket.destroy(); };
     const terminate = (peer, code) => {
-      peer.ended = true;
-      detach(peer);
+      retire(peer);
       if (peer.socket.destroyed) return;
       if (peer.socket.writableNeedDrain || peer.socket.writableLength) { peer.socket.destroy(); return; }
       peer.socket.end(encode({ type: "error", code }), () => peer.socket.destroy());
@@ -135,11 +136,12 @@ export async function startBroker({ directory, socketPath, policyPath }) {
     server.on("connection", socket => {
       const peer = { socket, session: null, sent: new Set(), ended: false };
       peers.add(peer);
-      socket.on("error", () => socket.destroy());
+      socket.on("error", () => disconnect(peer));
+      socket.on("end", () => disconnect(peer));
       socket.on("drain", () => { try { publish(peer); } catch { abort(); } });
       socket.on("close", () => {
         peers.delete(peer);
-        detach(peer);
+        retire(peer);
       });
       socket.on("data", decoder(frame => {
         if (peer.ended) return;
@@ -173,10 +175,10 @@ export async function startBroker({ directory, socketPath, policyPath }) {
           committed = true;
           write(peer, { type: "result", seq: frame.seq, result });
         } catch (error) {
-          if (error.message === "BACKPRESSURE") { peer.ended = true; peer.socket.destroy(); return; }
+          if (error.message === "BACKPRESSURE") { disconnect(peer); return; }
           if (!safeCodes.has(error.message)) { abort(); return; }
           try { write(peer, { type: "error", seq: frame.seq, code: error.message }); }
-          catch { peer.ended = true; peer.socket.destroy(); }
+          catch { disconnect(peer); }
         } finally {
           if (committed && !stopped) {
             try { broadcast(); } catch { abort(); }

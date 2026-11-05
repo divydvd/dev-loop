@@ -36,12 +36,45 @@ All rows are required. Results and tested identities are recorded separately.
 | B15 | Real completed-operation history exceeds 65,536 bytes at release | Report the response limit while delivering the committed next grant | `broker.test.mjs` |
 | B16 | Rejection behind blocked output; late old close | Detach and quarantine without waiting for flush; preserve replacement enrollment and renewed recovery grant | `broker.test.mjs` |
 | B17 | Initial replay and coalesced readiness; invalid credentials | Callbacks use the awaited handle for acknowledgment and reconciliation; input rejection stays asynchronous | `client.test.mjs` |
+| B18 | EOF, errors, rejection, or closure with blocked output | Detach and quarantine at the terminal signal; retain resources and preserve replacement enrollment | `lifecycle.test.mjs` |
 | P1 | Existing plugin and consumers | Preserve all existing CI suites | `.github/workflows/check.yml` |
 
 Invalid input, authority, concurrency, partial failure, compatibility, and bounded transport apply.
 No UI or physical device test applies. No performance target is specified.
 No permanent regression inventory is configured. Existing suites remain required.
 New event kinds and reducer changes are not planned.
+
+## Owner-approved lifecycle correction matrix
+Save this matrix before implementation. All cases below are required.
+The owner selected "Authorize the lifecycle correction and one review cycle (Recommended)".
+The coordinator confirmed that decision after B18 at `8062595`.
+This permits one root-cause correction, complete failure-case coverage, independent review, checks, and publication.
+No further cycle, merge, or activation is authorized.
+
+- Goal: make terminal cleanup independent of notification flush and transport closure.
+- Done when: each terminal signal detaches its exact connection and quarantines its holder immediately.
+- Done when: repeated or stale signals cannot change replacement enrollment or grants.
+- Done when: uncertain resources stay held; unrelated sessions and immutable history stay unchanged.
+- Required evidence: the matrix below, all 131 prior scheduler cases, existing CI suites, and focused independent review.
+- Size: expect fewer than 20 changed production lines; retain the layer's 400-line bound.
+- Stop: keep the correction local until the coordinator supplies the final lower-base update.
+  Include that update in the final reviewed and published snapshot.
+
+| ID | Setup and input | Expected result | Method and location | Initial status |
+| --- | --- | --- | --- | --- |
+| B18-M | Rejection, EOF, transport error, and closure; each with writable/blocked output, enrolled/unenrolled peer, active/unused holder: 32 combinations | Enrolled active holder becomes quarantined without release; unused holder adds no fault; unenrolled peer cannot affect another session | Deterministic terminal signals and delayed socket destruction; real enrollment, reducer, and store in `lifecycle.test.mjs` | Not run |
+| B18-I | Repeat terminal signals after replacement enrollment in all 16 enrolled combinations | Keep replacement enrollment and its renewed or new acknowledged grant; add no second fault; ignore old buffered commands | Real replacement client and state inspection in `lifecycle.test.mjs` | Not run |
+| B18-W | Result-write backpressure and validation-response failure; each with active/unused holder | Detach and quarantine before delayed destruction, not at a later close | Precise socket-write failure; real admission and state in `lifecycle.test.mjs` | Not run |
+| B18-R | Real half-close with writable and actually blocked output | Observe readable EOF; quarantine and reconnect without waiting for outbound flush | Real private sockets; blocked fixture asserts pending bytes and backpressure in `lifecycle.test.mjs` | Not run |
+| B16/B17 | Existing blocked rejection, stale cleanup, coalesced replay, actual broker acknowledgment, and invalid input | Preserve earlier corrected behavior and asynchronous rejection | Existing `broker.test.mjs` and `client.test.mjs` | Selected; rerun required |
+| B1-B15/P1 | All inherited state, transport, crash, compatibility, plugin, and consumer cases | Preserve behavior and authoritative history on both CI runtimes | Existing CI selection and `tools/device-scheduler/*.test.mjs` | Selected; rerun required |
+
+Deterministic tests delay physical destruction only to expose the interval before `close`.
+They assert actual persisted state and real replacement enrollment, not calls to a mock.
+Real half-close cases validate the transport assumption separately.
+Blocked-output settling remains test-only; no production timer may establish readiness or device safety.
+The model must cover response-write failures as terminal paths, not only new EOF and error listeners.
+No new state schema, event kind, history shortcut, or ownership timeout is permitted.
 
 ## Execution evidence
 - Initial RED: the three required broker test files fail because the service modules do not exist.
@@ -137,9 +170,35 @@ Later changes record review evidence only.
 Final-head local and CI evidence is recorded in PR #30 without an evidence-only follow-up push.
 This is the single additional owner-approved correction cycle. No further cycle, merge, or activation is authorized.
 
+### Later owner-approved lifecycle correction
+The final review at `8062595` finds B18 after the B16/B17 correction.
+The owner then explicitly authorizes one bounded lifecycle correction and one review cycle.
+The lifecycle matrix above precedes implementation.
+
+RED: 14 of 38 cases fail at unchanged `8062595`; 24 baseline controls pass.
+Failures cover enrolled EOF and errors before close, both failed response-write branches, and real half-close with writable or blocked output.
+The deterministic fixtures initially exposed a Node mock-restoration fault for inherited nonconfigurable socket getters.
+The corrected fixtures use configurable own getters and always restore sockets before broker teardown.
+No production change occurs before the verified failing run.
+
+GREEN: all 38 lifecycle cases and all 131 prior scheduler cases pass on Node `26.12.1`.
+One shared idempotent path marks the peer terminal, detaches its exact enrollment, and quarantines its holder.
+Rejection, readable EOF, transport errors, closure, and failed response writes call that path.
+Cleanup does not wait for notification flush or physical close.
+Replacement enrollment and acknowledged renewed grants survive every repeated old terminal signal.
+Tests preserve inflight operation identity, held resources, unrelated holders, and every prior immutable event and outgoing snapshot.
+Real half-close tests separately verify actual sockets, including asserted pending bytes and backpressure.
+Production modules total 337 lines. No schema, event-kind, reducer, or client-interface change occurs.
+
+The approved lower-base update is `1938b5c6cebb65518d019ba17dd28a36b5dbaa5f`.
+It changes no scheduler file and contains separately reviewed C1 app evidence.
+Merge that exact update before final independent review and verification.
+Keep the correction local until the integrated snapshot is ready for its single authorized publication.
+
 ## Required gaps and limits
-- No layer-specific required gap is currently known. Final-head verification and CI are still pending.
-- Overall stack acceptance remains blocked on serving-app attachment and later layer-4 integration.
+- Lifecycle cases pass locally. Integrated independent review, final-head verification, and CI remain pending.
+- Overall stack acceptance still needs layer-4 integration and its own actual host evidence.
+  Layer 1 supplies separate serving-app evidence; this layer does not claim it from socket tests.
 - Node `22.23.4` runs in CI, not locally.
 - No permanent regression inventory is configured. Existing suites remain selected without inventing a second inventory.
 - No throughput, retention, large-result pagination, credential renewal, or live policy update is provided.

@@ -141,8 +141,9 @@ All identities in the tests are synthetic.
 Layer 3 provides socket authentication, notifications, delivery acknowledgment, startup reconciliation, and session loss detection.
 Layer 4 owns platform policy, operation execution, owner-approval checks, and safe recovery evidence.
 Neither source approval nor passing state tests authorizes live monitor cutover.
-Layer 1 serving-app attachment and app-executed acceptance remain separate stack gaps.
-Its executable SDK repairs and safety stops do not prove serving-app acceptance or a measured improvement.
+Layer 1 records its serving-app evidence in the [continuation matrix](../../docs/testing/task-continuation-layer-1.md).
+Socket tests do not establish that acceptance or authorize activation.
+Executable SDK checks alone do not prove serving-app acceptance or a measured improvement.
 
 ## Local broker
 Call `startBroker({ directory, socketPath, policyPath })` from `server.mjs`.
@@ -248,6 +249,11 @@ Rejection first removes enrollment and quarantines the affected holder independe
 If output is blocked, the broker destroys the socket without waiting for a terminal error to flush.
 The error frame cannot be guaranteed on a blocked connection; unresolved calls remain admission-uncertain.
 Cleanup checks the connection identity, so a delayed old close cannot revoke a replacement connection's grant.
+Rejection, readable EOF, transport errors, and closure use the same idempotent terminal cleanup.
+Failed response writes use that path too.
+Each terminal signal removes enrollment and quarantines its holder before transport destruction or output flush.
+Repeated or stale callbacks cannot detach a replacement connection or revoke its renewed grant.
+Quarantine retains the holder, unresolved operations, and all resources until explicit recovery and clean release.
 Domain validation errors return safe fixed codes.
 No response contains an enrollment token or raw framework error.
 
