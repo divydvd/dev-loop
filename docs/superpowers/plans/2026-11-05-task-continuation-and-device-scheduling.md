@@ -207,3 +207,25 @@ Relevant risk categories: invalid input, permissions, concurrency, partial failu
 
 ## Conclusion
 This plan builds both approved components in reviewable layers and measures actual agent behavior. Review this plan before the risky implementation starts. Live activation remains a separate decision because replacing the shared monitor can affect other active sessions.
+
+## Task 3 correction addendum: event-history authority
+The owner approved this correction and one bounded implementation/review cycle after the saved-state failures at `558aa97`.
+
+### Acceptance record
+- **Goal:** prevent malformed request summaries from erasing operation identity or restoring withdrawn grants.
+- **Done when:** state admission checks the request summary against committed event history; the three reproduced paths fail safely; valid normal and recovery flows remain available.
+- **Required evidence:** failing-to-passing persistence regressions, the existing scheduler cases, the combined project suites, both CI runtimes, and independent review of the final change.
+- **Scope:** scheduler state only. Preserve the existing public interfaces, scheduling rules, exclusive resources, owner waits, and recovery duties.
+- **Authority:** use existing committed records, not another caller-supplied approval flag. Saved task metadata still grants no permission.
+- **Size:** keep the complete layer below about 400 production lines. If that is not feasible, report the necessary split before publication.
+- **Stop:** one implementation/review cycle is authorized. Do not start another corrective cycle, merge, or activate the service.
+
+### Work
+1. Reproduce erased operation history during running and owner wait, plus revoked recovery authority without renewal.
+2. Make recorded events authoritative for operation identity and grant withdrawal. Reject an inconsistent request summary before admitting work.
+3. Cover completed and unresolved operations, repeated faults, policy withdrawal, cancellation, recovery renewal, and stale generations.
+4. Reject missing or inconsistent history explicitly. Do not repair corruption by inventing authority, releasing holders, or treating uncertainty as safety.
+5. Preserve valid event replay, duplicate handling, restart, recovery-only scope, and atomic state/outbox changes.
+6. Obtain independent review of the corrected model and affected interactions. Verify and publish the exact reviewed source.
+
+This is a consistency guarantee within the private-state model. It is not protection against arbitrary local code that can rewrite the complete database.

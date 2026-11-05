@@ -3,6 +3,25 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## 0.6.0 (2026-11-05)
+- **Add inactive durable device scheduler state, stack layer 2.**
+  - **What:** Add private SQLite transactions, versioned events, stable request IDs, scoped grants, and an atomic event outbox.
+    Reserve exact devices and shared host resources together. Preserve owner waits, uncertain ownership, and recovery after policy revocation.
+    Add synthetic concurrency, restart, interrupted-write, path, and transition tests on both target Node versions in CI.
+    Reject sparse policy arrays and malformed state that discards owner-wait recovery ownership.
+    Retain policy history to validate pinned resources and reject conflicting saved holders.
+    Reject restored normal grants on quarantined or revoked ownership while preserving recovery-only grants.
+    Compare saved summaries, event results, and outgoing snapshots with committed event history through the same state reducer.
+    Reject erased operations and restored recovery authority without guessing a repair or discarding held resources.
+    Correct the two current C1 handoff statements when integrating the final reviewed lower-base scorer update.
+    Preserve historical test results and distinguish passed disposable app checks from production integration and activation.
+    Do not start a service, use a real device, or change the live monitor or work-ledger.
+  - **Why:** The approved scheduler design needs durable ownership before it can add event delivery.
+    A timeout, lost connection, or cancellation cannot prove that a used device is safe.
+    Three final probes admitted duplicate operations or withdrawn recovery grants after isolated saved-state changes.
+    The owner approved one state-model correction and review cycle; persistence regressions fail before the correction.
+  - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/device-scheduler/{state,queue}.test.mjs`.
+    Inspect `docs/testing/device-scheduler-layer-2.md` for the acceptance cases and source-only limits.
+    The next weekly review checks grant conflicts, stale generations, unresolved operations, and honest separation from live acceptance.
 - **Add inactive bounded task-continuation source, stack layer 1.**
   - **What:** Add a host-bound task index, atomic SQLite correction consumption, typed tools, and privacy-safe error categories.
     Preserve native permissions, owner stops, cancellation, dependencies, and the failed-fix limit.

@@ -334,3 +334,183 @@ Cost if wrong: source activation stays blocked; no live configuration change is 
 Publish the reviewed fixtures, matched SDK executions, and actual app evidence without production activation.
 Record final-head checks in the PR and work ledger.
 Keep scheduler integration and live activation outside this layer.
+
+## Layer 2: Task 3 (separate state)
+- Approved scope: durable scheduler state only. Earlier layer evidence above stays unchanged.
+- Base: `2b6b7025b03cfc0113e0909ea94e918f610ca61b`.
+- Branch: `divydvd-device-scheduler-state`; PR base: `divydvd-task-continuation-guard`.
+- Execution: native, with TDD and one complete-diff independent review.
+- Matrix: `docs/testing/device-scheduler-layer-2.md`, D1-D12 and P1.
+- Pre-flight: Task 3 produces the store and event reducer; Tasks 4-5 consume them.
+  No existing caller constrains the payload fields beyond the approved interfaces.
+- Ruling: use authenticated `{ id, role }` context from the later broker, not event payload identity.
+  Only the scheduler role can set policies, report infrastructure loss, or issue recovery grants.
+  Cost if wrong: later broker integration needs an explicit adapter; callers cannot self-enroll as scheduler.
+- Ruling: operation records belong in this pure state layer because safe release must reject unresolved operations.
+  Execution and platform procedures remain in later layers. Cost if wrong: those layers must preserve the state protocol.
+- Ruling: preserve this ledger after execution. Earlier evidence and durable layer state must survive cleanup.
+- Status: matrix saved; failing tests next. No runtime acceptance or activation is claimed.
+- RED: the required initial test command reports both absent scheduler modules. This is a missing-feature result, not a behavioral pass.
+- Initial implementation: 22/23 cases pass. The one failed assertion used generation zero, which correctly fails event validation.
+  Correct the fixture to use a positive mismatched generation; all original cases then pass.
+- Additional RED-to-GREEN cases cover malformed relationships, delayed infrastructure generations, maximum-length event IDs,
+  owner-wait preservation, dangling symlinks, and caller-supplied runtime overrides.
+- Ruling: fault and recovery events include the full grant binding. Delayed infrastructure reports must not revoke a newer grant.
+  Cost if wrong: layer 3 needs those fields on its internal reports.
+- Ruling: return a `replayed` flag alongside the request and outgoing IDs.
+  Identical operation-start responses otherwise cannot distinguish admission from transport replay.
+  Cost if wrong: later clients must preserve this flag; it is not proof of completed device execution.
+- The source uses one SQLite row for the atomic snapshot and outbox. Transactions reload it under a writer lock.
+  The store validates saved structure and ownership links before returning availability.
+- Pre-review checks: plugin check passes; combined CI selection reports 319 passed, zero failed, one inherited case-sensitive-filesystem skip.
+  Scheduler scope is 32 tests. Production source is 314 lines.
+  Node `26.12.1` ran locally; Node `22.23.4` remains a CI check.
+- Review next: complete layer diff against `2b6b702`, including source, tests, docs, CI, matrix, and ledger.
+- Independent review: `scheduler-state-review` covered the complete 11-file diff at
+  `92dda06db0e3d6d0d00085ccf4334cb736ef9e4e`. It found two Important issues and no Minor issue.
+- Final: fixed unresolved-operation admission — inflight/unknown operation tests RED to GREEN.
+  Normal grants cannot admit another operation before reconciliation. New recovery-only grants preserve explicit recovery.
+- Final: fixed cancelled ownership validation — cancelled inflight/complete history tests RED to GREEN.
+  A malformed snapshot cannot drop that holder without explicit safe release.
+- Combined suites after fixes: 323 passed, zero failed, one inherited filesystem skip. Scheduler scope: 36 tests.
+  Production modules: 317 lines. Focused independent review will cover these corrections before push.
+- Ruling on review exclusions: assignment continuation and socket delivery remain outside this state layer.
+  Cost if wrong: no automatic-task or delivery acceptance can be claimed from this PR.
+- Ruling on review exclusions: physical identity resolution, procedure authorization, owner approval, and cleanup proof remain adapter duties.
+  Cost if wrong: this state API alone cannot authorize safe device operations.
+- Ruling on review exclusions: hostile same-user filesystem replacement is outside the private-path model.
+  Cost if wrong: these paths are not an OS isolation boundary.
+- Ruling on review exclusions: no retention or throughput requirement exists in this layer.
+  Cost if wrong: later deployment needs measured limits and reviewed compaction.
+- Ruling on review exclusions: app discovery, physical devices, and local Node 22 execution were not reviewed.
+  Cost if wrong: runtime acceptance remains incomplete; the CI matrix must establish Node 22 source checks.
+- Focused review: `scheduler-correction-review` checked tree `6dc522a34eaeeb2f8d8cbde53785dcec9addd2d0`.
+  It found no significant issue in the corrections or their affected interactions.
+  Its exclusions match the rulings above; they do not establish device, delivery, or activation acceptance.
+- Review coverage: the initial complete-diff review plus focused corrections covers final substantive content.
+  These later evidence notes change no runtime behavior. No deferred Minor finding remains.
+- Task 3 source and review are complete. Final-head checks, publication, and CI evidence belong to the layer PR.
+  Keep the earlier layer's host and executed-task gaps separate. No merge or activation is authorized.
+- Publication: PR `https://github.com/divydvd/dev-loop/pull/29`, base `divydvd-task-continuation-guard`.
+  Initial pushed head `66877f5f3944e5788ff75edc8d263b50e95fcfc7` passes all three CI jobs.
+  Both target runtimes pass all 36 scheduler cases with no skip.
+  Existing Linux work-ledger tests skip eight case-insensitive fixtures; local macOS covers them.
+- Automatic review round 1 found two confirmed validation gaps: sparse resource arrays and holder-free owner-wait recovery state.
+  Both findings reproduce before correction. Nested sparse operation/event history reproduces the same serialization fault.
+- Round 1 fixes: check every policy resource; validate serialized state before commit; reject non-holder queued/blocked/owner-wait grants and history.
+  Owner-wait recovery cannot discard its holder. Four added cases fail before correction and pass after it.
+- Round 1 local selection: 327 passed, zero failed, one inherited filesystem skip; scheduler scope 40 tests.
+  Production modules: 321 lines. Focused independent coverage and committed-head verification precede the review-round push.
+- Round 1 focused review: `scheduler-round-one-review` covered tree `ba01d5f2e4f5b09365b60e6d69b2c30cad8f7a63`.
+  It found both fixes effective and no new defect. It checked ten memory-only SQLite interaction scenarios.
+  Filesystem tests and final CI remain the author's evidence, not that reviewer's execution claim.
+  Its exclusions match the earlier source-versus-runtime rulings. Later notes change evidence only.
+- Automatic review round 2 found missing policy/resource matching and cross-holder resource checks.
+  The current-policy mismatch, revoked-policy mismatch, and conflicting-holder cases each fail before correction.
+- Ruling: retain policy versions in the existing `policies` array, rather than discard old versions.
+  Every request needs its exact resource prerequisites, including after revocation. New requests use the last policy for that device.
+  Cost if wrong: old preview databases missing required policy history fail closed. No activated or live state is migrated here.
+- Round 2 fixes: validate exact pinned resource sets and reject resource overlap across holders.
+  A positive latest-policy case checks that new requests use the updated resources.
+- Round 2 local selection: 331 passed, zero failed, one inherited filesystem skip. Scheduler scope 44 tests.
+  Production modules: 326 lines. Focused review and committed-head verification precede the final permitted fix push.
+- Read the next automatic review and report its findings. Do not start a third fix round or request another review.
+- Round 2 focused review: `scheduler-round-two-review` covered tree `fd5aa853814d1d1929de3ef195d1811c343eb81c`.
+  It reproduced all three malformed-state gaps against the prior head and found the corrections effective.
+  Additional memory-only checks covered interleaved history, current admission, revocation, recovery, release, and rollback.
+  It found no significant issue. Earlier exclusions remain in effect; no filesystem or live acceptance is inferred.
+- Updated base: merge lower-layer head `300337ddc309d58528e73a7c175e9da5f9c240e5` as directed by the coordinator.
+  Preserve all lower-layer evidence and the separate Task 3 section. Resolve the ledger conflict by retaining both sections.
+  No scheduler production source changes during this integration.
+  The lower layer now proves executable SDK repairs and safety stops, with zero baseline continuation faults.
+  Actual serving-app attachment remains blocked. No measured improvement or app acceptance is claimed.
+  This base-integration push is not a third scheduler fix round and does not request another review.
+- Base integration review: `scheduler-base-integration-review` covered merge `6bc5ec5e1a73f845e2187068df0e58edc3bb9ea6`.
+  It confirmed both layer records, unchanged production source/tests, and no new integration issue.
+  The combined selection reports 339 passed, zero failed, one inherited filesystem skip.
+- Final scheduler automatic review at `ca09d94` reports one previously missed saved-state issue.
+  Clearing only a saved revoked flag admits an old normal grant after fault, cancellation, or policy revocation.
+  Three synthetic SQLite probes reproduce the fault at `6bc5ec5`. No actual device operation runs.
+- Required case D13 is failed: confirmed product validation failure. The passing suite does not establish this missing safety invariant.
+  Preserve quarantine/recovery duties. Source remains inactive; no live state or work-ledger changed.
+- The two permitted automatic fix rounds are exhausted. Stop corrective work and report open, not ready.
+  Owner direction is needed for an additional round. Do not request another automatic review.
+  The updated-base integration can still be published as directed; it changes no scheduler production source.
+- Additional owner authority: the coordinator reports the owner selected
+  “Authorize one additional correction round (Recommended)” after the confirmed D13 fault and round limit were explained.
+  Scope: one focused correction, regressions, independent review, verification, and publication.
+  No further round, merge, or activation is authorized. Keep the updated base in the reviewed snapshot.
+- Authorized correction: six D13 cases fail before the fix and pass after it.
+  Saved-state validation rejects live cancelled grants and live normal grants on quarantined or obsolete-policy ownership.
+  Operation admission checks state, safety, and current policy before it changes the snapshot.
+  Recovery-only grants retain their historical policy bindings and existing recovery controls.
+- Integrated candidate selection: 345 passed, zero failed, one inherited filesystem skip. Scheduler scope 50 tests.
+  Production modules: 337 lines. The final candidate includes base `300337d` and integration review at `6bc5ec5`.
+  The final focused reviewer will inspect the exact candidate commit; publish that same commit if no further source change is needed.
+  Record final review/CI in the PR and session execution record to avoid changing the reviewed commit for evidence notes.
+
+### Owner-authorized state-model correction
+- Authority: the coordinator reports the owner selected
+  "Approve the state-model correction and one review cycle (Recommended)".
+  The plan contains the exact approved event-history addendum. One implementation/review cycle and publication are permitted.
+  No further corrective cycle, merge, or activation is authorized.
+- Start identity: `558aa97c5a452ceba124dedd06827d81285cd846`; the integrated base remains `300337d`.
+- Root cause: validation checks mutable summaries without reconciling committed event signatures and recorded results.
+  Erasing operations removes duplicate evidence. Clearing recovery revocation restores an old acknowledged generation.
+- Required matrix saved before implementation: D14-D17 extend D1-D13 and P1 in `docs/testing/device-scheduler-layer-2.md`.
+- Ruling: replay existing validated events through the same reducer into a detached state, then compare with saved summaries and records.
+  Reject differences; never write the reconstructed state, infer missing events, or release ownership.
+  This uses committed history, not another mutable permission flag.
+  Cost if wrong: deterministic reducer changes need explicit compatibility review; replay adds work as history grows.
+- Public interfaces, authenticated contexts, event payloads, and generation bindings stay unchanged.
+  No socket, delivery, platform, work-ledger, installation, or device operation is in scope.
+- Estimated added production source: about 30-45 lines; complete layer remains below 400.
+- Current status: regression tests next; the two prior failures remain preserved until the corrected model passes.
+- RED at unchanged production head `558aa97`: 35 history cases ran; 23 failed with missing expected rejection.
+  Twelve controls already passed, including normal revocation, recovery cancellation, missing outbox, and valid recovery/restart.
+  The failures include all erased-operation variants, six recovery-revocation variants, and inconsistent history/result snapshots.
+  Full output is retained as `scheduler-history-red.log` in session files.
+- Ruling: compare domain state, complete event records, and immutable outgoing fields after deterministic replay.
+  Keep optional delivery metadata outside that comparison, as the existing store contract allows later acknowledgment fields.
+  Cost if wrong: layer 3 must define and validate its delivery metadata without changing immutable outgoing records.
+- GREEN: all 93 scheduler cases pass. The 23 observed RED failures now reject inconsistent saved history.
+  Eight additional controls cover erased recovery history, forged unused state, and separate delivery metadata.
+  The combined selection reports 389 tests: 388 pass, zero fail, one inherited case-sensitive-filesystem skip.
+  `node scripts/check.mjs` reports no faults. Production modules total 358 lines.
+- The reducer has one admission helper for live events and history reconstruction.
+  The store performs comparison on read and on the serialized snapshot before commit.
+  Public results and event payloads remain unchanged. No reconstruction result is written as a repair.
+- Review next: one independent review of the exact correction commit and its affected interactions.
+  Record reviewer identity, verdict, final-head verification, and CI in the PR/session evidence to preserve the reviewed SHA.
+  If review finds a further required correction, stop and report it rather than start another corrective cycle.
+
+### Final lower-base integration
+- Request: merge exact lower head `a407b759e70c4f3d5b5d6046a9edf92915ea648f` into this owning branch.
+  Keep the scheduler unchanged. Obtain focused integration review and publish one update.
+- Acceptance: include both parents, preserve all scheduler files, retain both ledger sections, and pass the combined CI selection.
+  Required evidence: source identity comparisons, plugin check, all existing suites, independent review, and both CI runtimes.
+- Ruling: retain the updated lower-layer conclusion and evidence, then the complete separate Task 3 record.
+  Replace only the obsolete conclusion that app proof is missing. Preserve historical blocked records as history.
+  Cost if wrong: an overbroad claim could confuse disposable app acceptance with production activation.
+- C1 now passes actual serving-app observations: session-scoped provider installation, bounded correction,
+  matching idle logical message IDs, native cancellation, and cleanup.
+  These records come from the lower layer; this integration does not repeat installation or host operations.
+- The production guard is unchanged. Baseline continuation faults remain zero; no improvement percentage is claimed.
+  Production app-and-scheduler integration and activation remain separate.
+- This merge adds no scheduler behavior and starts no scheduler correction cycle.
+  Production source remains 358 lines. No device use, global installation, main merge, rebase, or force push is authorized.
+- Verification and focused review will use the exact merge commit. Record their identities in the PR and session evidence.
+
+### Verified scorer-base and C1 documentation integration
+- Request: merge exact `b2b6cc3eb0f15e3a253350b5032ed6f8d368d7dc` and bundle the two confirmed stale current-status C1 blocks.
+  The coordinator verified the open lower PR, remote head, passing CI, and completed review.
+- Acceptance: include both parents; preserve scheduler production, tests, and approved plan; retain both layer records and historical results.
+  Correct only the current C1 handoff in the scheduler README and layer-2 selection section.
+- Required evidence: exact source identity comparisons, plugin check, all CI suites, focused independent integration/doc review,
+  both runtime jobs, and final automatic-review disposition. Resolve the Low thread only after publication.
+- Current C1: the disposable serving-app canary passes. Production guard-and-scheduler integration and activation remain separate.
+  All 42 retained SDK records pass explicit stronger rescoring. Baseline faults remain zero; no improvement percentage is claimed.
+- Scope: lower scorer/test/evidence integration plus the two requested documentation blocks and this record.
+  Scheduler production remains 358 lines. The production guard and pinned app canary remain unchanged.
+- Publish once after focused review and verification. Send the exact pushed head immediately so layer 3 can merge it.
+  Do not start a scheduler correction cycle, rebase, force push, merge main, install globally, or activate.

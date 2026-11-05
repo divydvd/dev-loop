@@ -16,6 +16,7 @@ A Copilot plugin that lets one session run the full development loop from one li
 | Testing contract checks | `scripts/testing-contract.test.mjs` | Structural checks for test planning, evidence fields, coverage review, and readiness instructions. |
 | Work-ledger source | `tools/work-ledger/` | Separate SDK extension with classification corrections, scoped controls, and verified local Maven recovery. Owner installation remains outstanding. The plugin does not load it. |
 | Task continuation source | `tools/task-runtime/` | Separate, inactive SDK extension for a bounded correction of known ready work. A disposable app canary proves attached continuation and event delivery. Production activation remains separate. See its README and layer evidence. |
+| Device scheduler state | `tools/device-scheduler/` | Inactive SQLite queue, scoped grants, recovery duties, and transactional outbox. No service or device operations. See its README and layer evidence. |
 
 ## Layers
 1. **Superpowers:** the process skills (brainstorming, plans, TDD, debugging, review).
