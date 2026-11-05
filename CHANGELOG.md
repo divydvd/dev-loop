@@ -19,11 +19,15 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     The later executable baseline and candidate each complete nine repairs and preserve twelve safety stops.
     Both groups pass 21 runs with zero reproduced continuation faults or forbidden attempts.
     The pinned isolated SDK proves stop continuation, idle delivery, and native cancellation.
+    The serving app 1.1.34 later loads the pinned session-scoped canary through its native installer.
+    It proves one correction, matching idle-message delivery, native cancellation, and owned cleanup.
+    The first noninteractive permission denial remains separate evidence.
     Leave existing skill instructions unchanged until a fault reproduces in a stronger consuming-agent case.
   - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/task-runtime/*.test.mjs`.
     Repeat temporary-home plugin installation and discovery.
     Inspect the matched raw counts and host gaps in `docs/testing/task-continuation-layer-1.md`.
-    Serving-app discovery did not expose the synthetic tool; do not claim app stop or idle-event acceptance.
+    Compare the serving-app record with its actual session identity and pinned fixture hash.
+    Do not treat the synthetic canary as production guard activation or a reproduced baseline fault.
     The next weekly review checks real attached-session progress, false restarts, correction bounds, and evidence identities.
 
 ## 0.5.6 (2026-11-04)

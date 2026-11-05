@@ -3,8 +3,8 @@
 ## Abstract
 The source implements a bounded correction for a known ready step.
 Pure-state checks and isolated SDK execution pass.
-Real app compatibility and a measured improvement remain unproved.
-This layer must not be reported as integration-ready.
+The serving-app canary now proves attached continuation, idle delivery, native cancellation, and owned cleanup.
+The baseline reproduces no fault, so no measured improvement is claimed.
 
 ## Scope and identity
 - Base commit: `4cdb718`.
@@ -24,13 +24,13 @@ The execution ledger is `.superpowers/sdd/task-continuation-and-device-schedulin
 | --- | --- | --- |
 | H1 | Reject CLI-as-app, incomplete records, wrong identities, uncorrelated events, and invalid continuation counts; five validator tests pass | passed locally |
 | H2 | Public SDK loads the marker and proves one stop correction, idle delivery, native cancellation, and cleanup | passed in an isolated runtime |
-| H3 | Two disposable app sessions lack the marker; the second has a Git root | blocked: exposed app capability |
+| H3 | The session-scoped installer loads the reviewed canary in app 1.1.34; one correction, correlated idle delivery, native abort, and cleanup pass | passed in the serving app |
 | S1–S4 | State and synthetic adapter tests cover ready work, waiting, prerequisites, stale revisions, and one consumed correction | passed locally |
 | S5–S7 | State and synthetic adapter tests cover owner stops, cancellation, global errors, failed-fix limit, and repeated stops | passed locally |
 | S8 | Real SQLite checks cover competing handles, restart, private paths, invalid state, and pre-enrollment halts | passed locally |
 | C2/C3 sampled decisions | All 21 baseline and 21 candidate responses select the expected next action or safe stop | passed as decision exercises only |
 | C2 isolated execution | Matched 21-before/21-after SDK runs execute nine host repairs and preserve twelve safety stops per group | passed; no reproduced baseline fault |
-| C2 app execution | No interrupted assignment executes through a serving-app extension | blocked by H3 |
+| Later app integration | The production guard and scheduler remain inactive; the app canary does not prove their combined flow | outside Tasks 1–2 |
 | P1 | Plugin check and all existing CI suites run with the new suite | passed locally; final-head result belongs in PR evidence |
 | P2 | Temporary-home local marketplace install exposes the core rule and four plugin skills | passed locally |
 
@@ -68,12 +68,58 @@ Its strict launch provider resolves only the copied canary through the installed
 Canonical path comparison handles the macOS `/var` and `/private/var` aliases.
 Without that comparison, the provider explicitly rejects its own staged entry point.
 The app's exposed session-creation API has no corresponding extension opt-in or launch-provider setting.
-This is the unavailable capability. It does not prove that the SDK hooks are unsupported.
+That observation does not exhaust supported recovery paths.
+The desktop `create-canvas` reference describes normal runtime extensions using the same `joinSession` API.
+The available `install_extension` tool accepts a pinned GitHub folder and explicit `scope: "session"`.
+It writes the installation and reloads providers. Its omitted scope defaults to `user`.
+The canvas iframe has no privileged bridge and cannot substitute for provider activation.
 The underlying app setting and project trust remain unproved causes.
 Do not invent an endpoint, start another CLI on an app session, or change live configuration.
-The smallest recovery is a supported app host connection with those extension capabilities in a new disposable project.
-This requires a host integration change or an exposed supported operation, not routine owner diagnosis.
 After the marker appears, repeat the same stop, idle-event, cancellation, and cleanup cases.
+
+### Session-scoped installer recovery
+The standalone synthetic folder is committed at `ea343c6659db41213653236bbe9388772f0123e7`.
+Reviewer `continuation-installer-canary-review` checked tree `366793196ecba88f8d843b6b9f9ab1772f71e1a9` and found no significant issue.
+The fixture cannot request its one correction before the marker executes.
+Its cancellation tool requests the native `session.abort()` once, without changing another session.
+The old import path remains a wrapper; copy-based probes use the standalone entry.
+The new packaging regression fails before implementation and passes afterward.
+At this commit, 296 tests pass, zero fail, and one platform test skips.
+All three CI jobs pass, including both declared Node versions.
+
+The coordinator applied the owner's existing Task 1 approval and lifted its own read-only restriction.
+This did not authorize user, project, or global installation.
+Fresh app information reports `1.1.34`, not a local source build.
+New disposable session `f7e2e178-c28c-42e1-b1d8-e468f7070a7b` invokes the installer itself with explicit session scope.
+The first request returns: `Permission denied because no interactive user response was available.`
+It returns no installation path. No marker or lifecycle check runs after that rejection.
+The session then switches to interactive mode for one exact retry, as the installer directs.
+The app first reports `activity.waiting_on: "permission_request"`.
+The interactive installation then succeeds and reloads the provider.
+Both synthetic tools appear in the catalog; the marker executes exactly once.
+The initial denial remains retained. No permission setting or installation scope changes.
+
+The attached provider reports session `f7e2e178-c28c-42e1-b1d8-e468f7070a7b`, matching the independently observed app session.
+The installed entry has SHA-256 `a41fbb46e968c848752ee7b34af99641426b39427799312a073beeed90c7f745`, identical to the pinned source.
+Its raw records contain one block and one stop re-entry with `stopHookActive: true`.
+An idle event precedes the attached message admission.
+Admission, received logical message, and assistant origin all identify `1e90143b-074b-422e-8bf3-99a5eeef4b45`.
+The child directly responds `CANARY_INITIAL`, `CANARY_CONTINUED`, and `CANARY_EVENT_RECEIVED`.
+
+A separate cancellation step invokes `task_canary_cancel` exactly once.
+The provider records `abort-requested`, the native `cancelled` event, `abort-acknowledged`, and then `idle`.
+No block or message admission occurs after cancellation.
+The parent copies the raw records before cleanup and archives only this disposable session.
+The supported archive lifecycle stops the owned CLI; the extension guide specifies provider termination on CLI exit.
+No separate helper is launched. Cleanup does not include an independent process-ID probe.
+The parent removes only the exact session-scoped installation and verifies that the directory is absent.
+The disposable project retains its synthetic seed; no unrelated workspace is removed.
+
+The existing validator accepts the record with `hostKind: "app"` and host version `1.1.34`.
+The unique initial host message ID, `d57d207c-2aa6-4ec6-b655-b51d490e0cdc`, identifies this run in its nonce field.
+This consistency check is not cryptographic host attestation.
+Private raw records, cleanup evidence, the validator command, and `acceptance.json` remain in this session's `files/serving-app-installer/`.
+No SDK-only observation is relabeled as an app observation.
 
 ### Isolated SDK lifecycle evidence
 Run `sdk-canary.mjs` with the installed SDK, runtime, and bootstrap paths documented in the runtime README.
@@ -245,18 +291,26 @@ Those failed batches and the mixed-version startup pilot remain excluded, with t
 Only the final matched hashes and identities above establish the executable acceptance counts.
 
 ## Conclusion
-Publish this layer as source work with required integration gaps.
-Resolve disposable app discovery before any activation or automatic-progress claim.
+Publish Tasks 1–2 with the actual serving-app canary and the matched SDK execution evidence.
+Keep production activation and scheduler integration separate from this source approval.
 The executable controls prove host work, but they do not reproduce the original continuation fault.
+Unauthorized production activation remains the main risk.
 
 Independent review covered the complete 25-file staged tree `1d389430b5c828c5a3f30dbfca722fb46d60519d`.
 Reviewer `continuation-layer-review` found two Important source defects.
 Both have failing-then-passing regression tests.
 Reviewer `continuation-correction-review` then checked only those corrections and their interactions.
 It found no further concrete defect. The original published runtime suite has 22 passing tests.
-This review covers source publication, not the blocked integration acceptance.
+This review covers source publication; the review alone does not establish integration acceptance.
 The later acceptance review covers tree `c7c987d8a3e1c3bdb6a704ab2809f54bf59a2faa` and finds the three scoring gaps above.
 Focused reviews cover their corrections, durable observation, serialized startup, and identity enforcement through tree `e50f5869e96ab19d672cc387d489e2ab75fd087c`.
 The final focused review finds no Important or Critical issue.
-All 30 runtime tests pass locally. Actual app behavior remains outside that source review.
+At `300337d`, all 30 runtime tests pass locally.
+The later installer review covers the focused packaging and cancellation-control changes at `ea343c6`.
+Its 31 runtime tests use the adapter; the separate app observations above establish serving-app acceptance.
+Reviewer `continuation-serving-app-evidence-review` checks the final documentation and retained app evidence through tree `f3c8c9464901b9962917c9373e62a23c3ff40e6d`.
+It finds no significant issue. It does not independently attest external host actions or process termination.
+Later text records that review and the retained hashes, without changing source.
+The raw observation SHA-256 is `3dac9b15d3d854793fceb03021540a8b63e2d4446e75d00483586dc4151b07eb`.
+The acceptance record SHA-256 is `628fa81f81c7474e95652cc06b4b87f5431b2c7be0df685e5f12e2281a0c7ad1`.
 The asynchronous driver and failed-cleanup branch retain the limited direct unit coverage recorded in the ledger.

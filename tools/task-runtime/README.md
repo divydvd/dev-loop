@@ -175,5 +175,6 @@ These executed SDK cases still cannot establish serving-app acceptance.
 
 ## Conclusion
 The pure-state and adapter tests can run without app activation.
-The missing app discovery proof must be resolved before integration acceptance.
+The separate serving-app canary now proves discovery, one correction, idle delivery, native cancellation, and owned cleanup.
+The production guard remains inactive; later scheduler integration still needs its own evidence.
 The main risk is overstating simulated evidence or restarting work across a valid safety boundary.
