@@ -209,3 +209,10 @@ The source remains inactive.
 - The coordinator reports a lower fixture-scorer correction in progress and holds publication.
   Keep all local work. Wait for its exact final base, then include it in final coverage and verification.
   No further correction cycle, PR merge, activation, real device, or live work-ledger access is authorized.
+- Focused fix-pass reviewer `scheduler-shutdown-fix-review` covers `915058f..86e8f81`.
+  It confirms the Important shutdown finding and reserved-grant coverage gap are addressed without a new required regression.
+  It independently passes all 189 scheduler cases, the plugin check, and diff whitespace checks on Node `26.12.1`.
+- The prior sync reviewer cannot accept `write_agent`; that follow-up attempt is rejected without another review turn.
+  The narrow fresh check covers only the fix pass, not another full model audit or correction cycle.
+- Current substantive source has model and fix-pass review coverage.
+  Final lower-base integration and final-head evidence remain pending. Do not publish before the coordinator releases its hold.
