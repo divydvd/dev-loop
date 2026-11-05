@@ -3,6 +3,17 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## 0.6.0 (2026-11-05)
+- **Add the inactive device event broker, stack layer 3.**
+  - **What:** Add private Unix-socket enrollment, automatic eligible scheduling, durable delivery acknowledgments, and admission reconciliation.
+    Bind identities from private policy. Keep scheduler authority inside one broker, protected by a process-held SQLite lock.
+    Quarantine holders after disconnect or restart. Retain all history and acknowledged outgoing records.
+    Keep device procedures, serving-app attachment, and live cutover outside this layer.
+  - **Why:** The approved Task 4 needs reliable handoff after state commits without polling or repeated logical operations.
+    Failing-first socket cases cover missing source, malformed IDs, partial policy acceptance, background failure, and reordered policy restart.
+  - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/device-scheduler/*.test.mjs`.
+    CI runs the scheduler cases on both declared Node versions.
+    Inspect `docs/testing/device-scheduler-layer-3.md` for case mapping, evidence, and remaining integration gaps.
+    The next weekly review checks lost acknowledgment, competing authority, uncertain admission, and honest separation from app acceptance.
 - **Add inactive durable device scheduler state, stack layer 2.**
   - **What:** Add private SQLite transactions, versioned events, stable request IDs, scoped grants, and an atomic event outbox.
     Reserve exact devices and shared host resources together. Preserve owner waits, uncertain ownership, and recovery after policy revocation.

@@ -27,4 +27,4 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: node --test tools/task-runtime/*.test.mjs
-      - run: node --test tools/device-scheduler/{state,queue}.test.mjs
+      - run: node --test tools/device-scheduler/*.test.mjs
