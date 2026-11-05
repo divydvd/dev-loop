@@ -278,9 +278,47 @@ Correct the client input boundary inside this single authorized cycle.
 Keep source approval separate from activation.
 The main risk is reading unvalidated or changed credentials inside a later socket callback.
 
+## Owner-approved B20 client EOF correction
+### Abstract
+Final review `5790842916` raises client EOF during blocked output at `ac13ac6`.
+A private real-socket probe confirms four unsettled calls and unresolved `closed` after readable EOF.
+The owner selects "Fix the connection failure and complete one review round (Recommended)".
+Handle readable EOF as a terminal client signal without waiting for outbound flush.
+
+Goal: settle pending client calls and closure after EOF while preserving admission uncertainty.
+Done when: real-socket regressions, existing controls, independent review, final checks, and automatic review observation pass.
+Required evidence: RED/GREEN real-socket cases, all scheduler cases, and the existing CI selection on the published head.
+Stop conditions: a new required finding after this cycle needs another owner decision.
+Size estimate: one production listener, below the 400-line bound. No API, reducer, schema, or ownership change.
+
+| Case | Required risk and setup | Expected result | Method and location |
+| --- | --- | --- | --- |
+| B20-W | Ready peer stops reading, then sends EOF; request, delivery acknowledgment, and reconciliation await replies | Reject pending calls with `ADMISSION_UNCERTAIN`; settle `closed`; reject later calls without resending | Private real Unix sockets with writable output; `client.test.mjs` |
+| B20-B | Same EOF with actual blocked client output | Destroy without waiting for flush; settle every pending call and `closed`; retain uncertainty | Assert positive pending bytes and backpressure before EOF; `client.test.mjs` |
+| B20-R | One response arrives before EOF while other client output remains blocked | Keep the completed result; reject only unresolved calls; settle closure | Real response plus EOF; `client.test.mjs` |
+| B20-E | Peer sends EOF before readiness | Reject the connection promise; close the transport | Real enrollment without a ready response; `client.test.mjs` |
+| B17/B19 | Replay readiness and all invalid-token/snapshot cases | Preserve asynchronous rejection and the awaited-handle boundary | Existing client cases |
+| B1–B18 | Broker authority, lifecycle, history, and recovery | Preserve all prior scheduler cases | Entire scheduler suite and existing CI selection |
+
+These are required cases. No permanent inventory is configured; retain the existing selection.
+UI, device, throughput, migration, and live activation changes do not apply to this client terminal-path correction.
+Before implementation, the private probe confirms readable EOF with 240260 pending bytes and four unsettled calls.
+RED at unchanged production `ac13ac6`: 26 client cases pass and two blocked-output cases fail with `TEST_EVENT_TIMEOUT`.
+The writable-output and before-readiness cases pass as baseline controls.
+Both blocked cases assert actual pending output and backpressure before the peer sends EOF.
+One case receives its completed result but still times out waiting for `closed`.
+GREEN with the EOF listener: all 212 scheduler cases pass on Node `26.12.1`, preserving all 208 prior cases.
+The plugin and whitespace checks pass. Production modules total 341 lines.
+Final-head checks, independent review, CI, and automatic review observation remain pending.
+
+### Conclusion
+Correct the missing terminal signal inside this single authorized cycle.
+Preserve uncertainty instead of resending commands or guessing admission.
+The main risk is waiting for physical close when blocked output prevents it.
+
 ## Required gaps and limits
-- Lifecycle and B19 cases pass with independent review coverage.
-  Final-head verification, CI, and automatic review observation remain pending.
+- Lifecycle and B19 cases retain independent review coverage.
+  B20 cases pass locally; focused review, final-head verification, CI, and automatic review observation remain pending.
 - Overall stack acceptance still needs layer-4 integration and its own actual host evidence.
   Layer 1 supplies separate serving-app evidence; this layer does not claim it from socket tests.
 - Node `22.23.4` runs in CI, not locally.

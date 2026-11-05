@@ -9,6 +9,93 @@ import { connectBroker } from "./lib/client.mjs";
 import { openStore } from "./lib/store.mjs";
 import { decoder } from "./lib/protocol.mjs";
 
+async function pausedPeer(t, ready = true) {
+  const f = await setup(t), enrolled = inbox();
+  await f.broker.shutdown();
+  let peer, transport;
+  const server = net.createServer({ allowHalfOpen: true }, socket => {
+    peer = socket;
+    socket.once("data", () => {
+      socket.pause();
+      if (ready) socket.write('{"type":"ready"}\n');
+      enrolled.receive(socket);
+    });
+  });
+  server.listen(f.socketPath);
+  await once(server, "listening");
+  const original = net.createConnection;
+  const capture = t.mock.method(net, "createConnection", (...args) => {
+    transport = original(...args); return transport;
+  });
+  const client = connectBroker({ socketPath: f.socketPath, credentials: { token: f.tokens.a }, onEvent() {} });
+  capture.mock.restore();
+  t.after(async () => {
+    transport.destroy(); peer?.destroy();
+    await new Promise(resolve => server.close(resolve));
+  });
+  await enrolled.wait(() => true);
+  return { client, peer, transport };
+}
+
+for (const blocked of [false, true]) test(
+  `client EOF settles pending operations with ${blocked ? "blocked" : "writable"} output`,
+  async t => {
+    const f = await pausedPeer(t), client = await f.client, settled = inbox();
+    const calls = [
+      client.request(requestEvent("eof")),
+      client.acknowledge("eof:state"),
+      client.reconcile("eof"),
+    ];
+    if (blocked) for (let i = 0; i < 32; i++) {
+      calls.push(client.request({ id: `eof-${i}`, padding: "x".repeat(60000) }));
+    }
+    const outcomes = Promise.allSettled(calls);
+    client.closed.then(reason => settled.receive(reason));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.transport.writableLength > 0, blocked);
+    if (blocked) assert.equal(f.transport.writableNeedDrain, true);
+    f.peer.end();
+    assert.equal(await settled.wait(() => true), "ADMISSION_UNCERTAIN");
+    const results = await outcomes;
+    assert.ok(results.every(result => result.status === "rejected"));
+    assert.ok(results.slice(0, 3).every(result => result.reason.message === "ADMISSION_UNCERTAIN"));
+    assert.ok(results.every(result => ["ADMISSION_UNCERTAIN", "BACKPRESSURE"].includes(result.reason.message)));
+    assert.equal(f.transport.destroyed, true);
+    await assert.rejects(client.request(requestEvent("after-eof")), /ADMISSION_UNCERTAIN/);
+    assert.equal(await client.close(), "ADMISSION_UNCERTAIN");
+  },
+);
+
+test("a completed response survives EOF while blocked pending calls reject", async t => {
+  const f = await pausedPeer(t), client = await f.client, settled = inbox();
+  const completed = client.reconcile("already-known");
+  const calls = [];
+  for (let i = 0; i < 32; i++) {
+    calls.push(client.request({ id: `remaining-${i}`, padding: "x".repeat(60000) }));
+  }
+  const outcomes = Promise.allSettled(calls);
+  client.closed.then(reason => settled.receive(reason));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(f.transport.writableLength > 0);
+  assert.equal(f.transport.writableNeedDrain, true);
+  f.peer.end('{"type":"result","seq":1,"result":{"admitted":false}}\n');
+  assert.deepEqual(await completed, { admitted: false });
+  assert.equal(await settled.wait(() => true), "ADMISSION_UNCERTAIN");
+  const results = await outcomes;
+  assert.ok(results.some(result => result.status === "rejected" && result.reason.message === "ADMISSION_UNCERTAIN"));
+  assert.ok(results.every(result => result.status === "rejected" &&
+    ["ADMISSION_UNCERTAIN", "BACKPRESSURE"].includes(result.reason.message)));
+  assert.equal(f.transport.destroyed, true);
+});
+
+test("EOF before readiness rejects enrollment instead of returning a client handle", async t => {
+  const f = await pausedPeer(t, false);
+  const rejected = assert.rejects(f.client, /ADMISSION_UNCERTAIN/);
+  f.peer.end();
+  await rejected;
+  assert.equal(f.transport.destroyed, true);
+});
+
 test("coalesced ready and replay frames wait for the caller's handle assignment", async t => {
   const f = await setup(t), completed = inbox();
   await f.broker.shutdown();

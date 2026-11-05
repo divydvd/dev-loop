@@ -24,6 +24,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     A separately authorized B19 correction rejects non-string tokens without coercion and saves the validated primitive before socket connection.
     Permanent child-process cases reproduce the BigInt crash and incorrect rejection errors.
     Real enrollment cases reproduce session changes through caller mutation and changing getters before correction.
+    A separately approved B20 correction destroys the client transport at readable EOF, without waiting for blocked output.
+    Two permanent real-socket cases reproduce unresolved calls before correction.
+    Preserve completed responses and reject pending calls with admission uncertainty; never resend commands.
   - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/device-scheduler/*.test.mjs`.
     CI runs the scheduler cases on both declared Node versions.
     Inspect `docs/testing/device-scheduler-layer-3.md` for case mapping, evidence, and remaining integration gaps.

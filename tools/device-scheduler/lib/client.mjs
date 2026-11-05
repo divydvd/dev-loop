@@ -23,6 +23,7 @@ export async function connectBroker({ socketPath, credentials, onEvent }) {
       } catch (error) { waiting.delete(seq); fail(error); }
     });
     socket.on("connect", () => socket.write(encode({ type: "enroll", token })));
+    socket.on("end", () => stop("ADMISSION_UNCERTAIN"));
     socket.on("error", () => stop("CONNECTION_FAILED"));
     socket.on("close", () => {
       reject(new Error(failure));

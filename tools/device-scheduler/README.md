@@ -224,6 +224,9 @@ Acknowledged outbox rows remain in the database with boolean delivery metadata.
 
 There is no reconnect loop or automatic resend.
 After socket loss, unresolved calls reject with `ADMISSION_UNCERTAIN`.
+Readable EOF destroys the client transport without waiting for queued output to flush.
+Pending calls reject and `closed` settles even if the peer stops reading.
+A response received before EOF keeps its completed result. The client never resends unresolved commands.
 Reconnect once when the host resumes the session, then reconcile the original input event ID.
 If admission is absent, submit that same event. If admission exists, use its saved result.
 Never replace an uncertain operation with a new operation ID.

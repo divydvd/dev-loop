@@ -260,3 +260,32 @@ The source remains inactive.
 - The full existing CI selection at `caedd11` passes: 508 passed, zero failed, one inherited filesystem skip.
   The following commit records evidence only. No source, test, or runtime contract changes after review.
   Rerun final-head checks, publish once, and read the automatic review before the layer-4 handoff.
+
+## Owner-approved B20 client EOF correction
+- Published B19 head: `ac13ac692437081b4faed8836231b641242438b4`.
+  Local checks report 508 passed, zero failed, one inherited skip; all 208 scheduler cases and all three CI jobs pass.
+- Automatic review `5790842916` resolves B19 but asks for assessment of client EOF during blocked output.
+  A private real-socket probe confirms readable EOF with 240260 pending bytes, four unsettled calls, and unresolved `closed`.
+  Return PR #30 to draft and stop without a B20 source change, permanent test, commit, or further push.
+- The coordinator confirms the owner's explicit ask_user choice:
+  "Fix the connection failure and complete one review round (Recommended)".
+  The question described indefinite waits after readable EOF with blocked writes and excluded installation, activation, and merge.
+  This authorizes one B20 correction and review cycle, not an Autopilot continuation.
+- Root cause: the client handles transport error and physical close but not readable EOF.
+  Node's automatic writable end can wait for blocked output before physical close, delaying all promise settlement.
+- Save required B20-W/B/R/E and existing controls in `docs/testing/device-scheduler-layer-3.md` before implementation.
+  Preserve admission uncertainty and do not resend commands.
+- Ruling: route readable EOF through the existing stop/destroy path.
+  The transport has no further replies after EOF; flushing queued operations cannot establish admission.
+  If wrong, callers could confuse an unreceived response with permission to repeat a logical device operation.
+- Obtain focused independent review, verify the final head, publish once, and observe automatic review before layer 4.
+  No unrelated correction, additional cycle, installation, activation, merge, or live-state access is authorized.
+- RED at unchanged production `ac13ac6`: 26 client cases pass; both blocked-output EOF cases time out waiting for closure.
+  The writable-output and pre-readiness EOF controls pass.
+  The completed-response case receives its result before closure times out.
+- Fix: readable EOF calls the existing stop/destroy path with `ADMISSION_UNCERTAIN`.
+  Physical closure now rejects unresolved calls and settles `closed` without waiting for outbound flush.
+  Completed responses remain settled. No logical operation is resent.
+- GREEN: all 212 scheduler cases pass, preserving all 208 earlier cases.
+  The plugin and whitespace checks pass on Node `26.12.1`. Production modules total 341 lines.
+  Focused review and final-head verification remain required before the one authorized push.
