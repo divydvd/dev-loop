@@ -41,7 +41,7 @@ const conflicts = (a, b) => a.device === b.device || a.resources.some(resource =
 function eligible(state) {
   const held = state.requests.filter(r => state.devices.some(d => d.holder === r.id));
   return state.requests.filter(r => {
-    const policy = state.policies.find(p => p.device === r.device);
+    const policy = state.policies.findLast(p => p.device === r.device);
     const device = state.devices.find(d => d.id === r.device);
     return r.state === "queued" && policy?.enabled && policy.policyVersion === r.policyVersion &&
       device?.safety === "safe" && device.holder === null && !held.some(h => conflicts(r, h));
@@ -79,9 +79,8 @@ function checkGrant(request, device, p, allowRevoked = false) {
 
 function transition(state, auth, { kind, payload: p }) {
   if (kind === "policy") {
-    const previous = state.policies.find(policy => policy.device === p.device);
+    const previous = state.policies.findLast(policy => policy.device === p.device);
     if (previous && p.policyVersion <= previous.policyVersion) fail("POLICY_VERSION");
-    state.policies = state.policies.filter(policy => policy.device !== p.device);
     state.policies.push(structuredClone(p));
     if (!state.devices.some(d => d.id === p.device)) state.devices.push({ id: p.device, safety: "safe", generation: 0, holder: null });
     for (const r of state.requests.filter(r => r.device === p.device && !["released", "cancelled"].includes(r.state))) {
@@ -97,7 +96,7 @@ function transition(state, auth, { kind, payload: p }) {
       if (r.signature !== canonical(details)) fail("REQUEST_CONFLICT");
       return r;
     }
-    const policy = state.policies.find(policy => policy.device === p.device);
+    const policy = state.policies.findLast(policy => policy.device === p.device);
     if (!policy?.enabled || policy.policyVersion !== p.policyVersion) fail("INVALID_POLICY");
     r = {
       id: p.requestId, ...details, signature: canonical(details), order: ++state.next,

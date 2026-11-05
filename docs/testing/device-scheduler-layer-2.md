@@ -86,6 +86,21 @@ It reproduced the sparse-policy failure against the prior head and found both co
 Ten memory-only SQLite scenarios found no new defect in the changed interactions.
 The author's filesystem-backed results remain separate evidence.
 
+## Automatic review round 2
+The review at `2bd492f` found two missing resource invariants in saved state.
+Three new cases fail before correction: changed resource prerequisites, the same change after revocation, and conflicting holders.
+The store now retains each policy version and validates each request against its exact original resource set.
+It rejects shared resources across held requests.
+New requests still use the latest policy; a positive case checks that behavior.
+After correction, 44 scheduler tests pass.
+The full local selection reports 331 passed, zero failed, and the same inherited filesystem skip.
+Production modules total 326 lines.
+This is the second and final permitted fix round. The next automatic review will be read without another corrective push.
+Reviewer `scheduler-round-two-review` covered tree `fd5aa853814d1d1929de3ef195d1811c343eb81c`.
+It reproduced all three malformed-state cases against the prior head and confirmed rejection in the correction.
+Memory-only checks also covered interleaved policy history, latest-policy admission, revocation, recovery, release, and rollback.
+It found no significant issue in the corrections or affected interactions.
+
 ## Conclusion
 Prove state safety before the broker consumes these interfaces.
 Later layers must supply authenticated identities, delivery, and reviewed platform procedures.

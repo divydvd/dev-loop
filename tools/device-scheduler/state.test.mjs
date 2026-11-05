@@ -435,3 +435,45 @@ test("sparse nested history rejects before JSON changes its meaning", t => {
   assert.throws(() => store.transaction(state => { state.events[0].result.outgoingEventIds = Array(1); }), /INVALID_DATABASE_STATE/);
   assert.deepEqual(store.read(), before);
 });
+
+for (const revoked of [false, true]) {
+  test(`saved resource prerequisites cannot disappear${revoked ? " after policy revocation" : ""}`, t => {
+    const { store, directory } = fixture(t);
+    policy(store, "synthetic-android", ["shared-host"]);
+    policy(store, "synthetic-ios", ["shared-host"]);
+    request(store);
+    request(store, bob, "request-b", "synthetic-ios");
+    const grant = acknowledge(store);
+    send(store, alice, "operation_start", { ...binding(grant), operationId: "op-a", purpose: "test" });
+    if (revoked) policy(store, "synthetic-android", ["replacement-host"], 2, false);
+    const malformed = store.read();
+    malformed.requests[0].resources = [];
+    const db = new DatabaseSync(path.join(directory, "scheduler.sqlite"));
+    db.prepare("UPDATE scheduler_state SET value=? WHERE id=1").run(JSON.stringify(malformed));
+    db.close();
+    assert.throws(() => eligibleRequests(store), /INVALID_DATABASE_STATE/);
+    assert.throws(() => openStore({ directory }), /INVALID_DATABASE_STATE/);
+  });
+}
+
+test("saved holders cannot share a resource even when their individual grant bindings match", t => {
+  const { store, directory } = fixture(t);
+  policy(store, "synthetic-android", ["host-a"]);
+  policy(store, "synthetic-ios", ["host-b"]);
+  request(store);
+  request(store, bob, "request-b", "synthetic-ios");
+  const first = acknowledge(store);
+  const second = acknowledge(store, bob, reserve(store, bob, "request-b"));
+  const malformed = store.read();
+  malformed.policies.find(p => p.device === "synthetic-ios").resources = ["host-a"];
+  malformed.requests[1].resources = ["host-a"];
+  const db = new DatabaseSync(path.join(directory, "scheduler.sqlite"));
+  db.prepare("UPDATE scheduler_state SET value=? WHERE id=1").run(JSON.stringify(malformed));
+  db.close();
+  for (const [auth, grant] of [[alice, first], [bob, second]]) {
+    assert.throws(() => send(store, auth, "operation_start", {
+      ...binding(grant), operationId: "unsafe-start", purpose: "test",
+    }), /INVALID_DATABASE_STATE/);
+  }
+  assert.throws(() => openStore({ directory }), /INVALID_DATABASE_STATE/);
+});

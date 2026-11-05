@@ -23,8 +23,9 @@ function validate(state) {
       !["devices", "events", "outbox", "policies", "requests"].every(key => Array.isArray(state[key]) &&
         Array.from(state[key]).every(row => row && typeof row === "object"))) invalid();
   for (const key of ["devices", "events", "requests"]) if (!unique(state[key], "id")) invalid();
-  if (!unique(state.policies, "device") || state.policies.some(p =>
-    !positive(p.policyVersion) || typeof p.enabled !== "boolean" || !resources(p.resources))) invalid();
+  if (state.policies.some((p, index) => !identifier(p.device) || !positive(p.policyVersion) ||
+      typeof p.enabled !== "boolean" || !resources(p.resources) || state.policies.slice(0, index).some(previous =>
+        previous.device === p.device && previous.policyVersion >= p.policyVersion))) invalid();
   for (const d of state.devices) {
     if (!["safe", "uncertain", "quarantined"].includes(d.safety) || !Number.isSafeInteger(d.generation) ||
         d.generation < 0 || !state.policies.some(p => p.device === d.id) ||
@@ -33,7 +34,9 @@ function validate(state) {
   if (new Set(state.requests.map(r => r.order)).size !== state.requests.length) invalid();
   for (const r of state.requests) {
     const d = state.devices.find(d => d.id === r.device), g = r.grant;
-    if (!d || !identifier(r.sessionId) || !positive(r.policyVersion) || !resources(r.resources) ||
+    const policy = state.policies.find(p => p.device === r.device && p.policyVersion === r.policyVersion);
+    if (!d || !policy || !identifier(r.sessionId) || !positive(r.policyVersion) || !resources(r.resources) ||
+        r.resources.length !== policy.resources.length || r.resources.some(resource => !policy.resources.includes(resource)) ||
         !positive(r.order) || r.order > state.next || typeof r.signature !== "string" ||
         !["queued", "reserved", "running", "waiting_owner", "recovering", "blocked", "released", "cancelled"].includes(r.state) ||
         !["repository", "scope", "resumeAction"].every(key => typeof r[key] === "string" && r[key].length > 0 && r[key].length <= 500) ||
@@ -51,6 +54,9 @@ function validate(state) {
     if (d.holder !== r.id && ["queued", "blocked", "waiting_owner"].includes(r.state) &&
         (g !== null || r.operations.length > 0 || r.state === "waiting_owner" && r.beforeWait !== "queued")) invalid();
   }
+  const held = state.requests.filter(r => state.devices.some(d => d.holder === r.id));
+  if (held.some((r, index) => held.slice(0, index).some(other =>
+    r.resources.some(resource => other.resources.includes(resource))))) invalid();
   for (const e of state.events) {
     if (typeof e.signature !== "string" || !e.result || !Array.isArray(e.result.outgoingEventIds) ||
         !e.result.outgoingEventIds.every(id => state.outbox.some(out => out.id === id))) invalid();

@@ -8,6 +8,7 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Reserve exact devices and shared host resources together. Preserve owner waits, uncertain ownership, and recovery after policy revocation.
     Add synthetic concurrency, restart, interrupted-write, path, and transition tests on both target Node versions in CI.
     Reject sparse policy arrays and malformed state that discards owner-wait recovery ownership.
+    Retain policy history to validate pinned resources and reject conflicting saved holders.
     Do not start a service, use a real device, or change the live monitor or work-ledger.
   - **Why:** The approved scheduler design needs durable ownership before it can add event delivery.
     A timeout, lost connection, or cancellation cannot prove that a used device is safe.

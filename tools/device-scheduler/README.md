@@ -18,6 +18,9 @@ These checks do not isolate hostile code running as that same user.
 
 The store migrates a new empty database to schema version 1.
 It rejects other schema versions, malformed state, and failed SQLite integrity checks.
+The state retains each policy version in increasing order for each device.
+The last policy for a device controls new requests; saved requests retain their original resource prerequisites.
+Missing policy history, mismatched resources, and conflicting resource holders cause explicit rejection.
 `BEGIN IMMEDIATE` serializes writers across handles and processes.
 `synchronous=FULL` commits the state and outbox together.
 A process interruption before commit leaves neither change visible.

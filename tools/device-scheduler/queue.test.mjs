@@ -152,3 +152,15 @@ test("overlapping grant attempts cannot both reserve a single request", async t 
   assert.equal(store.read().devices[0].generation, 1);
   assert.equal(store.read().outbox.filter(e => e.kind === "reserve").length, 1);
 });
+
+test("policy history preserves old duties while new requests use the latest resource set", t => {
+  const { store } = fixture(t);
+  policy(store, "synthetic-android", ["host-old"]);
+  request(store);
+  policy(store, "synthetic-android", ["host-new"], 2);
+  request(store, bob, "request-b", "synthetic-android", 2);
+  const eligible = eligibleRequests(store);
+  assert.deepEqual(eligible.map(r => [r.id, r.resources]), [["request-b", ["host-new"]]]);
+  assert.equal(reserve(store, bob, "request-b").policyVersion, 2);
+  assert.throws(() => request(store, alice, "request-c", "synthetic-android", 1), /POLICY/);
+});

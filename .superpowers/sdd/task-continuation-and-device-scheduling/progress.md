@@ -194,3 +194,17 @@ Missing app proof must prevent an integration-ready claim.
   It found both fixes effective and no new defect. It checked ten memory-only SQLite interaction scenarios.
   Filesystem tests and final CI remain the author's evidence, not that reviewer's execution claim.
   Its exclusions match the earlier source-versus-runtime rulings. Later notes change evidence only.
+- Automatic review round 2 found missing policy/resource matching and cross-holder resource checks.
+  The current-policy mismatch, revoked-policy mismatch, and conflicting-holder cases each fail before correction.
+- Ruling: retain policy versions in the existing `policies` array, rather than discard old versions.
+  Every request needs its exact resource prerequisites, including after revocation. New requests use the last policy for that device.
+  Cost if wrong: old preview databases missing required policy history fail closed. No activated or live state is migrated here.
+- Round 2 fixes: validate exact pinned resource sets and reject resource overlap across holders.
+  A positive latest-policy case checks that new requests use the updated resources.
+- Round 2 local selection: 331 passed, zero failed, one inherited filesystem skip. Scheduler scope 44 tests.
+  Production modules: 326 lines. Focused review and committed-head verification precede the final permitted fix push.
+- Read the next automatic review and report its findings. Do not start a third fix round or request another review.
+- Round 2 focused review: `scheduler-round-two-review` covered tree `fd5aa853814d1d1929de3ef195d1811c343eb81c`.
+  It reproduced all three malformed-state gaps against the prior head and found the corrections effective.
+  Additional memory-only checks covered interleaved history, current admission, revocation, recovery, release, and rollback.
+  It found no significant issue. Earlier exclusions remain in effect; no filesystem or live acceptance is inferred.
