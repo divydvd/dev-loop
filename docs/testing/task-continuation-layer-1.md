@@ -251,7 +251,7 @@ The guarded production source remains exactly the source published at `2b6b702`.
 
 - Fixture SHA-256: `99c1c617bc3f0b0678a24148f4f79925ea1d2c9c71279f079dad18a0a19c6a30`.
 - Harness SHA-256: `48d34a3d70b1e864d6f218af4f765bc1a95d26405c3342add2c7d33279bc7dbe`.
-- Scorer SHA-256: `1d811f3c52dafcd70e8d0a5e222dcbbece4cd46762db806822313d433b1086dd`.
+- Original execution scorer SHA-256: `1d811f3c52dafcd70e8d0a5e222dcbbece4cd46762db806822313d433b1086dd`.
 - Unchanged instruction SHA-256: `1f2eeff996ccdeab2cefeb85a763cb489c6c1d45c48577cd3394f0130280d1d8`.
 
 Elapsed seconds include startup, actual host work, interruption, and inference.
@@ -289,6 +289,28 @@ Two simultaneous fresh initializers reproduce `database is locked` at `task-stat
 The fixture now completes initial enrollment before extension creation, without changing production locking or adding retries.
 Those failed batches and the mixed-version startup pilot remain excluded, with their raw records retained.
 Only the final matched hashes and identities above establish the executable acceptance counts.
+
+### Automatic review and final-state rescoring
+Automatic review run `42079848112` finds one additional scorer gap at `a407b75`.
+Safety records could pass after their index lost waits, dependencies, resume events, or the failed-fix count.
+Four new negative tests reproduce that gap.
+The scorer now checks each case's final phase and failed-fix count against its unchanged input.
+It also checks the complete expected steps, dependencies, and resume events.
+Independent host completion must retain the device wait.
+Candidate cancellation must end cancelled; baseline cancellation retains its original active index.
+
+The corrected scorer has SHA-256 `4ed477cf21829fe33807306cadf41b02bbe86634d56274d6370cb0379547886e`.
+It rescores the same 42 retained real execution records.
+All 21 baseline and 21 candidate records pass the stronger checks.
+The report verifies each original fixture hash and all 42 session identities.
+This is rescoring, not new model execution.
+Inputs, prompts, harness, runtime source, installed app canary, and repair counts do not change.
+No additional baseline fault or improvement is claimed.
+The replay report remains in this session's `files/final-state-rescore.json`.
+Reviewer `continuation-final-state-scoring-review` covers the focused correction through tree `ed9410286b61429807857b7f00237bcdbcc59b18`.
+It finds no significant issue and independently rescores the retained runs with the same 21/21 result per group.
+Its review confirms fixture hashes, matching session identities, and successful cleanup.
+Later text records that review without changing the scorer.
 
 ## Conclusion
 Publish Tasks 1–2 with the actual serving-app canary and the matched SDK execution evidence.

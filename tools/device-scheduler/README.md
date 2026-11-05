@@ -139,8 +139,8 @@ All identities in the tests are synthetic.
 Layer 3 owns socket authentication, notifications, delivery acknowledgment, startup reconciliation, and session loss detection.
 Layer 4 owns platform policy, operation execution, owner-approval checks, and safe recovery evidence.
 Neither source approval nor passing state tests authorizes live monitor cutover.
-Layer 1 serving-app attachment and app-executed acceptance remain separate stack gaps.
-Its executable SDK repairs and safety stops do not prove serving-app acceptance or a measured improvement.
+Layer 1's disposable serving-app canary passes attachment, bounded correction, idle delivery, native cancellation, and cleanup.
+Production guard-and-scheduler integration and activation remain separate. The zero-fault baseline supports no improvement percentage.
 
 ## Conclusion
 Use this state contract before implementing event delivery.
