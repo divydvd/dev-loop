@@ -2,6 +2,23 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.6.0 (2026-11-05)
+- **Add inactive bounded task-continuation source, stack layer 1.**
+  - **What:** Add a host-bound task index, atomic SQLite correction consumption, typed tools, and privacy-safe error categories.
+    Preserve native permissions, owner stops, cancellation, dependencies, and the failed-fix limit.
+    Add isolated canaries, acceptance-record validation, fixed application inputs, and CI coverage.
+    Do not activate this extension or change the installed work-ledger guard.
+  - **Why:** The confirmed investigation found a status answer replacing permitted host work.
+    Some other stops were valid safety boundaries.
+    All 21 baseline decision samples already selected the expected next action or safe stop.
+    They did not execute real repairs. No measured improvement is claimed.
+    Leave existing skill instructions unchanged until a fault reproduces in a stronger consuming-agent case.
+  - **Check:** Run `node scripts/check.mjs`, every existing CI suite, and `node --test tools/task-runtime/*.test.mjs`.
+    Repeat temporary-home plugin installation and discovery.
+    Inspect the matched raw counts and host gaps in `docs/testing/task-continuation-layer-1.md`.
+    Serving-app discovery did not expose the synthetic tool; do not claim app stop or idle-event acceptance.
+    The next weekly review checks real attached-session progress, false restarts, correction bounds, and evidence identities.
+
 ## 0.5.6 (2026-11-04)
 - **Clarify validation recovery and readiness reports.**
   - **What:** Replace the blanket verification-failure route with a product/tool/environment distinction and a short handoff in the existing ledger.

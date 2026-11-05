@@ -15,6 +15,7 @@ A Copilot plugin that lets one session run the full development loop from one li
 | Independent review tests | `scripts/independent-review.test.mjs` | Regression checks for review scope, coverage reuse, exemptions, and readiness evidence. |
 | Testing contract checks | `scripts/testing-contract.test.mjs` | Structural checks for test planning, evidence fields, coverage review, and readiness instructions. |
 | Work-ledger source | `tools/work-ledger/` | Separate SDK extension with classification corrections, scoped controls, and verified local Maven recovery. Owner installation remains outstanding. The plugin does not load it. |
+| Task continuation source | `tools/task-runtime/` | Separate, inactive SDK extension for a bounded correction of known ready work. App discovery and automatic progress acceptance remain blocked. See its README and layer evidence. |
 
 ## Layers
 1. **Superpowers:** the process skills (brainstorming, plans, TDD, debugging, review).
