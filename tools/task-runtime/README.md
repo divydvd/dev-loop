@@ -185,6 +185,13 @@ Keep diagnosis or pilot runs separate. Never count fixture faults as baseline pr
 When only scoring changes, label a replay of retained records as rescoring, not new model execution.
 These executed SDK cases still cannot establish serving-app acceptance.
 
+## Attached device cancellation
+The device adapter uses a terminal host abort signal for enrollment and connected transport.
+Native abort, owner stop, and explicit close do not wait for the broker's ready handshake.
+Close awaits socket detachment. Queued reconnect cannot enroll a stopped or halted session.
+Autopilot messages do not supply owner stop authority.
+See [the scheduler contract](../device-scheduler/README.md#attached-tools-and-durable-notifications) and [the correction evidence](../../docs/testing/device-session-cancellation.md).
+
 ## Conclusion
 The pure-state and adapter tests can run without app activation.
 The separate serving-app canary now proves discovery, one correction, idle delivery, native cancellation, and owned cleanup.

@@ -265,3 +265,22 @@ Changing procedure pins without adding host resources must not make that compati
 - Only result metadata changes after the reviewed tree. Repeat the complete serial tier after its commit.
 - Pending: final-head checks, one push, CI, and final automatic review. No further correction round is authorized.
 - Preserve D6 at `1ae98b7` and evidence-only `4cb2f0f`. No new app execution or installation is claimed.
+
+## Owner-approved cancellation correction: dependent layer
+- Authority: `Authorize the cancellation correction and one review round, splitting if needed (Recommended)`.
+- The coordinator confirms parent `8d0cba081cc63cdb5c139655ceefeb2962d76a7f`, open draft PR #31, and native stack 32.
+- This layer starts at that exact parent. Its PR targets `divydvd-device-testing-integration`.
+- The coordinator owns appending the new PR. No lower branch or stack membership changes here.
+- Both faults remain one concern: unfinished enrollment cannot detach; queued resume can revoke trusted recovery after cancellation.
+- Ten permanent new cases fail before correction. All 46 focused cases pass afterward.
+- Add a host-only optional abort signal. Check terminal state at connect entry. Await detachment on close.
+- Actual production size is 14 added and 4 removed lines, excluding tests and documents.
+- Detailed acceptance and evidence: `docs/testing/device-session-cancellation.md`.
+- The complete serial tier, both CI runtimes, independent review, and automatic review remain pending.
+- Historical actual-app D6 remains at `1ae98b7`. No new app execution, installation, or live work-ledger access is authorized.
+- Reviewer `device-cancellation-review` covers tree `1fb55b262292faed5b1897460859e7e6f4df5b85` and this ledger addition.
+  It finds no significant issue and confirms 14 added/4 removed production lines.
+  It passes 46 focused tests, 102 bounded interactions, four retention cases, four additional probes, and the plugin check.
+  It requires no new app check for this host-local correction. D6 remains historical, not execution of current bytes.
+  Local close is not broker-side retirement acknowledgment; trusted recovery still waits for status-confirmed detachment.
+- Only result metadata follows review. Final project checks, CI, and automatic review remain pending.

@@ -3,6 +3,16 @@
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
 ## 0.6.0 (2026-11-05)
+- **Correct device-session cancellation in a dependent layer.**
+  - **What:** Add optional host abort to broker connection enrollment and transport.
+    Stop pending enrollment and reject queued reconnect after terminal cancellation.
+    Await detachment on close. Preserve uncertain admission, completed results, and trusted recovery.
+  - **Why:** Ten permanent tests fail before correction.
+    Withheld readiness leaves sockets open; queued reconnect revokes a later trusted recovery grant.
+    The owner approves this separate layer because PR31 already has 400 added and 11 removed production lines.
+  - **Check:** Run the plugin check, all existing CI suites, and both declared Node runtimes.
+    See `docs/testing/device-session-cancellation.md` for acceptance, review, exact identities, and remaining gaps.
+    Historical app evidence remains pinned to `1ae98b7`; this scope authorizes no new app installation or execution.
 - **Add inactive attached device testing, stack layer 4.**
   - **What:** Add host-bound device tools, private Android/iOS policy, pinned argument-array procedures, durable operation admission, and verified release.
     Add a reusable device-testing reference and synthetic private setup, lifecycle, recovery, and cutover preview.

@@ -7,6 +7,53 @@ import { attachDeviceSession } from "./lib/device-session.mjs";
 import { startBroker } from "../device-scheduler/server.mjs";
 import { executionSetup, binding, event } from "../device-scheduler/execution-test-support.mjs";
 
+for (const stop of ["abort", "owner", "halt"]) test(
+  `queued reconnect after ${stop} cannot enroll or revoke trusted recovery`,
+  async t => {
+    let cleanup;
+    const f = executionSetup({ after(fn) { cleanup = fn; } });
+    f.store.close();
+    const socketPath = path.join(f.directory, "b.sock"), file = path.join(f.root, "a.json");
+    const broker = await startBroker({ directory: f.directory, socketPath, policyPath: f.policyPath });
+    fs.writeFileSync(file, JSON.stringify({
+      sessionId: "a", socketPath, credentials: { token: f.policy.sessions[0].token }, repository: "fixture",
+    }), { mode: 0o600 });
+    const callbacks = new Map(), queued = [];
+    const originalConnect = net.createConnection, immediate = globalThis.setImmediate;
+    let transport, halted = false;
+    t.mock.method(net, "createConnection", (...args) => { transport = originalConnect(...args); return transport; });
+    // Hold only the production reconnect callback. Real sockets and broker state remain active.
+    t.mock.method(globalThis, "setImmediate", (fn, ...args) => fn.name === "resume"
+      ? immediate(() => queued.push(fn)) : immediate(fn, ...args));
+    const adapter = attachDeviceSession({
+      sessionId: "a", on(name, fn) { callbacks.set(name, fn); }, async send() { return "message"; },
+    }, { enrollmentFile: file, halted: () => halted });
+    t.after(async () => { await adapter.close(); await broker.shutdown(); cleanup(); });
+    await adapter.call("device_request", { requestId: "held", device: "android", scope: "synthetic", resumeAction: "continue" });
+    transport.destroy();
+    const wait = async predicate => {
+      const deadline = Date.now() + 2000;
+      while (!predicate()) {
+        assert.ok(Date.now() < deadline, "queued reconnect or detachment timed out");
+        await new Promise(resolve => immediate(resolve));
+      }
+    };
+    await wait(() => queued.length && broker.status().sessions.length === 0);
+    if (stop === "halt") halted = true;
+    else if (stop === "owner") callbacks.get("user.message")({ data: { content: "cancel", source: "user" } });
+    else callbacks.get("abort")();
+    const held = broker.status().requests[0], recovery = broker.control(event("recover", binding(held))).request;
+    for (const resume of queued.splice(0)) resume();
+    for (let i = 0; i < 30; i++) await new Promise(resolve => immediate(resolve));
+    assert.equal(broker.status().sessions.length, 0, "queued resume must not enroll a terminal session");
+    assert.equal(transport.destroyed, true);
+    const current = broker.status().requests[0];
+    assert.equal(current.grant.revoked, false);
+    assert.deepEqual(binding(current), binding(recovery));
+    await assert.rejects(adapter.call("device_status", {}), /SESSION_STOPPED/);
+  },
+);
+
 test("idle queued adapters reconnect on socket creation and receive the grant without model polling", async t => {
   let cleanup;
   const f = executionSetup({ after(fn) { cleanup = fn; } });
