@@ -261,7 +261,13 @@ It records 545 passes, no assertion failures, one cancellation, and one existing
 The unchanged case then passes alone in 15.9 seconds.
 The timeout's cause is not established; concurrent load is not proven.
 No source change, timeout increase, or disabled test addresses that result.
-Rerun every required suite on the final committed head, without overlapping reviewer tests.
+The same default full tier also times out on committed runtime `dd6f767d74ff6c5cdcc15990b2486220a33929cf`, without reviewer overlap.
+The complete tier then passes with `--test-concurrency=1`: 546 passes, zero failures or cancellations, and one existing skip.
+This serial run preserves every case, each case's concurrency behavior, and the original 30-second timeout.
+Default file scheduling remains a local timing limitation; no product cause is established.
+The plugin check reports no faults at that committed runtime.
+Repeat the complete serial tier after this result-only record is committed.
+The PR evidence will identify the final tested/pushed head and both CI runtime results.
 
 ## Conclusion
 Actual serving-app synthetic handoff now passes without a coordinator nudge.

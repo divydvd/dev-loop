@@ -256,5 +256,12 @@ Changing procedure pins without adding host resources must not make that compati
   Cause remains unknown. The unchanged prerequisite passes alone in 15.9 seconds.
   Do not alter source, extend its timeout, or disable the case.
   Preserve the failed log. Rerun the complete tier after the final commit without concurrent reviewer tests.
-- Pending: exact committed-head suites, one push, CI, and final automatic review. No further correction round is authorized.
+- Runtime commit: `dd6f767d74ff6c5cdcc15990b2486220a33929cf`.
+  Plugin check passes. The default full tier repeats the same timed-out case without reviewer overlap.
+  The complete serial tier then passes 546 cases, with zero failures/cancellations and one existing platform skip.
+  Command: `node --test --test-concurrency=1 scripts/*.test.mjs tools/work-ledger/*.test.mjs tools/task-runtime/*.test.mjs tools/device-scheduler/*.test.mjs`.
+  Preserve all tests and their existing timeout; file scheduling is the only changed test setting.
+  No product cause is established. Record both failed runs, not only the later pass.
+- Only result metadata changes after the reviewed tree. Repeat the complete serial tier after its commit.
+- Pending: final-head checks, one push, CI, and final automatic review. No further correction round is authorized.
 - Preserve D6 at `1ae98b7` and evidence-only `4cb2f0f`. No new app execution or installation is claimed.
