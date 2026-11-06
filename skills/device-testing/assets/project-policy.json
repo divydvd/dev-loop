@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "sessions": [],
+  "devices": [
+    {"device":"physical/f4f0fc1131a34b67c819c57835f79f4c2f962e6e6f1556e5c67e6dc5aab73858","policyVersion":1,"resources":[],"enabled":true},
+    {"device":"physical/b29b2fd71c2b50d5848755f2412cec79c399cf00971995400053b718a7c62356","policyVersion":1,"resources":[],"enabled":true}
+  ],
+  "execution": [
+    {
+      "device":"physical/f4f0fc1131a34b67c819c57835f79f4c2f962e6e6f1556e5c67e6dc5aab73858",
+      "alias":"android","platform":"android","identity":"synthetic-android-identity",
+      "helper":{"path":"/private/replace-helper.mjs","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},
+      "procedures":{
+        "act":{"program":{"path":"/private/replace-node","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"arguments":["{helper}","{device}","act"],"scope":"synthetic","purpose":"test","safe":false},
+        "verify":{"program":{"path":"/private/replace-node","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"arguments":["{helper}","{device}","verify"],"scope":"synthetic","purpose":"test","safe":true},
+        "recover":{"program":{"path":"/private/replace-node","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"arguments":["{helper}","{device}","recover"],"scope":"synthetic","purpose":"recovery","safe":true}
+      }
+    },
+    {
+      "device":"physical/b29b2fd71c2b50d5848755f2412cec79c399cf00971995400053b718a7c62356",
+      "alias":"ios","platform":"ios","identity":"synthetic-ios-identity",
+      "helper":{"path":"/private/replace-helper.mjs","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},
+      "procedures":{
+        "act":{"program":{"path":"/private/replace-node","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"arguments":["{helper}","{device}","act"],"scope":"synthetic","purpose":"test","safe":false},
+        "verify":{"program":{"path":"/private/replace-node","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"arguments":["{helper}","{device}","verify"],"scope":"synthetic","purpose":"test","safe":true},
+        "recover":{"program":{"path":"/private/replace-node","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"arguments":["{helper}","{device}","recover"],"scope":"synthetic","purpose":"recovery","safe":true}
+      }
+    }
+  ]
+}

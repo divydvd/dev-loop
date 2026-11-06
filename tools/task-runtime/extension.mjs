@@ -5,8 +5,9 @@ import { createHash } from "node:crypto";
 import { joinSession } from "@github/copilot-sdk/extension";
 import { openTaskStore } from "./lib/task-state.mjs";
 import { failureCategory } from "./lib/continuation.mjs";
+import { deviceTools, attachDeviceSession } from "./lib/device-session.mjs";
 
-let store;
+let store, device;
 const failed = (stage, error) => ({
   resultType: "failure", textResultForLlm: failureCategory(stage, error),
 });
@@ -28,6 +29,7 @@ const session = await joinSession({
     },
   },
   tools: [
+    ...deviceTools(() => device),
     {
       name: "task_runtime_get",
       description: "Read this host session's task index. It links an existing ledger; it never grants approval.",
@@ -71,6 +73,7 @@ try {
   }
   store = openTaskStore({ directory, cwd: process.cwd(), sessionId: session.sessionId });
 } catch (error) { throw new Error(failureCategory("attach", error)); }
+device = attachDeviceSession(session, { halted: () => store.read()?.phase && store.read().phase !== "active" });
 const suspend = phase => {
   try { store.suspend(phase); }
   catch (error) { throw new Error(failureCategory("state", error)); }

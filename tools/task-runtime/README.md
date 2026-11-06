@@ -47,6 +47,15 @@ It never reads private ledger contents or changes the ledger.
 Keep the ledger's actual progress and approvals authoritative.
 Tools retain native host permission checks.
 
+### Optional device tools
+The source also registers `device_request`, `device_status`, `device_ack`, `device_run`, and `device_release`.
+They fail explicitly without private enrollment for the actual attached host.
+The [device-testing skill](../../skills/device-testing/SKILL.md) defines their schemas.
+The [scheduler README](../device-scheduler/README.md) defines private setup, pinned procedures, notifications, trusted recovery, and rollback.
+For disposable device acceptance, use the device-only `tools/extension.mjs` entry.
+It does not activate this production continuation guard.
+Installing the plugin alone activates neither extension.
+
 Use `expectedRevision` from the last read.
 An unchanged update preserves the revision and the consumed correction.
 Step and dependency ordering do not create another correction.

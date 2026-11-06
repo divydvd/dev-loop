@@ -1,12 +1,12 @@
 import net from "node:net";
-import { decoder, encode, exact } from "./protocol.mjs";
+import { decoder, encode, exact, identifier } from "./protocol.mjs";
 
 /** Credentials come from the trusted host adapter, never model tool arguments. */
 export async function connectBroker({ socketPath, credentials, onEvent }) {
-  if (!exact(credentials, ["token"])) throw new Error("INVALID_CREDENTIALS");
-  const { token } = credentials;
+  if (!exact(credentials, ["token", ...(Object.hasOwn(credentials ?? {}, "sessionId") ? ["sessionId"] : [])])) throw new Error("INVALID_CREDENTIALS");
+  const { token, sessionId } = credentials;
   if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token) ||
-      typeof onEvent !== "function") throw new Error("INVALID_CREDENTIALS");
+      sessionId !== undefined && !identifier(sessionId) || typeof onEvent !== "function") throw new Error("INVALID_CREDENTIALS");
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath), waiting = new Map();
     let sequence = 0, ready = false, failure = "ADMISSION_UNCERTAIN", finish;
@@ -32,6 +32,7 @@ export async function connectBroker({ socketPath, credentials, onEvent }) {
     });
     socket.on("data", decoder(frame => {
       if (!ready && frame.type === "ready") {
+        if (sessionId !== undefined && frame.sessionId !== sessionId) { stop("SESSION_MISMATCH"); return; }
         ready = true;
         resolve({
           request: event => issue("request", { event }),
