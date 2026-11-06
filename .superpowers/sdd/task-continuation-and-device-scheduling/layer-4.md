@@ -284,3 +284,8 @@ Changing procedure pins without adding host resources must not make that compati
   It requires no new app check for this host-local correction. D6 remains historical, not execution of current bytes.
   Local close is not broker-side retirement acknowledgment; trusted recovery still waits for status-confirmed detachment.
 - Only result metadata follows review. Final project checks, CI, and automatic review remain pending.
+- Correction source `c29b5b5747161f91f69a839774af45e241690893`: plugin check reports no faults.
+  Complete serial project tier passes 556 cases, zero failures/cancellations, and one existing platform skip.
+  The documented command preserves every test and original timeout.
+- Commit this result-only record, then repeat the complete tier at the final head.
+  Final-head CI and automatic review remain required; their evidence belongs in the PR report.

@@ -71,11 +71,19 @@ Historical D6 remains historical. No app execution of this correction is claimed
   The reviewer checks failure-path listener removal, socket-creation abort, ready/abort racing, and repeated close.
   A synthetic execution probe preserves uncertainty, holdings, resources, quarantine, and trusted recovery.
   These additional probes are not permanent regression tests or app execution.
-- Acceptance ruling: C1-C5 are supported. C6 awaits final-head project tests and both CI runtimes.
+- Acceptance ruling: C1-C5 are supported. C6 has complete local evidence below; final-head CI remains pending.
 - Local close is not broker-side retirement acknowledgment.
   Trusted recovery still waits for broker status to confirm requester detachment.
 - Only review and test result metadata follows independent review.
-- Pending: exact-head verification, dependent publication, CI, and automatic review.
+- Complete source check at `c29b5b5747161f91f69a839774af45e241690893`, Node 26.12.1:
+  `node scripts/check.mjs` reports no faults.
+- Complete project tier at the same commit:
+  `node --test --test-concurrency=1 scripts/*.test.mjs tools/work-ledger/*.test.mjs tools/task-runtime/*.test.mjs tools/device-scheduler/*.test.mjs`.
+  Result: 556 passed, zero failures, zero cancellations, one existing platform skip; 161.9 seconds.
+  Private artifact: `cancellation-full-source.log`.
+- Repeat these checks after this evidence-only commit. Record that exact tested/pushed head in the PR evidence.
+  Required CI uses default file scheduling on Node 22.23.4 and 26.12.1.
+- Pending: dependent publication, final-head CI, and automatic review. No further correction round is authorized after this one.
 
 ## Conclusion
 Keep terminal cancellation effective before enrollment and after queued reconnect.
