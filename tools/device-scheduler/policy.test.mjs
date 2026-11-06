@@ -23,3 +23,14 @@ test("private execution policy rejects missing identity, unsafe paths, and helpe
   f.save(); fs.chmodSync(f.policyPath, 0o644);
   assert.throws(() => readExecutionPolicy(f.policyPath), /UNSAFE_POLICY/);
 });
+
+test("pin checking preserves unrelated filesystem failures", async t => {
+  const { checkPin } = await import("./lib/policy.mjs");
+  const f = executionSetup(t), stat = fs.lstatSync;
+  t.after(() => { fs.lstatSync = stat; });
+  for (const code of ["EACCES", "EIO"]) {
+    const error = Object.assign(new Error("injected filesystem failure"), { code });
+    fs.lstatSync = file => { if (file === f.helper) throw error; return stat(file); };
+    assert.throws(() => checkPin(f.policy.execution[0].helper), thrown => thrown === error);
+  }
+});

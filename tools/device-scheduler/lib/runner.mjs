@@ -47,6 +47,8 @@ export function createRunner({ store, policyPath }) {
       const p = device?.procedures[op.procedure];
       if (!p || p.scope !== r.scope) fail("INVALID_PROCEDURE");
       if (r.grant.recovery && p.purpose !== "recovery") fail("RECOVERY_ONLY");
+      if (r.grant.recovery && policy.devices.find(d => d.device === r.device).resources.some(resource =>
+        resource !== `procedure/${digest(JSON.stringify(device))}` && !r.resources.includes(resource))) fail("RECOVERY_RESOURCES_CHANGED");
       checkPin(p.program); checkPin(device.helper);
       const id = startId(sessionId, r, op), previous = store.read().events.find(e => e.id.startsWith(prefix(sessionId, r, op.operationId)));
       if (previous) {

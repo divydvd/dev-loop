@@ -20,8 +20,13 @@ export function privateJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 export function checkPin(pin) {
-  const stat = fs.lstatSync(pin.path);
-  if (fs.realpathSync(pin.path) !== pin.path || !stat.isFile() || digest(fs.readFileSync(pin.path)) !== pin.sha256) {
+  try {
+    const stat = fs.lstatSync(pin.path);
+    if (fs.realpathSync(pin.path) !== pin.path || !stat.isFile() || digest(fs.readFileSync(pin.path)) !== pin.sha256) {
+      throw new Error("PIN_MISMATCH");
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
     throw new Error("PIN_MISMATCH");
   }
 }

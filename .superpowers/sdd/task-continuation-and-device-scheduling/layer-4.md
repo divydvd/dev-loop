@@ -203,3 +203,58 @@ Finish the evidence-only review and final publication checks.
 Keep the exact app-tested source identity separate from later documentation.
 Production activation remains unapproved.
 The main risk is treating delivery, synthetic testing, or task continuation as broader owner authority.
+
+## Owner-authorized additional correction
+### Acceptance record
+- Authority: the physical owner selects `Correct both faults in one additional review round (Recommended)` in coordinator `f25eee93-c45a-4d73-a44c-7829e08d7034`.
+  The coordinator applies that same decision to this session's request `6dd505fd-f6c0-4456-ae3e-56b4252abcc1`.
+  Its delegated answer is `Authorize one additional bounded round (Recommended)`, not a second owner selection.
+- Goal: isolate missing-pin rejection and prevent recovery from using unreserved resources.
+- Done when: missing paths reject only the affected operation; incompatible recovery never starts; supported compatible recovery still completes.
+- Required evidence: failing-before regressions, positive recovery controls, focused independent review, all suites and exact-head CI.
+- Stop: one additional correction round only; no new installation, activation, merge, force push, or work-ledger access.
+- Size before implementation: current 393 added and 11 removed production lines.
+  Estimate seven net additional lines: five for pin error classification and two for the resource guard.
+  Target 400 added and 11 removed lines, about 400; tests/docs are excluded.
+  Assess the final diff before publication. Report a concrete split if complete enforcement cannot remain near this bound.
+
+### Resource-safety design
+Keep the original request's reservations and quarantine unchanged.
+Before recovery admission, require every currently declared host resource to occur in those retained reservations.
+Exclude only the exact generated procedure-fingerprint marker, not arbitrary resources with a similar prefix.
+A new declaration without a retained reservation causes explicit `RECOVERY_RESOURCES_CHANGED` before operation admission or spawn.
+Do not acquire resources through a non-atomic side path.
+After a compatible approved policy update and restart, trusted recovery remains supported.
+Changing procedure pins without adding host resources must not make that compatible path unreachable.
+
+### Required matrix
+| ID | Requirement / input | Expected result | Method |
+| --- | --- | --- | --- |
+| X1 | Missing helper or non-directory ancestor | `PIN_MISMATCH`; no admission; unrelated holder remains live | real-broker ENOENT/ENOTDIR regressions |
+| X2 | Other filesystem error | Preserve the original error, not success or pin rejection | targeted pin error test |
+| X3 | Updated recovery needs a resource held by another device | Reject before spawn; retain both holders and original reservations | restart and conflicting-resource broker case |
+| X4 | Compatible resources with changed recovery procedure | Fresh recovery completes despite changed fingerprint metadata | positive control in X3 |
+| X5 | Existing callers and safety controls | Existing project suites and declared CI runtimes pass | required project tier |
+
+### Execution and reassessment
+- Initial RED at `c02c6b2` plus new tests: three expected failures and one passing filesystem-error control.
+  Both missing paths report `ADMISSION_UNCERTAIN`; incompatible recovery unexpectedly executes.
+  Private log: `layer4-extra-round-red.log`.
+- Narrow pin correction passes the two broker refusals and preserves the other filesystem errors.
+- Resource guard passes refusal with retained holdings and compatible changed-procedure recovery.
+- Extend X1 with missing program and release-helper cases. Extend X3 with caller-declared `procedure/shared`.
+- All 26 focused runner/broker/policy cases pass on the current source snapshot.
+- Exact layer size against `divydvd-device-scheduler-events`: 400 added and 11 removed production lines.
+  This remains near 400. No split or material design change is required.
+- `device-extra-round-review` checks tree `27f27a8f4907257079209fc8189308d1ee9de8fb` against `c02c6b2`.
+  No significant findings. It independently passes 26 focused cases and 78 affected interaction cases.
+  The review covers release refusal, current-generation safety, retained holdings, compatible recovery, and marker exclusion.
+  Its acceptance ruling requires no new app recheck for these changes. Historical D6 is not a current-runtime execution.
+  It confirms that no production split is required.
+- Initial concurrent full tier: 545 passed, zero assertion failures, one timed-out cancellation, one existing skip.
+  Failure: `broker.test.mjs:192`, slow-client backpressure, 30-second timeout.
+  Cause remains unknown. The unchanged prerequisite passes alone in 15.9 seconds.
+  Do not alter source, extend its timeout, or disable the case.
+  Preserve the failed log. Rerun the complete tier after the final commit without concurrent reviewer tests.
+- Pending: exact committed-head suites, one push, CI, and final automatic review. No further correction round is authorized.
+- Preserve D6 at `1ae98b7` and evidence-only `4cb2f0f`. No new app execution or installation is claimed.

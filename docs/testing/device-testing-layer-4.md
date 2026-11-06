@@ -215,7 +215,53 @@ Combined correction suites report 539 passes, zero failures, and one existing pl
 The final production count is 393 added and 11 removed lines: about 400.
 Only reviewer-result metadata follows the focused review.
 The PR evidence table records the final committed/pushed identity and exact-head CI.
-No third fix round is authorized.
+No third fix round was authorized at that point.
+
+## Owner-authorized additional correction round
+The final scheduled review at `c02c6b2` finds two further confirmed faults.
+Missing pinned paths stop the broker rather than rejecting one operation.
+Updated recovery procedures can require host resources absent from the retained reservation.
+The PR remains draft until the bounded correction, independent review, and exact-head checks complete.
+
+The physical owner selects `Correct both faults in one additional review round (Recommended)` in the coordinator.
+The coordinator applies that existing decision to this session's matching request.
+Its delegated answer, `Authorize one additional bounded round (Recommended)`, is not a second owner choice.
+No further correction round, installation, activation, or merge is authorized.
+
+Three initial regressions fail before correction: missing helper, non-directory ancestor, and incompatible recovery after restart.
+Only `ENOENT` and `ENOTDIR` become `PIN_MISMATCH`; `EACCES` and `EIO` retain their original error.
+Recovery checks current host resources against retained reservations before pin checking, admission, or spawn.
+It excludes only the exact generated procedure marker.
+Both denial cases retain quarantine and all original reservations.
+Compatible changed procedures still complete through trusted recovery and current-generation safe release.
+
+| Case | Required check | Result before final commit |
+| --- | --- | --- |
+| X1 | Missing helper/program; non-directory ancestor; missing release helper | Four real-broker cases pass; unrelated holder remains live |
+| X2 | Other pin filesystem errors | Original EACCES/EIO errors preserved |
+| X3 | Conflicting current recovery resource, including `procedure/shared` | Both denials pass; no new operation/action; both holders retained |
+| X4 | Changed procedure with compatible retained host resources | Both positive recovery controls pass, including clean release |
+| X5 | Existing release/recovery, stale grants, process barriers | All 26 focused runner/broker/policy cases pass |
+
+Final production size is 400 added and 11 removed lines, about 400; no required behavior is omitted.
+The attached SDK contract and installation metadata do not change.
+D6 remains evidence of actual app execution at `1ae98b7`, not these corrected runtime bytes.
+The evidence-only commit `4cb2f0f` remains separate from runtime corrections.
+`device-extra-round-review` reviews tree `27f27a8f4907257079209fc8189308d1ee9de8fb` against `c02c6b2`.
+It finds no significant issue and independently passes 26 focused cases plus 78 affected queue/lifecycle/attached-session cases.
+It confirms that the complete correction remains near 400 production lines and needs no split.
+Its acceptance ruling requires no additional actual-app recheck for the bounded changes.
+Real-broker tests cover the changed refusal, release, retained-resource, restart, and compatible-recovery paths.
+The reviewer does not observe a new app run or reread the historical app artifacts.
+No new app installation or execution occurs in this round.
+Only result metadata follows the focused review.
+
+The first concurrent full-suite run times out `a slow client's response backpressure does not revoke another client's running grant`.
+It records 545 passes, no assertion failures, one cancellation, and one existing platform skip.
+The unchanged case then passes alone in 15.9 seconds.
+The timeout's cause is not established; concurrent load is not proven.
+No source change, timeout increase, or disabled test addresses that result.
+Rerun every required suite on the final committed head, without overlapping reviewer tests.
 
 ## Conclusion
 Actual serving-app synthetic handoff now passes without a coordinator nudge.

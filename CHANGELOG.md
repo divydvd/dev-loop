@@ -14,6 +14,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Serving-app diagnostics require a short private socket path; disposable setup rejects paths above 90 UTF-8 bytes before writing enrollment.
     Automatic review adds stale-generation and policy-reinterpretation safety regressions, plus trusted recovery for maximum-length request IDs.
     Its second round adds post-spawn persistence barriers, stopped-status recovery protection, and bounded handling of oversized delivery.
+    One additional owner-authorized round isolates missing-pin failures and blocks recovery that needs unreserved host resources.
+    Failing-first broker cases expose global shutdown and unsafe recovery after policy restart.
+    Added controls cover missing programs, refused release, resource-like marker names, and compatible changed recovery procedures.
   - **Check:** Run `node scripts/check.mjs`, every CI suite, temporary-home instruction/skill discovery, and the layer-4 acceptance matrix.
     See `docs/testing/device-testing-layer-4.md` for exact source identities, app observations, and required gaps.
     Synthetic procedures do not prove physical-phone acceptance or authorize monitor cutover.

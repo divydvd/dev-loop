@@ -326,6 +326,9 @@ Arbitrary same-user code and detached descendants are outside this source bounda
 
 The runner uses argument-array `spawn` with `shell: false`, an empty environment, and discarded command output.
 It checks pins and the private policy before admission.
+Missing pinned paths and non-directory ancestors report `PIN_MISMATCH`, without admitting an operation or stopping unrelated broker clients.
+The same rejection applies to the final helper check during release.
+Other filesystem errors retain their original failure path.
 It commits `operation_start` before launching anything.
 Its private `<policyPath>.operations` journal records uncertain launch, PID, and observed process exit.
 Duplicate operation IDs return saved state without execution.
@@ -342,6 +345,15 @@ A missing PID or journal entry reports `PROCESS_QUIESCENCE_UNKNOWN`.
 Preserve the journal and escalate that unresolved hold; do not delete it to invent proof.
 Once process exit is known, a successful pinned recovery procedure can reconcile earlier unresolved outcomes.
 An owner wait still blocks execution.
+Recovery also requires every currently declared host resource to occur in the request's retained reservations.
+Only the exact generated procedure-fingerprint marker is excluded from that comparison.
+Caller-declared resources with a `procedure/` prefix still require a reservation.
+An incompatible policy reports `RECOVERY_RESOURCES_CHANGED` before admission or spawn.
+The refusal preserves quarantine, operation history, and every original reservation.
+Do not acquire additional resources through a separate recovery path.
+Stop the sole broker before applying an approved resource-compatible private policy with an increased `policyVersion`.
+Restart the broker, then use the trusted recovery commands below.
+Changed procedure pins remain supported when the declared host resources are covered by the retained reservations.
 
 ## Attached tools and durable notifications
 The [device-testing skill](../../skills/device-testing/SKILL.md) lists the exact model schemas.
