@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { once } from "node:events";
+import { once, getEventListeners } from "node:events";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setup, requestEvent, inbox } from "./broker-test-support.mjs";
@@ -9,7 +9,7 @@ import { connectBroker } from "./lib/client.mjs";
 import { openStore } from "./lib/store.mjs";
 import { decoder } from "./lib/protocol.mjs";
 
-async function pausedPeer(t, ready = true) {
+async function pausedPeer(t, ready = true, signal, onEvent = () => {}) {
   const f = await setup(t), enrolled = inbox();
   await f.broker.shutdown();
   let peer, transport;
@@ -27,7 +27,7 @@ async function pausedPeer(t, ready = true) {
   const capture = t.mock.method(net, "createConnection", (...args) => {
     transport = original(...args); return transport;
   });
-  const client = connectBroker({ socketPath: f.socketPath, credentials: { token: f.tokens.a }, onEvent() {} });
+  const client = connectBroker({ socketPath: f.socketPath, credentials: { token: f.tokens.a }, onEvent, signal });
   capture.mock.restore();
   t.after(async () => {
     transport.destroy(); peer?.destroy();
@@ -36,6 +36,94 @@ async function pausedPeer(t, ready = true) {
   await enrolled.wait(() => true);
   return { client, peer, transport };
 }
+
+test("pre-aborted enrollment rejects asynchronously without creating a socket", async t => {
+  const f = await setup(t), controller = new AbortController();
+  controller.abort();
+  const original = net.createConnection;
+  let transport;
+  t.mock.method(net, "createConnection", (...args) => { transport = original(...args); return transport; });
+  const result = connectBroker({
+    socketPath: f.socketPath, credentials: { token: f.tokens.a }, onEvent() {}, signal: controller.signal,
+  });
+  t.after(() => transport?.destroy());
+  assert.ok(result instanceof Promise);
+  await assert.rejects(result, /CONNECTION_ABORTED/);
+  assert.equal(transport, undefined);
+  assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+});
+
+test("host abort detaches enrollment without a ready handshake and removes its listener", async t => {
+  const controller = new AbortController(), f = await pausedPeer(t, false, controller.signal);
+  const outcome = f.client.catch(error => error);
+  controller.abort();
+  for (let i = 0; i < 20 && !f.transport.destroyed; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.transport.destroyed, true, "abort must destroy the socket before ready");
+  assert.match((await outcome).message, /CONNECTION_ABORTED/);
+  assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+});
+
+test("host abort preserves a completed result and rejects pending admission honestly", async t => {
+  const controller = new AbortController(), f = await pausedPeer(t, true, controller.signal), client = await f.client;
+  const completed = client.reconcile("completed");
+  f.peer.write('{"type":"result","seq":1,"result":{"admitted":false}}\n');
+  assert.deepEqual(await completed, { admitted: false });
+  const outcomes = Promise.allSettled([client.request(requestEvent("aborted")), client.acknowledge("pending"), client.reconcile("pending")]);
+  controller.abort();
+  assert.equal(f.transport.destroyed, true);
+  assert.equal(await client.closed, "CONNECTION_ABORTED");
+  assert.ok((await outcomes).every(result => result.status === "rejected" && result.reason.message === "ADMISSION_UNCERTAIN"));
+  assert.deepEqual(await completed, { admitted: false });
+  await assert.rejects(client.request(requestEvent("after-abort")), /CONNECTION_ABORTED/);
+  assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+});
+
+test("ordinary close removes the host abort listener", async t => {
+  const controller = new AbortController(), f = await pausedPeer(t, true, controller.signal), client = await f.client;
+  assert.equal(getEventListeners(controller.signal, "abort").length, 1);
+  await client.close();
+  assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+  controller.abort();
+  assert.equal(await client.closed, "ADMISSION_UNCERTAIN");
+});
+
+for (const [terminal, reason] of [["abort", "CONNECTION_ABORTED"], ["close", "ADMISSION_UNCERTAIN"]]) test(
+  `first ${terminal} reason survives an in-flight event handler rejection`,
+  async t => {
+    const controller = new AbortController();
+    let started;
+    const eventStarted = new Promise(resolve => { started = resolve; });
+    const f = await pausedPeer(t, true, controller.signal, () => new Promise((resolve, reject) => {
+      controller.signal.addEventListener("abort", () => reject(new Error("SYNTHETIC_WORK_ABORTED")), { once: true });
+      started();
+    }));
+    const client = await f.client, completed = client.reconcile("completed-before-stop");
+    f.peer.write('{"type":"result","seq":1,"result":{"admitted":false}}\n');
+    assert.deepEqual(await completed, { admitted: false });
+    const pending = Promise.allSettled([
+      client.request(requestEvent("terminal-race")), client.acknowledge("pending"), client.reconcile("pending"),
+    ]);
+    f.peer.write('{"type":"event","event":{"id":"terminal-race"}}\n');
+    await eventStarted;
+    if (terminal === "close") void client.close();
+    controller.abort();
+    assert.equal(f.transport.destroyed, true);
+    assert.equal(await client.closed, reason);
+    assert.ok((await pending).every(result => result.status === "rejected" && result.reason.message === "ADMISSION_UNCERTAIN"));
+    assert.deepEqual(await completed, { admitted: false });
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+    await assert.rejects(client.request(requestEvent("after-terminal-race")), error => error.message === reason);
+    assert.equal(await client.close(), reason);
+  },
+);
+
+test("socket connection failure keeps its explicit reason and removes the abort listener", async t => {
+  const f = await setup(t), controller = new AbortController();
+  await assert.rejects(connectBroker({
+    socketPath: `${f.socketPath}.absent`, credentials: { token: f.tokens.a }, signal: controller.signal, onEvent() {},
+  }), /CONNECTION_FAILED/);
+  assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+});
 
 for (const blocked of [false, true]) test(
   `client EOF settles pending operations with ${blocked ? "blocked" : "writable"} output`,

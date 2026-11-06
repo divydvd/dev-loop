@@ -265,3 +265,51 @@ Changing procedure pins without adding host resources must not make that compati
 - Only result metadata changes after the reviewed tree. Repeat the complete serial tier after its commit.
 - Pending: final-head checks, one push, CI, and final automatic review. No further correction round is authorized.
 - Preserve D6 at `1ae98b7` and evidence-only `4cb2f0f`. No new app execution or installation is claimed.
+
+## Owner-approved cancellation correction: dependent layer
+- Authority: `Authorize the cancellation correction and one review round, splitting if needed (Recommended)`.
+- The coordinator confirms parent `8d0cba081cc63cdb5c139655ceefeb2962d76a7f`, open draft PR #31, and native stack 32.
+- This layer starts at that exact parent. Its PR targets `divydvd-device-testing-integration`.
+- The coordinator owns appending the new PR. No lower branch or stack membership changes here.
+- Both faults remain one concern: unfinished enrollment cannot detach; queued resume can revoke trusted recovery after cancellation.
+- Ten permanent new cases fail before correction. All 46 focused cases pass afterward.
+- Add a host-only optional abort signal. Check terminal state at connect entry. Await detachment on close.
+- Actual production size is 14 added and 4 removed lines, excluding tests and documents.
+- Detailed acceptance and evidence: `docs/testing/device-session-cancellation.md`.
+- The complete serial tier, both CI runtimes, independent review, and automatic review remain pending.
+- Historical actual-app D6 remains at `1ae98b7`. No new app execution, installation, or live work-ledger access is authorized.
+- Reviewer `device-cancellation-review` covers tree `1fb55b262292faed5b1897460859e7e6f4df5b85` and this ledger addition.
+  It finds no significant issue and confirms 14 added/4 removed production lines.
+  It passes 46 focused tests, 102 bounded interactions, four retention cases, four additional probes, and the plugin check.
+  It requires no new app check for this host-local correction. D6 remains historical, not execution of current bytes.
+  Local close is not broker-side retirement acknowledgment; trusted recovery still waits for status-confirmed detachment.
+- Only result metadata follows review. Final project checks, CI, and automatic review remain pending.
+- Correction source `c29b5b5747161f91f69a839774af45e241690893`: plugin check reports no faults.
+  Complete serial project tier passes 556 cases, zero failures/cancellations, and one existing platform skip.
+  The documented command preserves every test and original timeout.
+- Commit this result-only record, then repeat the complete tier at the final head.
+  Final-head CI and automatic review remain required; their evidence belongs in the PR report.
+
+### Cancellation layer publication and later terminal correction
+- PR33 publishes `45b140cc7c57f02518a6ee09d4b214f164f5d484`, targeting `divydvd-device-testing-integration`.
+  Final local serial tier passes 556 cases and one existing skip. All default CI jobs pass both declared runtimes.
+- The coordinator appends PR33 to native stack 32 after exact preflight. Order: 28, 29, 30, 31, 33.
+  Lower heads remain unchanged.
+- Final automatic review `5796521111` finds handler rejection overwriting `CONNECTION_ABORTED` before socket close.
+  A real-socket probe reproduces the issue at `45b140c`. The session stops under the authorized round limit.
+- The owner later selects `Authorize the terminal-reason fix and one review round (Recommended)` in the coordinator's `ask_user`.
+  The coordinator reports the direct owner selection. No agent or Autopilot authority is inferred.
+- New bounded scope: preserve the first terminal reason, add permanent regressions, review, verify, and publish once.
+  No further round, merge, activation, installation, live work-ledger access, or physical device use.
+- Two first-reason cases fail before correction; the socket-connection-failure control already passes.
+  All 49 focused cases pass after correction.
+- First terminal transition is idempotent. Explicit close shares it; socket closure locks the recorded reason.
+- Scoped production size: 9 added/2 removed. Complete PR33: 23 added/6 removed.
+- Acceptance and case mapping: `docs/testing/device-session-cancellation.md`, T1-T4.
+- Pending: focused review, exact-head project checks, one push, CI, and final automatic review.
+- Focused reviewer `device-terminal-reason-review` covers tree `d735fbd3b79e8a87940acc1115c66c960534057d` against `45b140c`.
+  No significant issue. It confirms 9 added/2 removed scoped lines and 23 added/6 removed complete PR lines.
+  It passes 49 focused cases, 32 execution/continuation interactions, eight retention cases, 12 terminal-order probes, and plugin check.
+  It independently reproduces both permanent race failures on base source; the connection-failure control passes.
+- No new required actual-app check arises; D6 remains historical. No owner authority or SDK wiring changes.
+- Only result metadata follows focused review. Commit, run the complete final-head tier, and publish one authorized round.

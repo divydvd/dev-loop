@@ -207,11 +207,20 @@ Execution-enabled brokers also reject raw `operation_start`, `operation_finish`,
 The prefixes `runner/` and `execute/` are reserved too.
 
 ### Persistent client
-Call `connectBroker({ socketPath, credentials, onEvent })` from `lib/client.mjs`.
+Call `connectBroker({ socketPath, credentials, onEvent, signal })` from `lib/client.mjs`.
 The trusted host supplies `credentials: { token }` outside model tool arguments.
 Attached adapters require `{ token, sessionId }`, using the actual attached host identity.
 The client rejects a different broker-authenticated identity before returning a handle.
 The promise resolves only after enrollment.
+The optional `signal` is a host-supplied `AbortSignal`.
+A pre-aborted signal rejects asynchronously with `CONNECTION_ABORTED` before socket creation.
+Abort destroys pending enrollment or the connected socket without waiting for ready or output flush.
+The enrollment promise rejects with `CONNECTION_ABORTED`; connected `closed` reports the same terminal reason.
+Pending calls still reject with `ADMISSION_UNCERTAIN`; completed results remain valid.
+Socket closure removes the abort listener. Existing callers can omit the signal.
+The first terminal reason remains fixed while the socket closes and after closure.
+Later event-handler rejection cannot replace a recorded abort or explicit-close reason.
+Explicit close starts with `ADMISSION_UNCERTAIN` unless an earlier terminal reason is already recorded.
 Only one connection can enroll for each session at a time.
 The handle exposes these operations:
 
@@ -373,7 +382,11 @@ It acknowledges transport delivery only after known admission.
 Uncertain admission remains visible in `device_status`; it is not automatically sent again.
 
 Native cancellation and explicit owner stop close the connection and stop notification delivery.
+They also abort unfinished enrollment when the broker withholds its ready handshake.
+`adapter.close()` waits for unfinished enrollment and connected transport detachment.
 All later requester calls, including status, fail with `SESSION_STOPPED` without reconnecting.
+Queued reconnect callbacks check stop and halt state before reading enrollment or opening a socket.
+They cannot create a late disconnect that revokes trusted recovery after cancellation.
 Use trusted `broker.status()` to inspect recovery after requester cancellation.
 Socket loss does not resend an operation.
 The adapter reconnects on transport closure or socket-creation events, without a polling timer.

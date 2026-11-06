@@ -37,6 +37,7 @@ export function attachDeviceSession(session, {
 } = {}) {
   let connection, connecting, watcher, flush = () => {}, transportError = null, stopped = false, notices, serial = Promise.resolve();
   const pending = new Map();
+  const terminal = new AbortController();
   const journal = `${enrollmentFile}.notifications`;
   const save = () => writePrivateJson(journal, notices);
   const enrollment = () => {
@@ -50,13 +51,14 @@ export function attachDeviceSession(session, {
   };
   const event = (kind, payload) => ({ version: 1, id: `attached/${randomUUID()}`, kind, payload });
   const connect = async () => {
+    if (stopped || halted()) fail("SESSION_STOPPED");
     if (connection) return connection;
     if (!connecting) connecting = (async () => {
       const e = enrollment();
       if (!watcher) watcher = fs.watch(path.dirname(e.socketPath), (_, name) => {
         if (!stopped && !halted() && name === path.basename(e.socketPath) && fs.existsSync(e.socketPath)) resume();
       });
-      const client = await connectBroker({ socketPath: e.socketPath, credentials: { ...e.credentials, sessionId: session.sessionId }, onEvent: function receive(item) {
+      const client = await connectBroker({ socketPath: e.socketPath, credentials: { ...e.credentials, sessionId: session.sessionId }, signal: terminal.signal, onEvent: function receive(item) {
         pending.set(item.id, item); flush = () => { for (const item of pending.values()) void receive(item); };
         serial = serial.then(async () => {
           if (!["reserve", "recover"].includes(item.kind)) { await client.acknowledge(item.id); pending.delete(item.id); return; }
@@ -87,7 +89,7 @@ export function attachDeviceSession(session, {
     return connecting;
   };
   const resume = () => { void connect().catch(() => { transportError = "RECONNECT_FAILED"; }); };
-  const suspend = () => { stopped = true; watcher?.close(); void connection?.close(); };
+  const suspend = () => { stopped = true; watcher?.close(); terminal.abort(); };
   session.on("abort", suspend);
   session.on("session.error", suspend);
   session.on("user.message", e => {
@@ -116,7 +118,10 @@ export function attachDeviceSession(session, {
       return client.request(event(name, name === "device_run"
         ? { grant, operationId: input.operationId, procedure: input.procedure, args: [] } : { grant, result: input.result }));
     },
-    async close() { suspend(); await connection?.close(); },
+    async close() {
+      suspend();
+      await Promise.allSettled([connecting, connection?.closed]);
+    },
   };
   session.on("session.shutdown", () => adapter.close());
   if (!halted()) resume();

@@ -2,7 +2,8 @@ import net from "node:net";
 import { decoder, encode, exact, identifier } from "./protocol.mjs";
 
 /** Credentials come from the trusted host adapter, never model tool arguments. */
-export async function connectBroker({ socketPath, credentials, onEvent }) {
+export async function connectBroker({ socketPath, credentials, onEvent, signal }) {
+  if (signal?.aborted) throw new Error("CONNECTION_ABORTED");
   if (!exact(credentials, ["token", ...(Object.hasOwn(credentials ?? {}, "sessionId") ? ["sessionId"] : [])])) throw new Error("INVALID_CREDENTIALS");
   const { token, sessionId } = credentials;
   if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token) ||
@@ -10,8 +11,15 @@ export async function connectBroker({ socketPath, credentials, onEvent }) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath), waiting = new Map();
     let sequence = 0, ready = false, failure = "ADMISSION_UNCERTAIN", finish;
+    let stopping = false;
     const closed = new Promise(done => { finish = done; });
-    const stop = code => { failure = code; socket.destroy(); };
+    const stop = code => {
+      if (stopping) return;
+      stopping = true;
+      failure = code;
+      socket.destroy();
+    };
+    const abort = () => stop("CONNECTION_ABORTED");
     const issue = (type, fields) => new Promise((done, fail) => {
       if (socket.destroyed) { fail(new Error(failure)); return; }
       const seq = ++sequence;
@@ -26,6 +34,8 @@ export async function connectBroker({ socketPath, credentials, onEvent }) {
     socket.on("end", () => stop("ADMISSION_UNCERTAIN"));
     socket.on("error", () => stop("CONNECTION_FAILED"));
     socket.on("close", () => {
+      stopping = true;
+      signal?.removeEventListener("abort", abort);
       reject(new Error(failure));
       for (const call of waiting.values()) call.fail(new Error("ADMISSION_UNCERTAIN"));
       waiting.clear(); finish(failure);
@@ -38,7 +48,7 @@ export async function connectBroker({ socketPath, credentials, onEvent }) {
           request: event => issue("request", { event }),
           acknowledge: eventId => issue("ack", { eventId }),
           reconcile: eventId => issue("reconcile", { eventId }),
-          close: () => { socket.destroy(); return closed; }, closed,
+          close: () => { stop(failure); return closed; }, closed,
         });
       } else if (ready && frame.type === "event") {
         setImmediate(() => {
@@ -51,5 +61,7 @@ export async function connectBroker({ socketPath, credentials, onEvent }) {
         else call.done(frame.result);
       } else stop("INVALID_FRAME");
     }, stop));
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
   });
 }

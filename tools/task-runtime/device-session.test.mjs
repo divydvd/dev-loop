@@ -3,8 +3,54 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import net from "node:net";
+import { once } from "node:events";
 import { startBroker } from "../device-scheduler/server.mjs";
 import { executionSetup } from "../device-scheduler/execution-test-support.mjs";
+
+for (const stop of ["abort", "owner", "close"]) test(
+  `${stop} detaches pending enrollment without a ready handshake`,
+  async t => {
+    const { attachDeviceSession } = await import("./lib/device-session.mjs");
+    const f = executionSetup(t), socketPath = path.join(f.root, "pending.sock"), file = path.join(f.root, "pending.json");
+    const callbacks = new Map(), peers = new Set(), frames = [];
+    let enrolled;
+    const enrollment = new Promise(resolve => { enrolled = resolve; });
+    const server = net.createServer(socket => {
+      peers.add(socket);
+      socket.on("close", () => peers.delete(socket));
+      socket.on("data", data => { frames.push(JSON.parse(data.toString().trim())); enrolled(); });
+    });
+    await new Promise(resolve => server.listen(socketPath, resolve));
+    fs.writeFileSync(file, JSON.stringify({
+      sessionId: "a", socketPath, credentials: { token: "a".repeat(64) }, repository: "fixture",
+    }), { mode: 0o600 });
+    const original = net.createConnection;
+    let transport;
+    t.mock.method(net, "createConnection", (...args) => { transport = original(...args); return transport; });
+    const adapter = attachDeviceSession({ sessionId: "a", on(name, fn) { callbacks.set(name, fn); } }, { enrollmentFile: file });
+    const outcome = adapter.call("device_status", {}).catch(error => error);
+    t.after(async () => {
+      transport?.destroy();
+      for (const peer of peers) peer.destroy();
+      await adapter.close();
+      await new Promise(resolve => server.close(resolve));
+    });
+    await enrollment;
+    const detached = once(transport, "close");
+    let closed;
+    if (stop === "close") closed = adapter.close();
+    else if (stop === "owner") callbacks.get("user.message")({ data: { content: "stop", source: "user" } });
+    else callbacks.get("abort")();
+    for (let i = 0; i < 20 && !transport.destroyed; i++) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(transport.destroyed, true, "terminal stop must destroy unfinished enrollment");
+    await closed;
+    if (stop === "close") assert.equal(transport.closed, true, "close must await transport detachment");
+    await detached;
+    assert.match((await outcome).message, /CONNECTION_ABORTED|SESSION_STOPPED/);
+    assert.deepEqual(frames.map(frame => frame.type), ["enroll"]);
+    await assert.rejects(adapter.call("device_status", {}), /SESSION_STOPPED/);
+  },
+);
 
 test("attached tools bind host identity, queue grants through SDK, and preserve owner and cancellation boundaries", async t => {
   const { deviceTools, attachDeviceSession } = await import("./lib/device-session.mjs");
@@ -88,6 +134,7 @@ test("native cancellation during enrollment closes the late connection before re
   const callbacks = new Map(), frames = [], peers = new Set();
   const server = net.createServer(socket => {
     peers.add(socket);
+    socket.on("error", error => assert.ok(["EPIPE", "ECONNRESET"].includes(error.code), "only cancellation write failure is expected"));
     socket.setEncoding("utf8");
     socket.on("data", data => {
       for (const line of data.trim().split("\n")) {
