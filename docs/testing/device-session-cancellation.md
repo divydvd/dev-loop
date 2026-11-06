@@ -20,7 +20,7 @@ This approved dependent layer corrects both faults without changing owner author
 | --- | --- | --- | --- |
 | C1 | Pending enrollment cleanup | Withhold ready; native abort, owner stop, and explicit close detach without ready | `tools/task-runtime/device-session.test.mjs` |
 | C2 | Host abort contract | Pre-aborted signal rejects asynchronously before socket creation; pending enrollment aborts | `tools/device-scheduler/client.test.mjs` |
-| C3 | Connected uncertainty | Abort rejects pending calls, preserves completed results, removes listener, and closes socket | `tools/device-scheduler/client.test.mjs` |
+| C3 | Connected uncertainty | Abort rejects pending calls, preserves completed results and terminal reason, removes listener, and closes socket | `tools/device-scheduler/client.test.mjs` |
 | C4 | Terminal reconnect and recovery | Run queued resume after stop or halt; no enrollment or recovery-grant revocation | `tools/task-runtime/reconnect.test.mjs` |
 | C5 | Existing consumers and safety | Normal reconnect, retained resources, quarantine, trusted recovery, and owner boundaries remain effective | Runtime and scheduler suites |
 | C6 | Project tier and compatibility | Plugin check, all CI suites, Node 22.23.4 and 26.12.1 pass | `.github/workflows/check.yml` |
@@ -89,3 +89,55 @@ Historical D6 remains historical. No app execution of this correction is claimed
 Keep terminal cancellation effective before enrollment and after queued reconnect.
 Publish only this dependent layer against PR31.
 The main risk is delayed detachment revoking a trusted recovery grant.
+
+## Owner-authorized terminal-reason correction
+### Acceptance and authority
+- The owner selected `Authorize the terminal-reason fix and one review round (Recommended)` in the coordinator's `ask_user`.
+  The coordinator reports this direct owner choice. This is not an inferred agent or Autopilot approval.
+- Goal: preserve the first terminal reason when later callbacks reject during transport closure.
+- Done when: permanent T1-T3 cases and existing cancellation controls pass, focused review covers the correction, and final-head CI passes.
+- Base for this correction: published PR33 head `45b140cc7c57f02518a6ee09d4b214f164f5d484`.
+- Required evidence: failing-before race regressions, focused controls, complete project tier, both CI runtimes, and final automatic review.
+- Size estimate: about eight added/two replaced production lines; keep the complete dependent PR below 400.
+- Stop: one bounded correction/review round only. No further round, merge, activation, installation, live work-ledger, or device use.
+
+### Required matrix
+| ID | Risk / input | Expected result | Permanent test |
+| --- | --- | --- | --- |
+| T1 | Host abort rejects an in-flight event handler | Keep `CONNECTION_ABORTED`; preserve completed results and uncertain pending calls; remove listener | `client.test.mjs`: first abort reason |
+| T2 | Explicit close then host abort rejects a handler | Keep the first close reason; repeat close remains stable | `client.test.mjs`: first close reason |
+| T3 | Socket fails before readiness | Keep explicit `CONNECTION_FAILED` and clean listener despite automatic socket destruction | `client.test.mjs`: socket connection failure |
+| T4 | Prior cancellation, reconnect, recovery, and consumer controls | C1-C6 remain required and pass at the final head | Existing focused and complete suites |
+
+### Root cause and execution
+- Final review `5796521111` at `45b140c` reports one medium finding.
+  The handler rejection catch calls `stop("EVENT_HANDLER_FAILED")` before socket close and overwrites the abort reason.
+- The real-socket diagnostic fails at that exact head: expected `CONNECTION_ABORTED`, actual `EVENT_HANDLER_FAILED`.
+- Ruling: record the first stop independently of `socket.destroyed`.
+  Node can mark a failed socket destroyed before the error callback supplies `CONNECTION_FAILED`.
+  A destroyed-socket guard would hide that explicit error.
+- Route explicit close through the same terminal transition, without changing its initial `ADMISSION_UNCERTAIN` reason.
+- RED at `45b140c` plus new tests: two expected race failures and one passing connection-error control.
+  Both first-reason cases incorrectly return `EVENT_HANDLER_FAILED`.
+  Command: `node --test --test-name-pattern='first (abort|close) reason|socket connection failure' tools/device-scheduler/client.test.mjs`.
+  Artifact: `terminal-reason-red.log`.
+- Add an idempotent first terminal transition. Explicit close uses that transition.
+  Socket closure also locks the recorded reason against late callbacks.
+- GREEN: all 49 client, attached-session, and reconnect cases pass on the corrected source snapshot.
+  Command: `node --test tools/device-scheduler/client.test.mjs tools/task-runtime/device-session.test.mjs tools/task-runtime/reconnect.test.mjs`.
+  Artifact: `terminal-reason-green.log`.
+- Scoped production size: 9 added/2 removed lines. Complete PR33: 23 added/6 removed production lines.
+  No source compression, cleanup omission, timeout increase, or disabled test is used.
+- Focused reviewer `device-terminal-reason-review` covers complete staged tree `d735fbd3b79e8a87940acc1115c66c960534057d`
+  against correction base `45b140cc7c57f02518a6ee09d4b214f164f5d484`.
+  It finds no significant issue and confirms both production counts.
+- Reviewer verification: 49 focused cases, 32 execution/continuation interactions, eight retention/retirement cases,
+  and 12 terminal-order probes pass on Node 26.12.1. The plugin check reports no faults.
+  It independently runs the permanent cases against base source: T1-T2 fail as expected; T3 passes.
+- Source and additional probes cover EOF/error ordering, already-destroyed first errors, and rejection after closure.
+  These probes are not permanent regressions or app execution.
+- T1-T3 are supported. T4 bounded controls pass; complete final-head tier, CI, and automatic review remain required.
+- No new required app check arises. SDK wiring, tools, and owner authority remain unchanged.
+  Keep D6 at its historical identity. Local close remains distinct from broker-side retirement.
+- Only review result metadata follows this focused review.
+- Pending: final-head tests, one push, CI, and final automatic review. Stop if a new required finding remains.

@@ -10,6 +10,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
   - **Why:** Ten permanent tests fail before correction.
     Withheld readiness leaves sockets open; queued reconnect revokes a later trusted recovery grant.
     The owner approves this separate layer because PR31 already has 400 added and 11 removed production lines.
+    Final review reproduces an event-handler rejection overwriting the host-abort reason during socket closure.
+    The owner authorizes one terminal-reason correction round. Two permanent race regressions fail before fixing the first terminal transition.
+    A socket-connection-failure control preserves explicit errors despite automatic transport destruction.
   - **Check:** Run the plugin check, all existing CI suites, and both declared Node runtimes.
     See `docs/testing/device-session-cancellation.md` for acceptance, review, exact identities, and remaining gaps.
     Historical app evidence remains pinned to `1ae98b7`; this scope authorizes no new app installation or execution.

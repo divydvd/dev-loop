@@ -218,6 +218,9 @@ Abort destroys pending enrollment or the connected socket without waiting for re
 The enrollment promise rejects with `CONNECTION_ABORTED`; connected `closed` reports the same terminal reason.
 Pending calls still reject with `ADMISSION_UNCERTAIN`; completed results remain valid.
 Socket closure removes the abort listener. Existing callers can omit the signal.
+The first terminal reason remains fixed while the socket closes and after closure.
+Later event-handler rejection cannot replace a recorded abort or explicit-close reason.
+Explicit close starts with `ADMISSION_UNCERTAIN` unless an earlier terminal reason is already recorded.
 Only one connection can enroll for each session at a time.
 The handle exposes these operations:
 

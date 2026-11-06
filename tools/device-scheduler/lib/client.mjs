@@ -11,8 +11,14 @@ export async function connectBroker({ socketPath, credentials, onEvent, signal }
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath), waiting = new Map();
     let sequence = 0, ready = false, failure = "ADMISSION_UNCERTAIN", finish;
+    let stopping = false;
     const closed = new Promise(done => { finish = done; });
-    const stop = code => { failure = code; socket.destroy(); };
+    const stop = code => {
+      if (stopping) return;
+      stopping = true;
+      failure = code;
+      socket.destroy();
+    };
     const abort = () => stop("CONNECTION_ABORTED");
     const issue = (type, fields) => new Promise((done, fail) => {
       if (socket.destroyed) { fail(new Error(failure)); return; }
@@ -28,6 +34,7 @@ export async function connectBroker({ socketPath, credentials, onEvent, signal }
     socket.on("end", () => stop("ADMISSION_UNCERTAIN"));
     socket.on("error", () => stop("CONNECTION_FAILED"));
     socket.on("close", () => {
+      stopping = true;
       signal?.removeEventListener("abort", abort);
       reject(new Error(failure));
       for (const call of waiting.values()) call.fail(new Error("ADMISSION_UNCERTAIN"));
@@ -41,7 +48,7 @@ export async function connectBroker({ socketPath, credentials, onEvent, signal }
           request: event => issue("request", { event }),
           acknowledge: eventId => issue("ack", { eventId }),
           reconcile: eventId => issue("reconcile", { eventId }),
-          close: () => { socket.destroy(); return closed; }, closed,
+          close: () => { stop(failure); return closed; }, closed,
         });
       } else if (ready && frame.type === "event") {
         setImmediate(() => {

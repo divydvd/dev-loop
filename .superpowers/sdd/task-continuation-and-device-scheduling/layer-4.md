@@ -289,3 +289,27 @@ Changing procedure pins without adding host resources must not make that compati
   The documented command preserves every test and original timeout.
 - Commit this result-only record, then repeat the complete tier at the final head.
   Final-head CI and automatic review remain required; their evidence belongs in the PR report.
+
+### Cancellation layer publication and later terminal correction
+- PR33 publishes `45b140cc7c57f02518a6ee09d4b214f164f5d484`, targeting `divydvd-device-testing-integration`.
+  Final local serial tier passes 556 cases and one existing skip. All default CI jobs pass both declared runtimes.
+- The coordinator appends PR33 to native stack 32 after exact preflight. Order: 28, 29, 30, 31, 33.
+  Lower heads remain unchanged.
+- Final automatic review `5796521111` finds handler rejection overwriting `CONNECTION_ABORTED` before socket close.
+  A real-socket probe reproduces the issue at `45b140c`. The session stops under the authorized round limit.
+- The owner later selects `Authorize the terminal-reason fix and one review round (Recommended)` in the coordinator's `ask_user`.
+  The coordinator reports the direct owner selection. No agent or Autopilot authority is inferred.
+- New bounded scope: preserve the first terminal reason, add permanent regressions, review, verify, and publish once.
+  No further round, merge, activation, installation, live work-ledger access, or physical device use.
+- Two first-reason cases fail before correction; the socket-connection-failure control already passes.
+  All 49 focused cases pass after correction.
+- First terminal transition is idempotent. Explicit close shares it; socket closure locks the recorded reason.
+- Scoped production size: 9 added/2 removed. Complete PR33: 23 added/6 removed.
+- Acceptance and case mapping: `docs/testing/device-session-cancellation.md`, T1-T4.
+- Pending: focused review, exact-head project checks, one push, CI, and final automatic review.
+- Focused reviewer `device-terminal-reason-review` covers tree `d735fbd3b79e8a87940acc1115c66c960534057d` against `45b140c`.
+  No significant issue. It confirms 9 added/2 removed scoped lines and 23 added/6 removed complete PR lines.
+  It passes 49 focused cases, 32 execution/continuation interactions, eight retention cases, 12 terminal-order probes, and plugin check.
+  It independently reproduces both permanent race failures on base source; the connection-failure control passes.
+- No new required actual-app check arises; D6 remains historical. No owner authority or SDK wiring changes.
+- Only result metadata follows focused review. Commit, run the complete final-head tier, and publish one authorized round.
