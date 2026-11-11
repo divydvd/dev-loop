@@ -117,10 +117,21 @@ When a check stops, record this short handoff in the existing ledger, not a sepa
 | Field | Record |
 | --- | --- |
 | Cause | Product failure, tool failure, environment blocker, or unknown cause. Separate observed facts from an unproved explanation. |
+| Expected result | The failed operation's required observable result, including exit status when relevant. |
+| Actual result | The observed output or error and its evidence reference, source identity, and relevant setup. |
+| Attempted change | Attempt number, changed code/setup or diagnostic action, and its result. Link earlier attempts instead of copying them. |
+| New evidence | What changed since the previous attempt and why it supports the next action; write "none" when absent. |
 | Coverage | Passed cases and tested identities; failed, blocked, and not run cases. A not run case is not a product failure. |
 | Recovery and access | Required recovery result, retained evidence, remaining safety limits, and whether access remains authorized. |
 | Next action | The smallest permitted check of the failed prerequisite; the evidence it must produce before another full run. |
 | Rerun scope | Use Build and reassess above: check result validity and dependencies; preserve every required full run and final-head tier. |
+
+Update these fields before another attempt. Record actual results after execution; a planned result is not evidence.
+If the same result repeats with no new evidence, diagnose the failed prerequisite instead of making an equivalent retry.
+Use the smallest authorized diagnostic check; record the question and expected observation before it runs.
+New causal evidence can support a different bounded action. It does not reset the failed-fix count or prove recovery.
+Keep the existing limits: question the approach after 2 failed fixes; stop and report blocked after 3.
+During active absence, preserve that stop and the existing rules for blocked steps and their actual dependents.
 
 For a tool or environment blocker, exercise the failed prerequisite before a full rerun; an edit or clean review is not recovery evidence.
 Capture the failing operation and available process or transport error without reading private data.

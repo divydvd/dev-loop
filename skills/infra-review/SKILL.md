@@ -1,6 +1,6 @@
 ---
 name: infra-review
-description: Use for the weekly review of the dev-loop setup, or when the owner asks to improve the dev loop. Collects the Dev-loop feedback from merged PRs and the signals from the week's sessions, finds the faults in the setup, and opens small improvement PRs.
+description: Use when reviewing the dev-loop setup each week, investigating recurring agent failures, or improving the development process.
 ---
 
 # Infra review
@@ -67,8 +67,37 @@ Compute the session measures from the files on this Mac. 1 KB is 1,000 bytes. Ro
 - Name the cause in one line: a missing rule, a wrong rule, a rule that agents ignore, a skill conflict, a missing profile fact, a missing flow doc, or a test tool gap.
 - Check the changes of last week. If the fault did not stop, revert or replace the change.
 
+### Classify the improvement layer
+The layer identifies where the fix belongs. It does not prove the failure's cause.
+Keep product/tool/environment/unknown diagnosis in the task's existing failure handoff.
+
+| Layer | Evidence to inspect | Fix at this layer |
+| --- | --- | --- |
+| Environment | Missing tools, access, permissions, saved state, or usable context | Repair the capability or state; preserve access approvals. |
+| Verification | Weak checks, repeated failed attempts, or completion without evidence | Repair the check, feedback, or bounded recovery procedure. |
+| Coordination | Overlapping scopes, false dependencies, duplicate work, or invalid evidence reuse | Repair scope ownership, dependencies, or result-validity checks. |
+
+Record one primary layer for each fault. Add a secondary layer only when incident evidence supports it.
+If the layer or cause is unknown, record the gap and the next diagnostic check.
+Do not force a category or infer a tool defect from an unrun product case.
+
+Use this record for each proposed fix:
+
+| Primary layer / secondary | Incident references and observed result | Cause / unknowns | Proposed fix and location | Measurable expected result |
+| --- | --- | --- | --- | --- |
+| Environment / none | E1/E2: required logs inaccessible | Access prerequisite absent; deeper cause unknown | Project profile: authorized evidence source and access prerequisite | Next week's affected sessions identify unavailable access before dependent checks; zero unauthorized attempts. |
+
+Use actual incident references, not example IDs. State the observation period and an observable target.
+Preserve the fault threshold above. A category alone is not evidence that a change is needed.
+
 ## 4. Choose the changes
 - Choose at most 3 changes. Start with the change that has the most evidence.
+- Inspect the [rule/check map](../../README.md#rulecheck-map) before adding instructions or an automatic check.
+  Record the existing enforcement point, regression test, and known limitation for each selected rule.
+  Distinguish an instruction, a structural CI check, and a runtime guard.
+  Verify live guard activation separately; source presence or passing source tests do not establish it.
+  Prefer an executable check for a mechanical constraint. Keep judgment in the instructions.
+  Update the existing map when a selected rule's check or limitation changes; do not create a second inventory.
 - Prefer to fix or remove a rule. Add a rule only when no current rule covers the fault.
 - Put a project fact in the project profile. Put a generic rule in the core.
 - Keep `com.github.copilot/rules/core.mdc` at 60 lines or fewer. `node scripts/check.mjs` checks it.
@@ -81,5 +110,6 @@ Compute the session measures from the files on this Mac. 1 KB is 1,000 bytes. Ro
 - **Test tool PR** in the repo that the profile names as "Test tool repo", for a test tool gap with evidence. Prefer a fix in the test tool to a new workaround in a project skill.
 - Open each PR from a checkout of its repo. In the app, start a child session for each other repo.
 - Each PR body has the measures table, the faults with links to the evidence, the changes, and the changes that you did not make, with the reason.
+- Include each proposed fix's layer, incident references, and measurable expected result from section 3.
 - If nothing needs a change, open no PR. Send the owner only the measures table.
 - Report to the owner: the PR links and one line for each change. After a core PR merges, run `copilot plugin update dev-loop@dev-loop`.

@@ -2,6 +2,28 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.7 (2026-11-11)
+- **Classify recurring failures and make feedback records consistent.**
+  - **What:** Add environment, verification, and coordination layers to infra review.
+    Record incident references, unknown causes, the proposed fix location, and a measurable expected result.
+    Map selected rules to existing checks, regression tests, and explicit enforcement limits in the README.
+    Extend the existing failure handoff with expected result, actual result, attempted change, and new evidence.
+    Repeated results without new evidence require bounded diagnosis, not an equivalent retry.
+    Preserve failed-fix limits, result identities, required reruns, approvals, and the one-week shadow period for new automatic checks.
+    No live guard or runtime dependency changes.
+  - **Why:** The owner approved these three improvements after comparing an agent-systems article with the current plugin.
+    Five fresh baseline consumers used different record formats; none supplied a uniform layer field or the requested four-column map.
+    One sample gave explicit numerical targets for all three proposed improvements.
+    Existing consumers already rejected unsupported guard claims and unsafe full reruns.
+    These safe controls remain required and are not claimed as newly repaired failures.
+  - **Check:** Four added structural checks fail before implementation; the existing 17 checks pass.
+    Five revised fresh consumers use the same inputs and produce layer records with observable targets.
+    They retain the safe recovery, guard-limit, small-change, and owner-report controls.
+    One revised consumer also preserves all README risk-based cases 1-13 and validation cases V1-V5.
+    Run the plugin check, all CI suites, and isolated installation/discovery at the committed head.
+    Structural checks establish wiring and map reference integrity; agent cases provide sampled instruction-use evidence only.
+    The next weekly review checks correct fix ownership, measurable outcomes, repeated attempts without new evidence, and enforcement overclaims.
+
 ## 0.5.6 (2026-11-04)
 - **Clarify validation recovery and readiness reports.**
   - **What:** Replace the blanket verification-failure route with a product/tool/environment distinction and a short handoff in the existing ledger.
