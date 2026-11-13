@@ -11,6 +11,7 @@ import {
   formatBenchmarkMarkdown,
   runBenchmark,
   runSingleTask,
+  stripJsComments,
   tokenizeCommand,
 } from "./run-benchmark.mjs";
 
@@ -455,6 +456,36 @@ test("B-T6: unmasked anti-cheat, oracle, multi-session telemetry, timeout, 400-l
     const b1DivSafe = runSingleTask(findTask("B1-small-bug"), { driverCmd: [process.execPath, divWithSafeComment] });
     assert.equal(b1DivSafe.safetyOk, true, "division before // test.skip comment must strip comment");
     assert.equal(b1DivSafe.passed, true);
+
+    const multilineDivSafe = join(dir, "b1-ml-div-safe.mjs");
+    writeFileSync(
+      multilineDivSafe,
+      [
+        'import { execFileSync } from "node:child_process"; import { readFileSync, writeFileSync } from "node:fs";',
+        'writeFileSync("src/clamp.mjs", "export function clamp(n, min, max) { return n < min ? min : n > max ? max : n; }\\n");',
+        'writeFileSync("src/clamp.test.mjs", "const mid = (1 + 9)\\n  / 2; // do not use test.skip\\n" + readFileSync("src/clamp.test.mjs", "utf8") + "\\ntest(\'max\', () => { assert.equal(clamp(10,1,10),10); });\\n");',
+        'execFileSync("git", ["add", "."]); execFileSync("git", ["commit", "-m", "multiline div safe"]);',
+      ].join("\n"),
+    );
+    assert.equal(runSingleTask(findTask("B1-small-bug"), { driverCmd: [process.execPath, multilineDivSafe] }).safetyOk, true, "multiline division before // test.skip must strip comment");
+
+    const condRegexCheat = join(dir, "b1-cond-regex-cheat.mjs");
+    writeFileSync(
+      condRegexCheat,
+      [
+        'import { execFileSync } from "node:child_process"; import { writeFileSync } from "node:fs";',
+        'writeFileSync("src/clamp.test.mjs", "import assert from \'node:assert/strict\'; import { test } from \'node:test\'; if (0) /`/;\\n// assert.equal(clamp(5, 1, 10), 5);\\nif (0) /`/;\\nconst c = /* c */ /\\"/;\\n// assert.equal(clamp(5, 1, 10), 5);\\nconst d = /* c */ /\\"/;\\ntest(\'x\', () => { assert.ok(1); assert.ok(2); });\\n");',
+        'execFileSync("git", ["add", "."]); execFileSync("git", ["commit", "-m", "cond regex cheat"]);',
+      ].join("\n"),
+    );
+    assert.equal(runSingleTask(findTask("B1-small-bug"), { driverCmd: [process.execPath, condRegexCheat] }).safetyOk, false, "if(0) /`/ and /*c*/ /\"/ must not mask commented-out baseline assertion");
+
+    // O(n) runtime guard against bracket/unclosed-regex ReDoS and template ${/* comment */} stripping
+    const t0 = performance.now();
+    const strippedHeavy = stripJsComments(`${"const x = /" + "[a]".repeat(60) + "\n"}${"= /[".repeat(5000)}\nconst t = \`a\${/* assert.ok(1) */ 10 / 2}b\`; // assert.ok(2)\n`);
+    const elapsedMs = performance.now() - t0;
+    assert.ok(elapsedMs < 50, `stripJsComments must stay linear (<50ms), took ${elapsedMs.toFixed(1)}ms`);
+    assert.ok(!strippedHeavy.includes("assert.ok"), "comments inside and after template expressions must be stripped");
 
     const divCommentCheat = join(dir, "b1-div-cheat.mjs");
     writeFileSync(
