@@ -1272,6 +1272,40 @@ test("S-T6: review regressions — multi-digit sleep, verdict repo slug vs CLI, 
     assert.equal(r1.timeBuckets.ioOtherSec, 10);
     assert.equal(r1.activeSec, 72, "10s model + 62s merged [0..61, 120..121] (covering 10..20s view) = 72s");
     assert.equal(Number(r1.parallelismFactor.toFixed(2)), Number((72 / 62).toFixed(2)));
+
+    // 6. Synthetic mid-turn auto-dispatch assistant.message (empty content + toolRequests + no turnId/model) must NOT steal open turn "39";
+    //    stdout mentioning `shellId: bg-det` before `<shellId: 1861 completed with exit code 0>` must NOT clobber running detached shell `bg-det`;
+    //    "shell continues in background" confirms running, and failed stop_bash (`success: false`) does NOT bridge idle time!
+    const r1EdgePath = join(dir, "r1-edge.jsonl");
+    writeFileSync(
+      r1EdgePath,
+      [
+        // Stale unclosed turn "7" before session.resume must be cleared on resume/next turn_start
+        JSON.stringify({ timestamp: "2026-11-14T08:00:00.000Z", type: "assistant.turn_start", data: { turnId: "7" } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:00.000Z", type: "session.resume", data: {} }),
+        // Start detached build bg-det at 12:00:00..12:00:01
+        JSON.stringify({ timestamp: "2026-11-14T12:00:00.000Z", type: "tool.execution_start", data: { toolCallId: "d1", toolName: "bash", arguments: { command: "node --test", mode: "async", detach: true } } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:01.000Z", type: "tool.execution_complete", data: { toolCallId: "d1", success: true, result: "<command started in detached background with shellId: bg-det>" } }),
+        // Sync bash command at 12:00:05..12:00:06 prints `shellId: bg-det` in stdout before its own `<shellId: 1861 completed with exit code 0>` footer!
+        JSON.stringify({ timestamp: "2026-11-14T12:00:05.000Z", type: "tool.execution_start", data: { toolCallId: "sync1", toolName: "bash", arguments: { command: "echo checking shellId: bg-det" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:06.000Z", type: "tool.execution_complete", data: { toolCallId: "sync1", success: true, result: "checking shellId: bg-det\n<shellId: 1861 completed with exit code 0>" } }),
+        // Turn "39" starts at 12:00:10; synthetic auto-dispatch assistant.message at 12:00:11 omits turnId/model; real LLM assistant.message for "39" arrives at 12:00:35 (25s modelSec!)
+        JSON.stringify({ timestamp: "2026-11-14T12:00:10.000Z", type: "assistant.turn_start", data: { turnId: "39" } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:11.000Z", type: "assistant.message", data: { content: "", toolRequests: [{ toolCallId: "rb-auto" }] } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:35.000Z", type: "assistant.message", data: { turnId: "39", model: "gemini-4-carbon", content: "Done thinking" } }),
+        // Steering-interrupted read_bash at 12:00:50..12:00:51 confirms bg-det still running (0..51s = 51s!)
+        JSON.stringify({ timestamp: "2026-11-14T12:00:50.000Z", type: "tool.execution_start", data: { toolCallId: "rb-steer", toolName: "read_bash", arguments: { shellId: "bg-det", delay: 5 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:51.000Z", type: "tool.execution_complete", data: { toolCallId: "rb-steer", success: true, result: "Read interrupted by user steering; shell continues in background." } }),
+        // Detached completion read at 12:02:00..12:02:01 (+1s = 52s buildTestSec), followed 1 hour later by failed stop_bash (success: false -> must NOT bridge!)
+        JSON.stringify({ timestamp: "2026-11-14T12:02:00.000Z", type: "tool.execution_start", data: { toolCallId: "rb-done", toolName: "read_bash", arguments: { shellId: "bg-det", delay: 1 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:02:01.000Z", type: "tool.execution_complete", data: { toolCallId: "rb-done", success: true, result: "pass\n<detached command with shellId: bg-det completed with exit code 0>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T13:02:00.000Z", type: "tool.execution_start", data: { toolCallId: "sb-fail", toolName: "stop_bash", arguments: { shellId: "bg-det" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T13:02:01.000Z", type: "tool.execution_complete", data: { toolCallId: "sb-fail", success: false, result: "No active shell" } }),
+      ].join("\n") + "\n",
+    );
+    const r1Edge = parseSessionEvents(r1EdgePath);
+    assert.equal(r1Edge.timeBuckets.modelSec, 25, "turn 39 keeps full 25s modelSec despite mid-turn synthetic assistant.message and prior unclosed turn 7");
+    assert.equal(r1Edge.timeBuckets.buildTestSec, 52, "bg-det stays intact across stdout shellId collision: [0..51s] steering-confirmed + [120..121s] detached completion = 52s");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

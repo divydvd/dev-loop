@@ -224,8 +224,6 @@ function parseWorkspaceYaml(filePath) {
 const BUILD_TEST_CMD_RE = /(?:^|[;&|]\s*|\S*\/bin\/)verdict\s+(?:run|baseline|restore|verify|capture|diff|check|--help)\b|\b(?:gradlew|gradle\.lock|node\s+--test|npm\s+(?:test|run\s+(?:test|build|lint|check))|pnpm\s+(?:test|build|lint)|yarn\s+(?:test|build|lint)|pytest|cargo\s+(?:test|build|check|clippy)|go\s+test|mvn\s+(?:test|verify|package)|dotnet\s+(?:test|build)|rspec|jest|vitest|adb\b|scripts\/check\.mjs)\b/i;
 const POLL_GUARD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|reviewThreads|pr\s+checks|run\s+watch)\b/i;
 const POLL_CMD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|reviewThreads|pr\s+checks|run\s+watch|sleep\s+\d+(?:\.\d+)?[smh]?)\b/i;
-const SHELL_RUNNING_RE = /<command (?:started in background )?with shellId:\s*([^\s>]+)(?:\s+is still running)?/i;
-const SHELL_DONE_RE = /<shellId:\s*([^\s>]+)\s+(?:completed|stopped|terminated|killed)/i;
 const HUMAN_WAIT_TOOLS = new Set(["ask_user", "relay_session_input"]);
 
 export function mergeIntervals(intervals = []) {
@@ -243,6 +241,17 @@ const resolveTurnKey = (turnId, openTurns) => {
   if (openTurns.has("")) return "";
   return openTurns.size === 1 ? [...openTurns.keys()][0] : null;
 };
+const isSyntheticAutoDispatchMsg = (d) =>
+  (d.turnId === undefined || d.turnId === null || d.turnId === "") &&
+  !d.model && !d.interactionId && !d.content && Array.isArray(d.toolRequests) && d.toolRequests.length > 0;
+function parseShellFooter(resText) {
+  const tag = resText.match(/<([^>\r\n]+)>\s*$/)?.[1] || "";
+  const runMatch = tag.match(/^command (?:started in (?:detached )?background )?with shellId:\s*([^\s]+)(?:\s+is still running\b|$)/i);
+  if (runMatch) return { shellId: runMatch[1], state: "running" };
+  const doneMatch = tag.match(/^(?:detached command with )?shellId:\s*([^\s]+)\s+(?:completed|stopped|terminated|killed)\b/i);
+  if (doneMatch) return { shellId: doneMatch[1], state: "done" };
+  return /shell continues in background/i.test(resText) ? { shellId: null, state: "running" } : { shellId: null, state: null };
+}
 
 export function parseSessionEvents(eventsPath) {
   const lines = readFileSync(eventsPath, "utf8").split(/\r?\n/);
@@ -256,13 +265,17 @@ export function parseSessionEvents(eventsPath) {
     const { type, data = {} } = evt, ts = Date.parse(evt.timestamp || ""), isMain = !evt.agentId;
     if (type === "assistant.turn_start") {
       modelCalls += 1;
-      if (isMain && Number.isFinite(ts)) openTurns.set(String(data.turnId ?? ""), ts);
+      if (isMain && Number.isFinite(ts)) { openTurns.clear(); openTurns.set(String(data.turnId ?? ""), ts); }
     } else if (type === "assistant.message") {
-      const k = isMain ? resolveTurnKey(data.turnId, openTurns) : null, st = k !== null ? openTurns.get(k) : undefined;
-      if (isMain && Number.isFinite(st) && Number.isFinite(ts) && ts >= st) { modelIvs.push([st, ts]); openTurns.delete(k); }
+      if (isMain && !isSyntheticAutoDispatchMsg(data)) {
+        const k = resolveTurnKey(data.turnId, openTurns), st = k !== null ? openTurns.get(k) : undefined;
+        if (Number.isFinite(st) && Number.isFinite(ts) && ts >= st) { modelIvs.push([st, ts]); openTurns.delete(k); }
+      }
     } else if (type === "assistant.turn_end" && isMain) {
       const k = resolveTurnKey(data.turnId, openTurns);
       if (k !== null) openTurns.delete(k);
+    } else if ((type === "session.resume" || type === "abort") && isMain) {
+      openTurns.clear();
     } else if (type === "session.compaction_start") {
       modelCalls += 1; compactions += 1;
       if (isMain && Number.isFinite(ts)) openCompactions.set(String(data.compactionAttemptId || "default"), ts);
@@ -307,23 +320,22 @@ export function parseSessionEvents(eventsPath) {
         } else if (start.toolName === "read_agent" && start.agentId && callIdByAgentId.has(start.agentId) && subagentBounds.has(callIdByAgentId.get(start.agentId))) {
           subagentBounds.get(callIdByAgentId.get(start.agentId)).ivs.push(iv);
         } else if (start.toolName === "bash") {
-          const shMatch = resText.match(/\bshellId:\s*([^\s>]+)/), shId = shMatch ? shMatch[1] : start.shellId;
-          const stillRunning = SHELL_RUNNING_RE.test(resText) && !SHELL_DONE_RE.test(resText);
-          const run = { cmd: start.cmd, runStartMs: stillRunning ? start.startMs : null, ivs: [iv] };
+          const footer = parseShellFooter(resText), shId = footer.shellId || start.shellId;
+          const run = { cmd: start.cmd, runStartMs: footer.state === "running" ? start.startMs : null, ivs: [iv] };
           allShellRuns.push(run);
           if (shId) latestShellById.set(shId, run);
         } else if (start.toolName === "read_bash") {
-          const run = start.shellId ? latestShellById.get(start.shellId) : null;
+          const run = start.shellId ? latestShellById.get(start.shellId) : null, footer = parseShellFooter(resText);
           if (run) {
             run.ivs.push(iv);
-            if (run.runStartMs !== null) {
-              if (SHELL_RUNNING_RE.test(resText) && !SHELL_DONE_RE.test(resText)) run.ivs.push([run.runStartMs, ts]);
-              else if (SHELL_DONE_RE.test(resText)) run.runStartMs = null;
+            if (run.runStartMs !== null && (!footer.shellId || footer.shellId === start.shellId)) {
+              if (footer.state === "running") run.ivs.push([run.runStartMs, ts]);
+              else if (footer.state === "done") run.runStartMs = null;
             }
           } else allShellRuns.push({ cmd: start.cmd, runStartMs: null, ivs: [iv] });
         } else if (start.toolName === "stop_bash") {
           const run = start.shellId ? latestShellById.get(start.shellId) : null;
-          if (run && run.runStartMs !== null) { run.ivs.push([run.runStartMs, ts]); run.runStartMs = null; }
+          if (run && run.runStartMs !== null && data.success !== false) { run.ivs.push([run.runStartMs, ts]); run.runStartMs = null; }
           else { ioOtherIvs.push(iv); toolClockIvs.push(iv); toolWorkMs += dur; }
         } else {
           toolClockIvs.push(iv); toolWorkMs += dur;
