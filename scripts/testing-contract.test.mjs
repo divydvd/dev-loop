@@ -305,3 +305,14 @@ test("infra review runs the objective telemetry collector in shadow mode", () =>
   assert.match(infra, /totalNanoAiu/);
   assert.match(infra, /ambiguous/i);
 });
+
+test("infra review enforces the 90% quality floor, route-cost priority, and 4-week non-safety pruning guards", () => {
+  const choose = read("skills/infra-review/SKILL.md").split("## 4. Choose the changes")[1]?.split("## 5. Output")[0] ?? "";
+  assert.match(choose, /Durable first-pass yield/);
+  assert.match(choose, /90\.0%|90%/);
+  assert.match(choose, /totalNanoAiu/);
+  assert.match(choose, /4 consecutive/i);
+  assert.match(choose, /non-safety/i);
+  assert.match(choose, /never.*prune|do not.*prune|preserve.*safety/i);
+  assert.match(choose, /n\/a.*unavailable|unavailable.*n\/a/i);
+});

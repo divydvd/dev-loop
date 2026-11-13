@@ -952,3 +952,33 @@ test("T11: Copilot review round-2 regressions — underscore test paths, truncat
     rmSync(sessionsDir, { recursive: true, force: true });
   }
 });
+
+test("T12: trailing newline in view_range output does not mark endLine + 1 as already read", () => {
+  const sessionsDir = makeTempDir("sessions-r12");
+  try {
+    const s = join(sessionsDir, "s-nl");
+    mkdirSync(s, { recursive: true });
+    writeFileSync(join(s, "workspace.yaml"), "id: s-nl\nrepository: org/app\ncreated_at: 2026-11-10T00:00:00Z\n");
+    writeFileSync(
+      join(s, "events.jsonl"),
+      [
+        JSON.stringify({ type: "tool.execution_start", data: { toolCallId: "n1", toolName: "view", arguments: { path: "/w/src/f.js", view_range: [1, 1] } } }),
+        JSON.stringify({ type: "tool.execution_complete", data: { toolCallId: "n1", success: true, result: { content: "a\n" } } }), // 2 chars, line 1 only
+        JSON.stringify({ type: "tool.execution_start", data: { toolCallId: "n2", toolName: "view", arguments: { path: "/w/src/f.js", view_range: [2, 2] } } }),
+        JSON.stringify({ type: "tool.execution_complete", data: { toolCallId: "n2", success: true, result: { content: "b\n" } } }), // 2 chars, line 2 (disjoint -> 0 dup!)
+        JSON.stringify({ type: "tool.execution_start", data: { toolCallId: "n3", toolName: "view", arguments: { path: "/w/src/f.js", view_range: [2, 2] } } }),
+        JSON.stringify({ type: "tool.execution_complete", data: { toolCallId: "n3", success: true, result: { content: "b\n" } } }), // 2 chars, line 2 reread -> 2 dup!
+        JSON.stringify({ type: "assistant.message", data: { content: "https://github.com/org/app/pull/70" } }),
+      ].join("\n") + "\n",
+    );
+    const out = analyzeSessions([{ number: 70, url: "https://github.com/org/app/pull/70", mergedAt: "2026-11-11T00:00:00Z" }], {
+      sessionsDir,
+      repo: "org/app",
+    });
+    assert.equal(out.perPr[70].totalReadChars, 6);
+    assert.equal(out.perPr[70].duplicateReadChars, 2, "disjoint [2,2] after newline-terminated [1,1] must add 0 duplicate chars");
+    assert.equal(out.perPr[70].duplicateReadRate, 2 / 6);
+  } finally {
+    rmSync(sessionsDir, { recursive: true, force: true });
+  }
+});

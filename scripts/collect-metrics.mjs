@@ -247,7 +247,8 @@ function parseSessionEvents(eventsPath) {
         if (!content.length) continue;
         totalReadChars += content.length;
         const seenLines = seenReadsByPath.get(start.path) || new Set(), parts = content.split("\n");
-        for (let i = 0; i < parts.length; i++) {
+        const lineCount = content.endsWith("\n") ? parts.length - 1 : parts.length;
+        for (let i = 0; i < lineCount; i++) {
           const lineNo = start.startLine + i, chars = parts[i].length + (i < parts.length - 1 ? 1 : 0);
           if (seenLines.has(lineNo)) duplicateReadChars += chars;
           else seenLines.add(lineNo);
