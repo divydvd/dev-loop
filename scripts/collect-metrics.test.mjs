@@ -1089,3 +1089,80 @@ test("S-T3: parseSessionEvents deduplicates parallel subagents, ignores nested e
   }
 });
 
+test("S-T4: collectMetrics and formatMarkdownReport compute route medianActiveSec, dominantBottleneck, medianParallelism, and null shared sessions", () => {
+  const gitDir = initGitRepo();
+  const sessionsDir = makeTempDir("speed-t4-sess");
+  try {
+    writeFileSync(join(gitDir, "src/a.js"), "export const a = 1;\n");
+    git(gitDir, ["add", "."]);
+    git(gitDir, ["commit", "-m", "feat: a (#1)"]);
+    const sha1 = git(gitDir, ["rev-parse", "HEAD"]);
+    writeFileSync(join(gitDir, "src/b.js"), "export const b = 2;\n");
+    git(gitDir, ["add", "."]);
+    git(gitDir, ["commit", "-m", "feat: b (#2)"]);
+    const sha2 = git(gitDir, ["rev-parse", "HEAD"]);
+
+    // Unique session for PR #1 (small): 10s model + 40s poll = 50s active (pollSec = 80%)
+    const s1 = join(sessionsDir, "s-1");
+    mkdirSync(s1, { recursive: true });
+    writeFileSync(join(s1, "workspace.yaml"), "id: s-1\nrepository: org/app\ncreated_at: 2026-11-10T09:00:00Z\n");
+    writeFileSync(
+      join(s1, "events.jsonl"),
+      [
+        JSON.stringify({ timestamp: "2026-11-10T09:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-10T09:00:10.000Z", type: "assistant.message", data: { turnId: "0", content: "https://github.com/org/app/pull/1" } }),
+        JSON.stringify({ timestamp: "2026-11-10T09:00:10.000Z", type: "tool.execution_start", data: { toolCallId: "p1", toolName: "bash", arguments: { command: "gh api repos/org/app/commits/x/check-runs && sleep 10" } } }),
+        JSON.stringify({ timestamp: "2026-11-10T09:00:50.000Z", type: "tool.execution_complete", data: { toolCallId: "p1", success: true } }),
+      ].join("\n") + "\n",
+    );
+
+    // Shared session for PR #2 and PR #3: 300s active -> must be excluded (null) from per-PR route speed!
+    const sShared = join(sessionsDir, "s-shared");
+    mkdirSync(sShared, { recursive: true });
+    writeFileSync(join(sShared, "workspace.yaml"), "id: s-shared\nrepository: org/app\ncreated_at: 2026-11-10T09:00:00Z\n");
+    writeFileSync(
+      join(sShared, "events.jsonl"),
+      [
+        JSON.stringify({ timestamp: "2026-11-10T09:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-10T09:05:00.000Z", type: "assistant.message", data: { turnId: "0", content: "https://github.com/org/app/pull/2 and https://github.com/org/app/pull/3" } }),
+      ].join("\n") + "\n",
+    );
+
+    const prs = [
+      { number: 1, url: "https://github.com/org/app/pull/1", mergedAt: "2026-11-10T10:00:00Z", headRefOid: sha1, mergeCommit: { oid: sha1 }, files: [{ path: "src/a.js", additions: 1, deletions: 0 }] },
+      { number: 2, url: "https://github.com/org/app/pull/2", mergedAt: "2026-11-10T10:30:00Z", headRefOid: sha2, mergeCommit: { oid: sha2 }, files: [{ path: "src/b.js", additions: 1, deletions: 0 }] },
+      { number: 3, url: "https://github.com/org/app/pull/3", mergedAt: "2026-11-10T10:45:00Z", headRefOid: sha2, mergeCommit: { oid: sha2 }, files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+    ];
+    const sessOut = analyzeSessions(prs, { sessionsDir, repo: "org/app" });
+    assert.equal(sessOut.perPr[2].activeSec, null, "shared session per-PR activeSec must be null");
+    assert.equal(sessOut.perPr[2].parallelismFactor, null);
+    assert.equal(sessOut.perPr[2].timeBuckets, null);
+    assert.equal(sessOut.sharedSessions[0].activeSec, 300);
+
+    const rep = collectMetrics({
+      repo: "org/app",
+      prs,
+      from: "2026-11-08T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+      sessionsDir,
+      checkoutDir: gitDir,
+    });
+    assert.equal(rep.routeBuckets.small.medianActiveSec, 50);
+    assert.equal(rep.routeBuckets.small.dominantBottleneck, "pollSec");
+    assert.equal(rep.routeBuckets.small.dominantBottleneckShare, 0.8);
+    assert.equal(rep.routeBuckets.small.medianParallelism, 1);
+    assert.equal(rep.routeBuckets.trivial.medianActiveSec, null);
+    assert.equal(rep.routeBuckets.trivial.dominantBottleneck, null);
+
+    const md = formatMarkdownReport(rep);
+    assert.match(md, /Median active \(s\)/);
+    assert.match(md, /pollSec \(80\.0%\)/);
+    assert.match(md, /1\.00x/);
+    assert.match(md, /300\.0s active/);
+  } finally {
+    rmSync(gitDir, { recursive: true, force: true });
+    rmSync(sessionsDir, { recursive: true, force: true });
+  }
+});
+
+

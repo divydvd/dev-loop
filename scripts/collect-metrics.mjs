@@ -374,7 +374,7 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNu
     mappedCount += 1; distinctSessions.set(s.id, s);
     if ((prsBySession.get(s.id)?.length || 0) > 1) {
       sharedPrNumbers.push(pr.number);
-      perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", totalNanoAiu: null, modelCalls: null, duplicateReadRate: null, ownerRepeatMessages: null };
+      perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", totalNanoAiu: null, modelCalls: null, duplicateReadRate: null, ownerRepeatMessages: null, activeSec: null, humanWaitSec: null, parallelismFactor: null, timeBuckets: null };
     } else {
       const { lines: _lines, createdAt: _c, id, ...metrics } = s;
       perPr[pr.number] = { sessionId: id, sharedSession: false, attribution: "unique", ...metrics };
@@ -382,7 +382,7 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNu
   }
   for (const [id, s] of distinctSessions) {
     const allNums = (prsBySession.get(id) || []).sort((a, b) => a - b);
-    if (allNums.length > 1) sharedSessions.push({ sessionId: id, prNumbers: allNums, inWindowPrNumbers: allNums.filter((n) => !inWindow || inWindow.has(n)), totalNanoAiu: s.totalNanoAiu, modelCalls: s.modelCalls });
+    if (allNums.length > 1) sharedSessions.push({ sessionId: id, prNumbers: allNums, inWindowPrNumbers: allNums.filter((n) => !inWindow || inWindow.has(n)), totalNanoAiu: s.totalNanoAiu, modelCalls: s.modelCalls, activeSec: s.activeSec });
   }
   const totalOwnerRepeatMessages = [...distinctSessions.values()].reduce((acc, s) => acc + s.ownerRepeatMessages, 0);
   return { status: "ok", mappedCount, totalOwnerRepeatMessages, sharedPrNumbers: sharedPrNumbers.sort((a, b) => a - b), sharedSessions, perPr };
@@ -424,9 +424,27 @@ export function collectMetrics({ repo = "", prs = [], prsTruncated = false, from
     }
     buckets[route].push({ number: pr.number, prodLines, session: sess, evidence: ev, firstPushGreen });
   }
+  const BUCKET_KEYS = ["buildTestSec", "pollSec", "modelSec", "subagentSec", "ioOtherSec"];
   const routeBuckets = Object.fromEntries(Object.entries(buckets).map(([route, items]) => {
     const u = truncated ? [] : items.filter((i) => i.session?.attribution === "unique");
-    return [route, { count: items.length, uniqueSessions: u.length, medianProdLines: truncated ? null : exactMedian(items.map((i) => i.prodLines)), medianNanoAiu: median(u.map((i) => i.session.totalNanoAiu)), meanModelCalls: mean(u.map((i) => i.session.modelCalls)), medianDuplicateReadRate: median(u.map((i) => i.session.duplicateReadRate)) }];
+    const timed = u.filter((i) => i.session.timeBuckets && i.session.activeSec > 0);
+    let dominantBottleneck = null, dominantBottleneckShare = null, bucketMediansSec = null;
+    if (timed.length > 0) {
+      const sums = Object.fromEntries(BUCKET_KEYS.map((k) => [k, timed.reduce((acc, i) => acc + (i.session.timeBuckets[k] || 0), 0)]));
+      const totalBucketSec = Object.values(sums).reduce((a, b) => a + b, 0);
+      bucketMediansSec = Object.fromEntries(BUCKET_KEYS.map((k) => [k, median(timed.map((i) => i.session.timeBuckets[k]))]));
+      if (totalBucketSec > 0) {
+        dominantBottleneck = BUCKET_KEYS.reduce((best, k) => (sums[k] > sums[best] ? k : best), BUCKET_KEYS[0]);
+        dominantBottleneckShare = sums[dominantBottleneck] / totalBucketSec;
+      }
+    }
+    return [route, {
+      count: items.length, uniqueSessions: u.length, medianProdLines: truncated ? null : exactMedian(items.map((i) => i.prodLines)),
+      medianNanoAiu: median(u.map((i) => i.session.totalNanoAiu)), meanModelCalls: mean(u.map((i) => i.session.modelCalls)),
+      medianDuplicateReadRate: median(u.map((i) => i.session.duplicateReadRate)),
+      medianActiveSec: median(u.map((i) => i.session.activeSec)), medianParallelism: median(u.map((i) => i.session.parallelismFactor)),
+      dominantBottleneck, dominantBottleneckShare, bucketMediansSec,
+    }];
   }));
   const allVerifiable = verifiableCount === windowPrs.length;
   const verificationStatus = truncated ? "prs_truncated" : windowPrs.length === 0 ? "no_prs" : ledgerData ? "ok" : allVerifiable ? "exempt_only" : "unavailable";
@@ -453,13 +471,15 @@ export function formatMarkdownReport(r) {
   const yieldCell = r.durableFirstPassYield.rate !== null ? fmtPct(r.durableFirstPassYield.passedCount, r.durableFirstPassYield.eligibleCount, r.durableFirstPassYield.rate) : `n/a (${r.durableFirstPassYield.status})`;
   const repeatCell = r.autonomy.ownerRepeatMessages ?? `n/a (${r.autonomy.status || "unavailable"})`;
   const sharedNote = r.prsTruncated ? "n/a (prs_truncated)" : r.autonomy.sharedSessions?.length
-    ? r.autonomy.sharedSessions.map((s) => `ambiguous on #${s.inWindowPrNumbers.join(", #")} (${s.totalNanoAiu !== null ? s.totalNanoAiu.toExponential(2) : "n/a"} nanoAIU, ${s.modelCalls} calls)`).join("; ")
+    ? r.autonomy.sharedSessions.map((s) => `ambiguous on #${s.inWindowPrNumbers.join(", #")} (${s.totalNanoAiu !== null ? s.totalNanoAiu.toExponential(2) : "n/a"} nanoAIU, ${s.modelCalls} calls, ${s.activeSec !== null && s.activeSec !== undefined ? `${s.activeSec.toFixed(1)}s active` : "n/a active"})`).join("; ")
     : "none";
   const routeRows = ["trivial", "small", "multi-task"].map((route) => {
     const b = r.routeBuckets[route];
-    return `| ${route} | ${b.count} | ${b.uniqueSessions} | ${fmtNum(b.medianProdLines, 0)} | ${b.medianNanoAiu !== null ? b.medianNanoAiu.toExponential(2) : "n/a"} | ${fmtNum(b.meanModelCalls, 1)} | ${b.medianDuplicateReadRate !== null ? `${(b.medianDuplicateReadRate * 100).toFixed(1)}%` : "n/a"} |`;
+    const domCell = b.dominantBottleneck ? `${b.dominantBottleneck} (${(b.dominantBottleneckShare * 100).toFixed(1)}%)` : "n/a";
+    const parCell = b.medianParallelism !== null && b.medianParallelism !== undefined ? `${b.medianParallelism.toFixed(2)}x` : "n/a";
+    return `| ${route} | ${b.count} | ${b.uniqueSessions} | ${fmtNum(b.medianProdLines, 0)} | ${b.medianNanoAiu !== null ? b.medianNanoAiu.toExponential(2) : "n/a"} | ${fmtNum(b.meanModelCalls, 1)} | ${b.medianDuplicateReadRate !== null ? `${(b.medianDuplicateReadRate * 100).toFixed(1)}%` : "n/a"} | ${fmtNum(b.medianActiveSec, 1)} | ${domCell} | ${parCell} |`;
   });
-  return [`### Shadow-mode objective telemetry (${r.repo || "repo"})`, "| Objective measure | Value | Target |", "| --- | --- | --- |", `| Durable first-pass yield | ${yieldCell} | 90.0% or higher |`, `| Code survival rate (${r.window.maturityDays}d) | ${survivalCell} | 95.0% or higher |`, `| Fix-up PRs (${r.window.maturityDays}d, ref + blame) | ${fixupCell} | 0 |`, `| Ledger + ancestry verified merges | ${verifyCell} | 100.0% |`, `| First-push green rate | ${greenCell} | 70.0% or higher |`, `| Owner repeat-rule messages (matched sessions) | ${repeatCell} | 0 |`, `| Shared-session PRs (excluded from per-PR cost) | ${sharedNote} | observe |`, "", "| Task route | PRs | Unique sessions | Median prod lines | Median `totalNanoAiu` | Mean model calls | Median duplicate read |", "| --- | --- | --- | --- | --- | --- | --- |", ...routeRows].join("\n");
+  return [`### Shadow-mode objective telemetry (${r.repo || "repo"})`, "| Objective measure | Value | Target |", "| --- | --- | --- |", `| Durable first-pass yield | ${yieldCell} | 90.0% or higher |`, `| Code survival rate (${r.window.maturityDays}d) | ${survivalCell} | 95.0% or higher |`, `| Fix-up PRs (${r.window.maturityDays}d, ref + blame) | ${fixupCell} | 0 |`, `| Ledger + ancestry verified merges | ${verifyCell} | 100.0% |`, `| First-push green rate | ${greenCell} | 70.0% or higher |`, `| Owner repeat-rule messages (matched sessions) | ${repeatCell} | 0 |`, `| Shared-session PRs (excluded from per-PR cost/speed) | ${sharedNote} | observe |`, "", "| Task route | PRs | Unique sessions | Median prod lines | Median `totalNanoAiu` | Mean model calls | Median duplicate read | Median active (s) | Dominant bottleneck | Median parallelism |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |", ...routeRows].join("\n");
 }
 
 const PR_GRAPHQL_QUERY = "query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(states:MERGED,first:50,after:$cursor,orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor} nodes{number title url body createdAt mergedAt updatedAt headRefOid mergeCommit{oid} files(first:100){pageInfo{hasNextPage} nodes{path additions deletions}} commits(last:50){totalCount nodes{commit{committedDate}}}}}}}";
