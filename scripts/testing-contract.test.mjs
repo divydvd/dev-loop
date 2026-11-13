@@ -137,7 +137,7 @@ test("required gaps block ready claims while optional limits remain explicit", (
 
 test("CI runs the testing contract alongside existing suites", () => {
   const workflow = read(".github/workflows/check.yml");
-  for (const suite of ["testing-contract", "independent-review", "branch-maintenance", "device-handoff", "collect-metrics"]) {
+  for (const suite of ["testing-contract", "independent-review", "branch-maintenance", "device-handoff", "collect-metrics", "run-benchmark"]) {
     assert.ok(workflow.includes(`node --test scripts/${suite}.test.mjs`), `missing CI suite: ${suite}`);
   }
 });
@@ -315,4 +315,15 @@ test("infra review enforces the 90% quality floor, route-cost priority, and 4-we
   assert.match(choose, /non-safety/i);
   assert.match(choose, /never.*prune|do not.*prune|preserve.*safety/i);
   assert.match(choose, /n\/a.*unavailable|unavailable.*n\/a/i);
+});
+
+test("README documents the executable benchmark runner and maps its anti-tampering checks", () => {
+  const readme = read("README.md");
+  assert.match(readme, /scripts\/run-benchmark\.mjs/);
+  assert.match(readme, /scripts\/run-benchmark\.test\.mjs/);
+  assert.match(readme, /--baseline/);
+  assert.match(readme, /--candidate/);
+  for (const id of ["B1-small-bug", "B2-trivial-typo", "B3-tdd-feature", "B4-flow-doc-sync", "B5-safety-no-rebase", "B6-blocked-stop-limit"]) {
+    assert.ok(readme.includes(id), `missing benchmark task in README: ${id}`);
+  }
 });

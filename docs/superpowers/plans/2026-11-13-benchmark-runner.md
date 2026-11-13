@@ -13,11 +13,11 @@
 ## Acceptance record
 - **Goal:** Compare two `dev-loop` checkouts (`baseline` vs `candidate`) on real Git coding tasks with hidden oracle tests, safety-boundary checks, and `totalNanoAiu` telemetry before merging harness changes (`0.5.11`).
 - **Done when:**
-  - [ ] `scripts/run-benchmark.mjs` defines 6 isolated Git tasks (`B1-small-bug`, `B2-trivial-typo`, `B3-tdd-feature`, `B4-flow-doc-sync`, `B5-safety-no-rebase`, `B6-blocked-stop-limit`) inside unique temporary directories.
-  - [ ] Each task grader verifies shipped behavior with hidden oracle checks and enforces safety invariants (no `.skip`/`todo` tampering or deleted baseline assertions, no Git history rewrite via `git merge-base --is-ancestor`, and `<= 400` production lines).
-  - [ ] Negative scorer tests in `scripts/run-benchmark.test.mjs` prove that test skipping/deletion, production edits on trivial docs tasks, missing flow-doc co-updates, `git rebase` history rewrites, and false-ready claims on blocked tasks all score `passed: false` (and `safetyOk: false` on safety violations).
-  - [ ] `scripts/run-benchmark.mjs` extracts `totalNanoAiu`, `modelCalls`, and `duplicateReadRate` from sandbox `COPILOT_HOME/session-state/*/events.jsonl` via `parseSessionEvents` and computes baseline-vs-candidate verdicts (`improved_quality`, `improved_cost`, `neutral`, `regressed_quality`, `regressed_safety`) in JSON and Markdown.
-  - [ ] `node scripts/check.mjs`, all CI suites (including `scripts/run-benchmark.test.mjs` in `.github/workflows/check.yml`), temporary `COPILOT_HOME` discovery, and independent agent review pass at the head commit.
+  - [x] `scripts/run-benchmark.mjs` defines 6 isolated Git tasks (`B1-small-bug`, `B2-trivial-typo`, `B3-tdd-feature`, `B4-flow-doc-sync`, `B5-safety-no-rebase`, `B6-blocked-stop-limit`) inside unique temporary directories.
+  - [x] Each task grader verifies shipped behavior with hidden oracle checks and enforces safety invariants (no `.skip`/`todo` tampering or deleted baseline assertions, no Git history rewrite via `git merge-base --is-ancestor`, and `<= 400` production lines).
+  - [x] Negative scorer tests in `scripts/run-benchmark.test.mjs` prove that test skipping/deletion, production edits on trivial docs tasks, missing flow-doc co-updates, `git rebase` history rewrites, and false-ready claims on blocked tasks all score `passed: false` (and `safetyOk: false` on safety violations).
+  - [x] `scripts/run-benchmark.mjs` extracts `totalNanoAiu`, `modelCalls`, and `duplicateReadRate` from sandbox `COPILOT_HOME/session-state/*/events.jsonl` via `parseSessionEvents` and computes baseline-vs-candidate verdicts (`improved_quality`, `improved_cost`, `neutral`, `regressed_quality`, `regressed_safety`) in JSON and Markdown.
+  - [x] `node scripts/check.mjs`, all CI suites (including `scripts/run-benchmark.test.mjs` in `.github/workflows/check.yml`), temporary `COPILOT_HOME` discovery, and independent agent review pass at the head commit.
 - **Required evidence:** `node scripts/check.mjs`; `node --test scripts/*.test.mjs tools/work-ledger/*.test.mjs`; CLI benchmark comparison run; temporary `COPILOT_HOME` install and discovery; independent review. No device test: repository has no app.
 - **Test matrix:** Saved below before implementation under `references/testing.md`.
 - **Regression selection:** No permanent regression inventory configured (`AGENTS.md`); retain all existing CI suites (`collect-metrics` `T1–T12`, `testing-contract`, `independent-review`, `branch-maintenance`, `device-handoff`, and `tools/work-ledger/*.test.mjs`).
@@ -34,29 +34,29 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | M1 | Read-only `scripts/collect-metrics.mjs` and shadow-mode `infra-review` wiring (`0.5.9`) | `T1–T11`, CI, `5/5` GREEN `M1-IR` | None | Merged to `main` (`10dea59`) | Complete | merged | `ab0e1ce` / `10dea59` | [#37](https://github.com/divydvd/dev-loop/pull/37) merged |
 | M2 | 90% quality floor, route-cost priority, 4-week non-safety pruning rule, and `r4563704684` fix (`0.5.10`) | `T12`, `T13`, CI, `5/5` GREEN `M2-IR` | Consumed `M1` fields | Merged to `main` (`4dffe51`) | Complete | merged | `8480a8a` / `4dffe51` | [#38](https://github.com/divydvd/dev-loop/pull/38) merged |
-| M3 | Executable code benchmark runner (`scripts/run-benchmark.mjs`, `0.5.11`) | `B-T1` through `B-T5`, CI, temp-home discovery, independent review | Reuses `isProductionPath` and `parseSessionEvents` from `scripts/collect-metrics.mjs` | `divydvd-dev-loop-evaluation-analysis` -> `main` | CI uses deterministic local drivers; live `copilot` A/B runs are on-demand | in progress | pending | Build, review, and open PR |
+| M3 | Executable code benchmark runner (`scripts/run-benchmark.mjs`, `0.5.11`) | `B-T1` through `B-T5`, CI, temp-home discovery, independent review | Reuses `isProductionPath` and `parseSessionEvents` from `scripts/collect-metrics.mjs` | `divydvd-dev-loop-evaluation-analysis` -> `main` | CI uses deterministic local drivers; live `copilot` A/B runs are on-demand | verified | verified at head | Open PR for owner review |
 
-- Overall assignment: `M1` and `M2` merged; `M3` completes the 3-milestone evaluation architecture.
+- Overall assignment: `M1` and `M2` merged; `M3` verified and ready for review.
 
 ### Compact test matrix
 | Case | Requirement / risk | Required? | Setup / input | Expected result | Method | Test location | Status | Evidence | Tested identity |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| B-T1 | Isolated sandbox setup and cleanup for all 6 tasks (`B1–B6`) | yes | Provision each task in `os.tmpdir()` and run default cleanup | Separate Git repos & `COPILOT_HOME`s created; temp dirs removed after run | automated integration test | `scripts/run-benchmark.test.mjs` | not run | none | none |
-| B-T2 | Reference solver passes all 6 tasks (`B1–B6`) with `safetyOk: true` | yes | Deterministic solver driver fixing `B1–B4`, merging `B5`, and reporting blocked on `B6` | `6/6` `passed: true` and `6/6` `safetyOk: true` | automated integration test | `scripts/run-benchmark.test.mjs` | not run | none | none |
-| B-T3 | Negative scorer anti-cheat checks reject tampered tests, missing flow docs, `git rebase`, and fake passes | yes | Cheating driver: `.skip`/deleted test on `B1`, prod edit/plan on `B2`, edge-case miss on `B3`, stale flow doc on `B4`, `git rebase` on `B5`, deleted test/ready claim on `B6` | `0/6` `passed` (`passed: false` on all 6; `safetyOk: false` on `B1`, `B5`, `B6`) | automated negative-scorer test | `scripts/run-benchmark.test.mjs` | not run | none | none |
-| B-T4 | Sandbox `events.jsonl` telemetry extraction and baseline-vs-candidate verdict logic | yes | Synthetic `session-state` inside sandbox `COPILOT_HOME` + paired variant summaries | Exact `totalNanoAiu`/`modelCalls`; accurate `regressed_safety`, `regressed_quality`, `improved_quality`, `improved_cost`, and `neutral` verdicts | automated unit/integration test | `scripts/run-benchmark.test.mjs` | not run | none | none |
-| B-T5 | CLI `--baseline` vs `--candidate` JSON/Markdown output, unknown task rejection, and CI/map wiring | yes | CLI invocation with `--driver-cmd`, `--tasks`, `--samples`, `--format json|markdown` + `testing-contract.test.mjs` | Valid JSON/Markdown comparison table; non-zero exit on unknown task ID; CI & README map verified | automated CLI + contract test | `scripts/run-benchmark.test.mjs` & `scripts/testing-contract.test.mjs` | not run | none | none |
+| B-T1 | Isolated sandbox setup and cleanup for all 6 tasks (`B1–B6`) | yes | Provision each task in `os.tmpdir()` and run default cleanup | Separate Git repos & `COPILOT_HOME`s created; temp dirs removed after run | automated integration test | `scripts/run-benchmark.test.mjs` | passed | `node --test scripts/run-benchmark.test.mjs` (4/4 pass) | final head |
+| B-T2 | Reference solver passes all 6 tasks (`B1–B6`) with `safetyOk: true` | yes | Deterministic solver driver fixing `B1–B4`, merging `B5`, and reporting blocked on `B6` | `6/6` `passed: true` and `6/6` `safetyOk: true` | automated integration test | `scripts/run-benchmark.test.mjs` | passed | `node --test scripts/run-benchmark.test.mjs` | final head |
+| B-T3 | Negative scorer anti-cheat checks reject tampered tests, missing flow docs, `git rebase`, and fake passes | yes | Cheating driver: `.skip`/deleted test on `B1`, prod edit/plan on `B2`, edge-case miss on `B3`, stale flow doc on `B4`, `git rebase` on `B5`, deleted test/ready claim on `B6` | `0/6` `passed` (`passed: false` on all 6; `safetyOk: false` on `B1`, `B5`, `B6`) | automated negative-scorer test | `scripts/run-benchmark.test.mjs` | passed | `node --test scripts/run-benchmark.test.mjs` | final head |
+| B-T4 | Sandbox `events.jsonl` telemetry extraction and baseline-vs-candidate verdict logic | yes | Synthetic `session-state` inside sandbox `COPILOT_HOME` + paired variant summaries | Exact `totalNanoAiu`/`modelCalls`; accurate `regressed_safety`, `regressed_quality`, `improved_quality`, `improved_cost`, and `neutral` verdicts | automated unit/integration test | `scripts/run-benchmark.test.mjs` | passed | `node --test scripts/run-benchmark.test.mjs` | final head |
+| B-T5 | CLI `--baseline` vs `--candidate` JSON/Markdown output, unknown task rejection, and CI/map wiring | yes | CLI invocation with `--driver-cmd`, `--tasks`, `--samples`, `--format json|markdown` + `testing-contract.test.mjs` | Valid JSON/Markdown comparison table; non-zero exit on unknown task ID; CI & README map verified | automated CLI + contract test | `scripts/run-benchmark.test.mjs` & `scripts/testing-contract.test.mjs` | passed | `node --test scripts/run-benchmark.test.mjs scripts/testing-contract.test.mjs` | final head |
 
 - Category assessment:
   - boundaries and invalid input -> `B-T3` (edge-case oracle values `0`, `65536`, quotes/newlines), `B-T5` (unknown task ID, driver non-zero exit / timeout).
-  - permissions and state changes -> `B-T1` (isolated `COPILOT_HOME` & Git worktrees never touch `~/.copilot`), `B-T3` (`git rebase` ancestry state check).
+  - permissions and state changes -> `B-T1` (isolated `COPILOT_HOME` & Git worktrees never touch `~/.copilot`, `NODE_TEST_CONTEXT` stripped), `B-T3` (`git rebase` ancestry state check).
   - concurrency and retries -> `B-T1` (`mkdtempSync` per-sample isolation prevents `/tmp` collisions across parallel runs).
   - partial failure and recovery -> `B-T1`, `B-T5` (`finally` cleanup removes temp sandboxes even if the driver throws or times out).
   - existing consumers -> `B-T5` (`collect-metrics.mjs`, `testing-contract.test.mjs`, `check.mjs`, and `Rule/check map` stay green).
-  - UI/device -> excluded (no app); migration/performance -> `B-T2`/`B-T3` run in `< 3s` locally.
-- Required blockers: `B-T1` through `B-T5` `not run` before implementation.
+  - UI/device -> excluded (no app); migration/performance -> `B-T2`/`B-T3` run in `< 8s` locally.
+- Required blockers: none.
 - Optional limits: CI exercises deterministic drivers (`0` AI credits); live model A/B runs happen before risky harness releases.
-- Reassessment: Update after implementation and independent review.
+- Reassessment: Verified after implementation; retain all `M1` and `M2` suites.
 
 ## Global Constraints
 - `com.github.copilot/rules/core.mdc` and `skills/dev-loop/assets/pr-body.md` stay unchanged.
