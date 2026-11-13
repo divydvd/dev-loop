@@ -1203,6 +1203,9 @@ test("S-T6: review regressions — multi-digit sleep, verdict repo slug vs CLI, 
         JSON.stringify({ timestamp: "2026-11-14T10:04:05.000Z", type: "tool.execution_start", data: { toolCallId: "ra1", toolName: "read_agent", arguments: { agent_id: "ag-bg-1", wait: true } } }),
         JSON.stringify({ timestamp: "2026-11-14T10:05:40.000Z", agentId: "ag-bg-1", type: "subagent.failed", data: { toolCallId: "bg1" } }),
         JSON.stringify({ timestamp: "2026-11-14T10:05:40.000Z", type: "tool.execution_complete", data: { toolCallId: "ra1", success: true } }),
+        // Delayed read_agent(wait: false) 7 hours later (17:05:40 -> 17:05:41 = 1s) must NOT bridge the 7-hour idle gap!
+        JSON.stringify({ timestamp: "2026-11-14T17:05:40.000Z", type: "tool.execution_start", data: { toolCallId: "ra2", toolName: "read_agent", arguments: { agent_id: "ag-bg-1", wait: false } } }),
+        JSON.stringify({ timestamp: "2026-11-14T17:05:41.000Z", type: "tool.execution_complete", data: { toolCallId: "ra2", success: true } }),
       ].join("\n") + "\n",
     );
 
@@ -1210,7 +1213,7 @@ test("S-T6: review regressions — multi-digit sleep, verdict repo slug vs CLI, 
     assert.equal(p.timeBuckets.pollSec, 40, "30s sleep + 10s reviewThreads/divydvd/verdict poll = 40s");
     assert.equal(p.timeBuckets.ioOtherSec, 2, "only git status in verdict worktree = 2s");
     assert.equal(p.timeBuckets.buildTestSec, 158, "8s verdict CLI + 30s bash + 120s runtime-shellId read_bash = 158s");
-    assert.equal(p.timeBuckets.subagentSec, 100, "background task closed by subagent.failed = 100s");
+    assert.equal(p.timeBuckets.subagentSec, 101, "100s background task + 1s delayed read_agent without bridging 7h gap = 101s");
     assert.equal(Number(p.parallelismFactor.toFixed(2)), 1.0, "strictly serial intervals (including read_agent wait and nested sub-subagent) = 1.00x");
 
     // 4. Valid 0s (same-ms) session stays included in bucketMediansSec alongside 10s session (median = 5s)
@@ -1247,5 +1250,3 @@ test("S-T6: review regressions — multi-digit sleep, verdict repo slug vs CLI, 
     rmSync(dir, { recursive: true, force: true });
   }
 });
-
-

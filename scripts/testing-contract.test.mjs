@@ -339,4 +339,3 @@ test("infra review defines 5-box active work time, parallelismFactor, and qualit
   const readme = read("README.md");
   assert.ok(readme.includes("T-IR7"), "README must document T-IR7 speed application check");
 });
-

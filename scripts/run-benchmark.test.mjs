@@ -832,4 +832,3 @@ test("S-T5: runBenchmark and compareVariants extract merged sandbox activeSec, p
     rmSync(dir, { recursive: true, force: true });
   }
 });
-

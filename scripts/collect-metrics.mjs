@@ -264,13 +264,14 @@ export function parseSessionEvents(eventsPath) {
     } else if (type === "subagent.started" && data.toolCallId && Number.isFinite(ts)) {
       const tStart = toolStarts.get(data.toolCallId);
       if (tStart ? tStart.isMain : !data.parentId) {
-        const prev = subagentBounds.get(data.toolCallId);
-        subagentBounds.set(data.toolCallId, { startMs: prev ? Math.min(prev.startMs, ts) : ts, endMs: prev?.endMs ?? null });
+        const entry = subagentBounds.get(data.toolCallId) || { subStartMs: null, ivs: [] };
+        entry.subStartMs = entry.subStartMs !== null ? Math.min(entry.subStartMs, ts) : ts;
+        subagentBounds.set(data.toolCallId, entry);
         if (evt.agentId) callIdByAgentId.set(String(evt.agentId), data.toolCallId);
       }
     } else if ((type === "subagent.completed" || type === "subagent.failed") && data.toolCallId && Number.isFinite(ts)) {
-      const prev = subagentBounds.get(data.toolCallId);
-      if (prev && ts >= prev.startMs) subagentBounds.set(data.toolCallId, { ...prev, endMs: prev.endMs !== null ? Math.max(prev.endMs, ts) : ts });
+      const entry = subagentBounds.get(data.toolCallId);
+      if (entry && entry.subStartMs !== null && ts >= entry.subStartMs) { entry.ivs.push([entry.subStartMs, ts]); entry.subStartMs = null; }
     } else if ((type === "session.usage_checkpoint" || type === "session.shutdown") && data.totalNanoAiu !== null && data.totalNanoAiu !== "" && Number.isFinite(Number(data.totalNanoAiu))) {
       latestNanoAiu = Number(data.totalNanoAiu);
     } else if (type === "tool.execution_start" && data.toolCallId) {
@@ -280,9 +281,8 @@ export function parseSessionEvents(eventsPath) {
       const cmd = String(args?.command || (data.toolName === "read_bash" && args?.shellId ? shellCmdById.get(String(args.shellId)) || "" : ""));
       if (isMain && data.toolName === "bash" && args?.shellId) shellCmdById.set(String(args.shellId), cmd);
       toolStarts.set(data.toolCallId, { toolName: data.toolName, path: args?.path || null, startLine, startMs: ts, cmd, agentId: args?.agent_id ? String(args.agent_id) : null, isMain });
-      if (isMain && data.toolName === "task" && Number.isFinite(ts)) {
-        const prev = subagentBounds.get(data.toolCallId);
-        subagentBounds.set(data.toolCallId, { startMs: prev ? Math.min(prev.startMs, ts) : ts, endMs: prev?.endMs ?? null });
+      if (isMain && data.toolName === "task" && Number.isFinite(ts) && !subagentBounds.has(data.toolCallId)) {
+        subagentBounds.set(data.toolCallId, { subStartMs: null, ivs: [] });
       }
     } else if (type === "tool.execution_complete") {
       const start = toolStarts.get(data.toolCallId);
@@ -296,14 +296,13 @@ export function parseSessionEvents(eventsPath) {
         const iv = [start.startMs, ts], dur = ts - start.startMs;
         if (HUMAN_WAIT_TOOLS.has(start.toolName)) humanIvs.push(iv);
         else if (start.toolName === "task") {
-          const prev = subagentBounds.get(data.toolCallId) || { startMs: start.startMs, endMs: null };
-          subagentBounds.set(data.toolCallId, { startMs: Math.min(prev.startMs, start.startMs), endMs: prev.endMs !== null ? Math.max(prev.endMs, ts) : ts });
+          const entry = subagentBounds.get(data.toolCallId) || { subStartMs: null, ivs: [] };
+          entry.ivs.push(iv); subagentBounds.set(data.toolCallId, entry);
           const resText = String(typeof data.result === "string" ? data.result : data.result?.content ?? "");
           const agMatch = resText.match(/\bagent_id:\s*([^\s.]+)/);
           if (agMatch) callIdByAgentId.set(agMatch[1], data.toolCallId);
         } else if (start.toolName === "read_agent" && start.agentId && callIdByAgentId.has(start.agentId) && subagentBounds.has(callIdByAgentId.get(start.agentId))) {
-          const cid = callIdByAgentId.get(start.agentId), prev = subagentBounds.get(cid);
-          subagentBounds.set(cid, { startMs: Math.min(prev.startMs, start.startMs), endMs: prev.endMs !== null ? Math.max(prev.endMs, ts) : ts });
+          subagentBounds.get(callIdByAgentId.get(start.agentId)).ivs.push(iv);
         } else {
           toolClockIvs.push(iv); toolWorkMs += dur;
           if (start.toolName === "read_agent") subagentIvs.push(iv);
@@ -339,7 +338,7 @@ export function parseSessionEvents(eventsPath) {
     }
   }
   for (const b of subagentBounds.values()) {
-    if (b.endMs !== null && b.endMs >= b.startMs) { const iv = [b.startMs, b.endMs]; subagentIvs.push(iv); toolClockIvs.push(iv); toolWorkMs += b.endMs - b.startMs; }
+    for (const iv of mergeIntervals(b.ivs)) { subagentIvs.push(iv); toolClockIvs.push(iv); toolWorkMs += iv[1] - iv[0]; }
   }
   const allActiveIvs = [...modelIvs, ...buildTestIvs, ...pollIvs, ...subagentIvs, ...ioOtherIvs];
   const mergedActive = mergeIntervals(allActiveIvs), mergedTools = mergeIntervals(toolClockIvs);
