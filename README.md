@@ -72,7 +72,7 @@ Prompt-only simulations can saturate at `100%` without exercising real file edit
 `scripts/run-benchmark.mjs` runs two plugin checkouts (`--baseline` vs `--candidate`) inside isolated temporary `COPILOT_HOME` and Git directories.
 An automatic grader runs hidden oracle checks, rejects test tampering or rebased commits, and compares `totalNanoAiu` cost before a harness PR merges.
 
-Run `node scripts/run-benchmark.mjs --baseline <baseline-checkout> --candidate <candidate-checkout> --samples 3`.
+Run `node scripts/run-benchmark.mjs --baseline <baseline-checkout> --candidate <candidate-checkout> --samples 3` (optional `--superpowers <dir>` pins a specific Superpowers directory; otherwise both homes reuse the local installed Superpowers snapshot or `obra/superpowers-marketplace` and verify instruction/skill discovery).
 For offline CI and scorer verification with zero AI credits, pass `--driver-cmd "<cmd>"`.
 
 | Task ID | Route | Graded behavior and safety invariant |
