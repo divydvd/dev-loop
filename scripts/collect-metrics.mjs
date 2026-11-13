@@ -105,18 +105,20 @@ export function computeCodeSurvival(prs, { checkoutDir, targetRef = "HEAD" } = {
     totalSurviving += prSurviving;
     perPr.push({ number: pr.number, status: "ok", addedLines: prAdded, survivingLines: prSurviving, rate: prAdded > 0 ? prSurviving / prAdded : null });
   }
-  const survivalStatus = totalAdded === 0 && perPr.some((p) => p.status === "commit_missing") ? "commit_missing" : "ok";
-  return { status: survivalStatus, addedLines: totalAdded, survivingLines: totalSurviving, rate: totalAdded > 0 ? totalSurviving / totalAdded : null, perPr };
+  const hasMissing = perPr.some((p) => p.status === "commit_missing");
+  return { status: hasMissing ? "commit_missing" : "ok", addedLines: totalAdded, survivingLines: totalSurviving, rate: !hasMissing && totalAdded > 0 ? totalSurviving / totalAdded : null, perPr };
 }
 
 export function detectFixups(prs, { repo = "", checkoutDir = null, windowDays = 14 } = {}) {
   const windowMs = windowDays * DAY_MS;
   const sorted = [...(prs || [])].sort((a, b) => Date.parse(a.mergedAt || a.createdAt || 0) - Date.parse(b.mergedAt || b.createdAt || 0));
   const shaOwner = new Map(), hasGit = Boolean(checkoutDir && existsSync(checkoutDir));
+  let missingCommit = false;
   if (hasGit) {
     for (const pr of sorted) {
       const shas = prCommitSet(checkoutDir, pr?.mergeCommit?.oid || pr?.headRefOid);
       if (shas) for (const sha of shas) shaOwner.set(sha, pr);
+      else if (productionLinesChanged(pr) > 0) missingCommit = true;
     }
   }
   const details = [], fixupSet = new Set(), regressedSet = new Set();
@@ -139,7 +141,8 @@ export function detectFixups(prs, { repo = "", checkoutDir = null, windowDays = 
     }
     const isBugfixPr = BUGFIX_TITLE_RE.test(String(later.title || "").trim());
     const mergeSha = later?.mergeCommit?.oid || later?.headRefOid;
-    if (!hasGit || !isBugfixPr || !SHA_RE.test(String(mergeSha || "")) || !runGit(checkoutDir, ["rev-parse", "--verify", `${mergeSha}^1`]).ok) continue;
+    if (!hasGit || !isBugfixPr) continue;
+    if (!SHA_RE.test(String(mergeSha || "")) || !runGit(checkoutDir, ["rev-parse", "--verify", `${mergeSha}^1`]).ok) { missingCommit = true; continue; }
     let currentFile = null;
     for (const line of runGit(checkoutDir, ["diff", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U0", `${mergeSha}^1`, mergeSha]).stdout.split(/\r?\n/)) {
       if (line.startsWith("--- a/")) currentFile = line.slice(6);
@@ -159,7 +162,9 @@ export function detectFixups(prs, { repo = "", checkoutDir = null, windowDays = 
       }
     }
   }
-  return { count: fixupSet.size, fixupPrNumbers: [...fixupSet].sort((a, b) => a - b), regressedPrNumbers: [...regressedSet].sort((a, b) => a - b), details };
+  const anyProdPr = sorted.some((pr) => pr?.filesTruncated || !Array.isArray(pr?.files) || productionLinesChanged(pr) > 0);
+  const status = !hasGit && anyProdPr ? "blame_unavailable" : missingCommit ? "commit_missing" : "ok";
+  return { status, count: fixupSet.size, fixupPrNumbers: [...fixupSet].sort((a, b) => a - b), regressedPrNumbers: [...regressedSet].sort((a, b) => a - b), details };
 }
 
 function collectLedgerValidatedShas(ledgerData, repo) {
@@ -245,18 +250,18 @@ function parseSessionEvents(eventsPath) {
   return { raw, totalNanoAiu: latestNanoAiu, modelCalls, compactions, totalReadChars, duplicateReadChars, duplicateReadRate: totalReadChars > 0 ? duplicateReadChars / totalReadChars : null, ownerRepeatMessages };
 }
 
-export function analyzeSessions(prs, { sessionsDir = null, repo = "" } = {}) {
-  if (!sessionsDir || !existsSync(sessionsDir)) return { status: "unavailable", mappedCount: 0, totalOwnerRepeatMessages: null, sharedPrNumbers: [], perPr: {} };
+export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNumbers = null } = {}) {
+  if (!sessionsDir || !existsSync(sessionsDir)) return { status: "unavailable", mappedCount: 0, totalOwnerRepeatMessages: null, sharedPrNumbers: [], sharedSessions: [], perPr: {} };
   const sessions = [];
   for (const entry of readdirSync(sessionsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const wsPath = join(sessionsDir, entry.name, "workspace.yaml"), evPath = join(sessionsDir, entry.name, "events.jsonl");
     if (!existsSync(wsPath) || !existsSync(evPath)) continue;
     const ws = parseWorkspaceYaml(wsPath);
-    if (repo && ws.repository && ws.repository.toLowerCase() !== repo.toLowerCase()) continue;
+    if (repo && (!ws.repository || ws.repository.toLowerCase() !== repo.toLowerCase())) continue;
     sessions.push({ id: ws.id || entry.name, createdAt: ws.created_at || null, ...parseSessionEvents(evPath) });
   }
-  const chosenByPr = new Map(), usageCounts = new Map();
+  const chosenByPr = new Map(), prsBySession = new Map();
   for (const pr of prs || []) {
     const prMergedMs = Date.parse(pr.mergedAt || "");
     const needle = pr.url || (repo ? `https://github.com/${repo}/pull/${pr.number}` : `/pull/${pr.number}`);
@@ -268,16 +273,16 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "" } = {}) {
       const hits = [...s.raw.matchAll(needleRe)].length;
       if (hits > bestHits) { bestHits = hits; best = s; }
     }
-    if (best) { chosenByPr.set(pr.number, best); usageCounts.set(best.id, (usageCounts.get(best.id) || 0) + 1); }
+    if (best) { chosenByPr.set(pr.number, best); prsBySession.set(best.id, [...(prsBySession.get(best.id) || []), pr.number]); }
   }
-  const perPr = {}, sharedPrNumbers = [], distinctSessions = new Map();
+  const inWindow = windowPrNumbers ? new Set(windowPrNumbers) : null;
+  const perPr = {}, sharedPrNumbers = [], distinctSessions = new Map(), sharedSessions = [];
   let mappedCount = 0;
-  for (const pr of prs || []) {
+  for (const pr of (prs || []).filter((p) => !inWindow || inWindow.has(p.number))) {
     const s = chosenByPr.get(pr.number);
     if (!s) { perPr[pr.number] = { sessionId: null, sharedSession: false, attribution: "unmatched", ownerRepeatMessages: null }; continue; }
-    mappedCount += 1;
-    distinctSessions.set(s.id, s);
-    if ((usageCounts.get(s.id) || 0) > 1) {
+    mappedCount += 1; distinctSessions.set(s.id, s);
+    if ((prsBySession.get(s.id)?.length || 0) > 1) {
       sharedPrNumbers.push(pr.number);
       perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", totalNanoAiu: null, modelCalls: null, duplicateReadRate: null, ownerRepeatMessages: null };
     } else {
@@ -285,28 +290,29 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "" } = {}) {
       perPr[pr.number] = { sessionId: id, sharedSession: false, attribution: "unique", ...metrics };
     }
   }
+  for (const [id, s] of distinctSessions) {
+    const allNums = (prsBySession.get(id) || []).sort((a, b) => a - b);
+    if (allNums.length > 1) sharedSessions.push({ sessionId: id, prNumbers: allNums, inWindowPrNumbers: allNums.filter((n) => !inWindow || inWindow.has(n)), totalNanoAiu: s.totalNanoAiu, modelCalls: s.modelCalls });
+  }
   const totalOwnerRepeatMessages = [...distinctSessions.values()].reduce((acc, s) => acc + s.ownerRepeatMessages, 0);
-  return { status: "ok", mappedCount, totalOwnerRepeatMessages, sharedPrNumbers: sharedPrNumbers.sort((a, b) => a - b), perPr };
+  return { status: "ok", mappedCount, totalOwnerRepeatMessages, sharedPrNumbers: sharedPrNumbers.sort((a, b) => a - b), sharedSessions, perPr };
 }
 
-function readJsonSafe(filePath) {
-  try { return filePath && existsSync(filePath) ? JSON.parse(readFileSync(filePath, "utf8")) : null; } catch { return null; }
-}
+const readJsonSafe = (p) => { try { return p && existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null; } catch { return null; } };
 
-export function collectMetrics({ repo = "", prs = [], from = null, to = null, maturityDays = 14, checkoutDir = null, ledgerDir = null, sessionsDir = null, targetRef = "HEAD" } = {}) {
-  const fromMs = from ? Date.parse(from) : -Infinity, toMs = to ? Date.parse(to) : Infinity;
+export function collectMetrics({ repo = "", prs = [], prsTruncated = false, from = null, to = null, maturityDays = 14, checkoutDir = null, ledgerDir = null, sessionsDir = null, targetRef = "HEAD" } = {}) {
+  const truncated = Boolean(prsTruncated || prs?.truncated), fromMs = from ? Date.parse(from) : -Infinity, toMs = to ? Date.parse(to) : Infinity;
   const prsUpToEnd = prs.filter((pr) => { const m = Date.parse(pr.mergedAt || pr.createdAt || ""); return !Number.isFinite(toMs) || !Number.isFinite(m) || m < toMs; });
   const windowPrs = prsUpToEnd.filter((pr) => { const m = Date.parse(pr.mergedAt || pr.createdAt || ""); return !Number.isFinite(m) || m >= fromMs; });
-  const matureLowerMs = Number.isFinite(fromMs) ? fromMs - maturityDays * DAY_MS : -Infinity;
-  const matureCutoffMs = (Number.isFinite(toMs) ? toMs : Date.now()) - maturityDays * DAY_MS;
+  const matureLowerMs = Number.isFinite(fromMs) ? fromMs - maturityDays * DAY_MS : -Infinity, matureCutoffMs = (Number.isFinite(toMs) ? toMs : Date.now()) - maturityDays * DAY_MS;
   const maturePrs = prsUpToEnd.filter((pr) => { const m = Date.parse(pr.mergedAt || ""); return Number.isFinite(m) && m >= matureLowerMs && m <= matureCutoffMs; });
-  const codeSurvival = !checkoutDir || !existsSync(checkoutDir) ? { status: "unavailable", addedLines: 0, survivingLines: 0, rate: null, perPr: [] }
-    : maturePrs.length === 0 ? { status: "no_mature_prs", addedLines: 0, survivingLines: 0, rate: null, perPr: [] }
-    : computeCodeSurvival(maturePrs, { checkoutDir, targetRef });
-  const fixups = detectFixups(prsUpToEnd, { repo, checkoutDir, windowDays: maturityDays });
+  const codeSurvival = truncated ? { status: "prs_truncated", addedLines: 0, survivingLines: 0, rate: null, perPr: [] }
+    : !checkoutDir || !existsSync(checkoutDir) ? { status: "unavailable", addedLines: 0, survivingLines: 0, rate: null, perPr: [] }
+    : maturePrs.length === 0 ? { status: "no_mature_prs", addedLines: 0, survivingLines: 0, rate: null, perPr: [] } : computeCodeSurvival(maturePrs, { checkoutDir, targetRef });
+  const fixups = detectFixups(prsUpToEnd, { repo, checkoutDir, windowDays: maturityDays }), fixupStatus = truncated ? "prs_truncated" : fixups.status;
   const windowFixups = fixups.details.filter((d) => windowPrs.some((p) => p.number === d.fixupPr));
   const ledgerData = readJsonSafe(ledgerDir ? join(ledgerDir, "ledger.json") : null);
-  const sessionAnalysis = analyzeSessions(windowPrs, { sessionsDir, repo });
+  const sessionAnalysis = analyzeSessions(prsUpToEnd, { sessionsDir, repo, windowPrNumbers: windowPrs.map((p) => p.number) });
   let verifiedCount = 0, verifiableCount = 0, firstPushGreenCount = 0, commitInfoCount = 0, durablePassCount = 0, eligibleYieldCount = 0;
   const buckets = { trivial: [], small: [], "multi-task": [] };
   for (const pr of windowPrs) {
@@ -331,14 +337,13 @@ export function collectMetrics({ repo = "", prs = [], from = null, to = null, ma
     return [route, { count: items.length, uniqueSessions: u.length, medianProdLines: median(items.map((i) => i.prodLines)), medianNanoAiu: median(u.map((i) => i.session.totalNanoAiu)), meanModelCalls: mean(u.map((i) => i.session.modelCalls)), medianDuplicateReadRate: median(u.map((i) => i.session.duplicateReadRate)) }];
   }));
   const allVerifiable = verifiableCount === windowPrs.length;
-  const verificationStatus = windowPrs.length === 0 ? "no_prs" : ledgerData ? "ok" : allVerifiable ? "exempt_only" : "unavailable";
-  const yieldStatus = windowPrs.length === 0 ? "no_prs" : !allVerifiable ? "ledger_unavailable" : sessionAnalysis.status !== "ok" ? "sessions_unavailable" : eligibleYieldCount === 0 ? "no_attributed_sessions" : "ok";
+  const verificationStatus = truncated ? "prs_truncated" : windowPrs.length === 0 ? "no_prs" : ledgerData ? "ok" : allVerifiable ? "exempt_only" : "unavailable";
+  const yieldStatus = truncated ? "prs_truncated" : windowPrs.length === 0 ? "no_prs" : !allVerifiable ? "ledger_unavailable" : fixupStatus !== "ok" ? fixupStatus : sessionAnalysis.status !== "ok" ? "sessions_unavailable" : eligibleYieldCount === 0 ? "no_attributed_sessions" : "ok";
   return {
-    repo, window: { from, to, maturityDays }, mergedPrCount: windowPrs.length,
-    medianProdLines: median(windowPrs.map((p) => productionLinesChanged(p))),
-    durability: { codeSurvival, fixupPrCount: new Set(windowFixups.map((d) => d.fixupPr)).size, fixups: windowFixups },
-    verification: { status: verificationStatus, verifiedCount, verifiableCount, rate: verificationStatus !== "unavailable" && windowPrs.length > 0 ? verifiedCount / windowPrs.length : null },
-    autonomy: { firstPushGreenCount, commitInfoCount, firstPushGreenRate: commitInfoCount > 0 ? firstPushGreenCount / commitInfoCount : null, ownerRepeatMessages: sessionAnalysis.totalOwnerRepeatMessages, sharedPrNumbers: sessionAnalysis.sharedPrNumbers },
+    repo, window: { from, to, maturityDays }, mergedPrCount: windowPrs.length, medianProdLines: median(windowPrs.map((p) => productionLinesChanged(p))),
+    durability: { codeSurvival, fixupStatus, fixupPrCount: new Set(windowFixups.map((d) => d.fixupPr)).size, fixups: windowFixups },
+    verification: { status: verificationStatus, verifiedCount, verifiableCount, rate: verificationStatus === "ok" || verificationStatus === "exempt_only" ? verifiedCount / windowPrs.length : null },
+    autonomy: { firstPushGreenCount, commitInfoCount, firstPushGreenRate: !truncated && commitInfoCount > 0 ? firstPushGreenCount / commitInfoCount : null, ownerRepeatMessages: sessionAnalysis.totalOwnerRepeatMessages, sharedPrNumbers: sessionAnalysis.sharedPrNumbers, sharedSessions: sessionAnalysis.sharedSessions },
     durableFirstPassYield: { status: yieldStatus, passedCount: yieldStatus === "ok" ? durablePassCount : 0, eligibleCount: yieldStatus === "ok" ? eligibleYieldCount : 0, rate: yieldStatus === "ok" ? durablePassCount / eligibleYieldCount : null },
     routeBuckets,
   };
@@ -349,30 +354,38 @@ const fmtNum = (n, digits = 1) => (Number.isFinite(n) ? n.toFixed(digits) : "n/a
 export function formatMarkdownReport(r) {
   const cs = r.durability.codeSurvival;
   const survivalCell = cs.rate !== null ? fmtPct(cs.survivingLines, cs.addedLines, cs.rate) : `n/a (${cs.status === "ok" ? "no_added_prod_lines" : cs.status})`;
-  const verifyCell = r.verification.rate !== null ? fmtPct(r.verification.verifiedCount, r.mergedPrCount, r.verification.rate) : `n/a (${r.mergedPrCount === 0 ? "no_prs" : r.verification.status})`;
+  const fixupCell = r.durability.fixupStatus === "ok" ? String(r.durability.fixupPrCount) : `n/a (${r.durability.fixupStatus}; explicit refs: ${r.durability.fixupPrCount})`;
+  const verifyCell = r.verification.rate !== null ? fmtPct(r.verification.verifiedCount, r.mergedPrCount, r.verification.rate) : `n/a (${r.verification.status})`;
   const greenCell = r.autonomy.firstPushGreenRate !== null ? fmtPct(r.autonomy.firstPushGreenCount, r.autonomy.commitInfoCount, r.autonomy.firstPushGreenRate) : `n/a (${r.mergedPrCount === 0 ? "no_prs" : "no_commits"})`;
   const yieldCell = r.durableFirstPassYield.rate !== null ? fmtPct(r.durableFirstPassYield.passedCount, r.durableFirstPassYield.eligibleCount, r.durableFirstPassYield.rate) : `n/a (${r.durableFirstPassYield.status})`;
-  const sharedNote = r.autonomy.sharedPrNumbers.length ? `ambiguous shared session on #${r.autonomy.sharedPrNumbers.join(", #")}` : "none";
+  const sharedNote = r.autonomy.sharedSessions?.length
+    ? r.autonomy.sharedSessions.map((s) => `ambiguous on #${s.inWindowPrNumbers.join(", #")} (${s.totalNanoAiu !== null ? s.totalNanoAiu.toExponential(2) : "n/a"} nanoAIU, ${s.modelCalls} calls)`).join("; ")
+    : "none";
   const routeRows = ["trivial", "small", "multi-task"].map((route) => {
     const b = r.routeBuckets[route];
     return `| ${route} | ${b.count} | ${b.uniqueSessions} | ${fmtNum(b.medianProdLines, 0)} | ${b.medianNanoAiu !== null ? b.medianNanoAiu.toExponential(2) : "n/a"} | ${fmtNum(b.meanModelCalls, 1)} | ${b.medianDuplicateReadRate !== null ? `${(b.medianDuplicateReadRate * 100).toFixed(1)}%` : "n/a"} |`;
   });
-  return [`### Shadow-mode objective telemetry (${r.repo || "repo"})`, "| Objective measure | Value | Target |", "| --- | --- | --- |", `| Durable first-pass yield | ${yieldCell} | 90.0% or higher |`, `| Code survival rate (${r.window.maturityDays}d) | ${survivalCell} | 95.0% or higher |`, `| Fix-up PRs (${r.window.maturityDays}d, ref + blame) | ${r.durability.fixupPrCount} | 0 |`, `| Ledger + ancestry verified merges | ${verifyCell} | 100.0% |`, `| First-push green rate | ${greenCell} | 70.0% or higher |`, `| Owner repeat-rule messages (matched sessions) | ${r.autonomy.ownerRepeatMessages ?? "n/a"} | 0 |`, `| Shared-session PRs (excluded from per-PR cost) | ${sharedNote} | observe |`, "", "| Task route | PRs | Unique sessions | Median prod lines | Median `totalNanoAiu` | Mean model calls | Median duplicate read |", "| --- | --- | --- | --- | --- | --- | --- |", ...routeRows].join("\n");
+  return [`### Shadow-mode objective telemetry (${r.repo || "repo"})`, "| Objective measure | Value | Target |", "| --- | --- | --- |", `| Durable first-pass yield | ${yieldCell} | 90.0% or higher |`, `| Code survival rate (${r.window.maturityDays}d) | ${survivalCell} | 95.0% or higher |`, `| Fix-up PRs (${r.window.maturityDays}d, ref + blame) | ${fixupCell} | 0 |`, `| Ledger + ancestry verified merges | ${verifyCell} | 100.0% |`, `| First-push green rate | ${greenCell} | 70.0% or higher |`, `| Owner repeat-rule messages (matched sessions) | ${r.autonomy.ownerRepeatMessages ?? "n/a"} | 0 |`, `| Shared-session PRs (excluded from per-PR cost) | ${sharedNote} | observe |`, "", "| Task route | PRs | Unique sessions | Median prod lines | Median `totalNanoAiu` | Mean model calls | Median duplicate read |", "| --- | --- | --- | --- | --- | --- | --- |", ...routeRows].join("\n");
 }
 
-const PR_GRAPHQL_QUERY = "query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(states:MERGED,first:50,after:$cursor,orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor} nodes{number title url body createdAt mergedAt headRefOid mergeCommit{oid} files(first:100){pageInfo{hasNextPage} nodes{path additions deletions}} commits(last:50){totalCount nodes{commit{committedDate}}}}}}}";
+const PR_GRAPHQL_QUERY = "query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(states:MERGED,first:50,after:$cursor,orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor} nodes{number title url body createdAt mergedAt updatedAt headRefOid mergeCommit{oid} files(first:100){pageInfo{hasNextPage} nodes{path additions deletions}} commits(last:50){totalCount nodes{commit{committedDate}}}}}}}";
 
-export function fetchMergedPrs(repo, { execFn = execFileSync, maxPages = 4 } = {}) {
+export function fetchMergedPrs(repo, { execFn = execFileSync, maxPages = 4, cutoffMs = -Infinity } = {}) {
   const [owner, name] = String(repo || "").split("/");
   if (!owner || !name) return [];
   const out = [];
+  let truncated = false;
   for (let page = 0, cursor = null; page < maxPages; page++) {
     const args = ["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-f", `query=${PR_GRAPHQL_QUERY}`, ...(cursor ? ["-f", `cursor=${cursor}`] : [])];
     const conn = JSON.parse(execFn("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }))?.data?.repository?.pullRequests;
-    for (const n of conn?.nodes || []) out.push({ ...n, filesTruncated: Boolean(n.files?.pageInfo?.hasNextPage), files: n.files?.nodes || [], commits: (n.commits?.nodes || []).map((c) => c.commit).filter(Boolean) });
-    if (!conn?.pageInfo?.hasNextPage || !conn?.pageInfo?.endCursor) break;
+    const nodes = conn?.nodes || [];
+    for (const n of nodes) out.push({ ...n, filesTruncated: Boolean(n.files?.pageInfo?.hasNextPage), files: n.files?.nodes || [], commits: (n.commits?.nodes || []).map((c) => c.commit).filter(Boolean) });
+    const oldestUpdatedMs = nodes.length ? Date.parse(nodes[nodes.length - 1].updatedAt || "") : NaN;
+    if (!conn?.pageInfo?.hasNextPage || !conn?.pageInfo?.endCursor || (Number.isFinite(cutoffMs) && Number.isFinite(oldestUpdatedMs) && oldestUpdatedMs < cutoffMs)) break;
+    if (page === maxPages - 1) truncated = true;
     cursor = conn.pageInfo.endCursor;
   }
+  Object.defineProperty(out, "truncated", { value: truncated, enumerable: false });
   return out;
 }
 
@@ -382,8 +395,10 @@ function main() {
     "ledger-dir": { type: "string", default: join(homedir(), ".copilot", "work-ledger") }, "sessions-dir": { type: "string", default: join(homedir(), ".copilot", "session-state") },
     from: { type: "string" }, to: { type: "string" }, "maturity-days": { type: "string", default: "14" }, "target-ref": { type: "string", default: "HEAD" }, format: { type: "string", default: "markdown" },
   } });
-  const prs = v["prs-file"] ? JSON.parse(readFileSync(resolve(v["prs-file"]), "utf8")) : v.repo ? fetchMergedPrs(v.repo) : [];
-  const report = collectMetrics({ repo: v.repo, prs, from: v.from || null, to: v.to || null, maturityDays: Number(v["maturity-days"] || 14), checkoutDir: v.checkout ? resolve(v.checkout) : null, ledgerDir: v["ledger-dir"] ? resolve(v["ledger-dir"]) : null, sessionsDir: v["sessions-dir"] ? resolve(v["sessions-dir"]) : null, targetRef: v["target-ref"] || "HEAD" });
+  const maturityDays = Number(v["maturity-days"] || 14);
+  const cutoffMs = v.from ? Date.parse(v.from) - maturityDays * DAY_MS * 2 : -Infinity;
+  const prs = v["prs-file"] ? JSON.parse(readFileSync(resolve(v["prs-file"]), "utf8")) : v.repo ? fetchMergedPrs(v.repo, { cutoffMs }) : [];
+  const report = collectMetrics({ repo: v.repo, prs, prsTruncated: Boolean(prs.truncated), from: v.from || null, to: v.to || null, maturityDays, checkoutDir: v.checkout ? resolve(v.checkout) : null, ledgerDir: v["ledger-dir"] ? resolve(v["ledger-dir"]) : null, sessionsDir: v["sessions-dir"] ? resolve(v["sessions-dir"]) : null, targetRef: v["target-ref"] || "HEAD" });
   console.log(v.format === "json" ? JSON.stringify(report, null, 2) : formatMarkdownReport(report));
 }
 

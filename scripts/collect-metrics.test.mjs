@@ -370,7 +370,17 @@ test("T5 & T6: analyzeSessions handles cumulative totalNanoAiu, edit-aware dupli
 
 test("T6 & T7: collectMetrics and CLI compute route medians, firstPushGreenRate, durableFirstPassYield, and n/a fallbacks", () => {
   const root = makeTempDir("cli");
+  const gitDir = initGitRepo();
   try {
+    writeFileSync(join(gitDir, "src/trim.js"), "export const t = (s) => s.trim();\n");
+    git(gitDir, ["add", "."]);
+    git(gitDir, ["commit", "-m", "fix: trim input (#1)"]);
+    const sha1 = git(gitDir, ["rev-parse", "HEAD"]);
+    writeFileSync(join(gitDir, "README.md"), "# Example\nUpdated\n");
+    git(gitDir, ["add", "."]);
+    git(gitDir, ["commit", "-m", "docs: update readme (#2)"]);
+    const sha2 = git(gitDir, ["rev-parse", "HEAD"]);
+
     const prsPath = join(root, "prs.json");
     const prs = [
       {
@@ -380,8 +390,9 @@ test("T6 & T7: collectMetrics and CLI compute route medians, firstPushGreenRate,
         url: "https://github.com/org/app/pull/1",
         createdAt: "2026-11-10T10:00:00Z",
         mergedAt: "2026-11-10T11:00:00Z",
-        headRefOid: "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111",
-        files: [{ path: "src/trim.js", additions: 10, deletions: 2 }],
+        headRefOid: sha1,
+        mergeCommit: { oid: sha1 },
+        files: [{ path: "src/trim.js", additions: 1, deletions: 0 }],
         commits: [{ committedDate: "2026-11-10T09:58:00Z" }], // 0 post-open commits -> first-push green!
       },
       {
@@ -391,7 +402,8 @@ test("T6 & T7: collectMetrics and CLI compute route medians, firstPushGreenRate,
         url: "https://github.com/org/app/pull/2",
         createdAt: "2026-11-11T10:00:00Z",
         mergedAt: "2026-11-11T12:00:00Z",
-        headRefOid: "bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222",
+        headRefOid: sha2,
+        mergeCommit: { oid: sha2 },
         files: [{ path: "README.md", additions: 5, deletions: 1 }],
         commits: [
           { committedDate: "2026-11-11T09:55:00Z" },
@@ -408,7 +420,7 @@ test("T6 & T7: collectMetrics and CLI compute route medians, firstPushGreenRate,
       JSON.stringify({
         v: 1,
         units: {},
-        validations: [{ sha: "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111", exit: 0, dirty: false, tasks: "test" }],
+        validations: [{ sha: sha1, exit: 0, dirty: false, tasks: "test" }],
       }),
     );
 
@@ -433,7 +445,7 @@ test("T6 & T7: collectMetrics and CLI compute route medians, firstPushGreenRate,
       to: "2026-11-13T00:00:00Z",
       ledgerDir,
       sessionsDir,
-      checkoutDir: null,
+      checkoutDir: gitDir,
     });
 
     assert.equal(report.mergedPrCount, 2);
@@ -446,10 +458,25 @@ test("T6 & T7: collectMetrics and CLI compute route medians, firstPushGreenRate,
     assert.equal(report.durableFirstPassYield.rate, 1);
     assert.equal(report.routeBuckets.small.count, 1);
     assert.equal(report.routeBuckets.small.medianNanoAiu, 140000);
-    assert.equal(report.durability.codeSurvival.rate, null); // checkoutDir null -> n/a
 
-    const md = formatMarkdownReport(report);
+    // Without checkoutDir, blame_churn cannot be checked, so fixupStatus and durableFirstPassYield report blame_unavailable
+    const noGitReport = collectMetrics({
+      repo: "org/app",
+      prs,
+      from: "2026-11-08T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+      ledgerDir,
+      sessionsDir,
+      checkoutDir: null,
+    });
+    assert.equal(noGitReport.durability.fixupStatus, "blame_unavailable");
+    assert.equal(noGitReport.durableFirstPassYield.status, "blame_unavailable");
+    assert.equal(noGitReport.durableFirstPassYield.rate, null);
+    assert.equal(noGitReport.durability.codeSurvival.rate, null);
+
+    const md = formatMarkdownReport(noGitReport);
     assert.match(md, /Code survival rate \(14d\).*n\/a/);
+    assert.match(md, /Fix-up PRs \(14d, ref \+ blame\).*n\/a \(blame_unavailable/);
     assert.match(md, /First-push green rate.*1\/2 \(50\.0%\)/);
 
     // CLI invocation with absent optional dirs
@@ -502,6 +529,7 @@ test("T6 & T7: collectMetrics and CLI compute route medians, firstPushGreenRate,
     assert.match(cliMd, /n\/a/);
   } finally {
     rmSync(root, { recursive: true, force: true });
+    rmSync(gitDir, { recursive: true, force: true });
   }
 });
 
@@ -667,5 +695,119 @@ test("T9: review regressions — renames, bounded mature cohort, post-window fix
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("T10: Copilot review regressions — mixed commit_missing cohort, missing repo workspace, deduplicated shared-session cost, cross-window shared session, and truncated PR pagination", () => {
+  const dir = initGitRepo();
+  const sessionsDir = makeTempDir("sessions-r10");
+  try {
+    writeFileSync(join(dir, "src/present.js"), "export const p = 1;\n");
+    git(dir, ["add", "."]);
+    git(dir, ["commit", "-m", "feat: present (#1)"]);
+    const sha1 = git(dir, ["rev-parse", "HEAD"]);
+
+    // 1. Mixed mature cohort: PR #1 present (1 added surviving line) + PR #2 commit_missing -> aggregate rate MUST be null ("commit_missing"), NOT 1/1 (100%)!
+    const mixedSurvival = computeCodeSurvival(
+      [
+        { number: 1, mergeCommit: { oid: sha1 } },
+        { number: 2, mergeCommit: { oid: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" } },
+      ],
+      { checkoutDir: dir, targetRef: sha1 },
+    );
+    assert.equal(mixedSurvival.status, "commit_missing");
+    assert.equal(mixedSurvival.rate, null);
+    assert.equal(mixedSurvival.perPr[0].rate, 1);
+
+    // 2. Session without `repository:` in workspace.yaml must be excluded when `repo` is specified;
+    //    cross-window shared session (handling PR #10 before `from` and PR #11 inside `[from, to)`) must mark #11 `ambiguous` and surface deduplicated sharedSession summary!
+    const sNoRepo = join(sessionsDir, "s-no-repo");
+    mkdirSync(sNoRepo, { recursive: true });
+    writeFileSync(join(sNoRepo, "workspace.yaml"), "id: s-no-repo\ncreated_at: 2026-11-01T00:00:00Z\n");
+    writeFileSync(
+      join(sNoRepo, "events.jsonl"),
+      [
+        JSON.stringify({ type: "assistant.message", data: { content: Array(10).fill("https://github.com/org/app/pull/11").join(" ") } }),
+        JSON.stringify({ type: "session.usage_checkpoint", data: { totalNanoAiu: 999999999 } }),
+      ].join("\n") + "\n",
+    );
+
+    const sCross = join(sessionsDir, "s-cross");
+    mkdirSync(sCross, { recursive: true });
+    writeFileSync(join(sCross, "workspace.yaml"), "id: s-cross\nrepository: org/app\ncreated_at: 2026-11-01T00:00:00Z\n");
+    writeFileSync(
+      join(sCross, "events.jsonl"),
+      [
+        JSON.stringify({ type: "assistant.turn_start", data: { turnId: "1" } }),
+        JSON.stringify({ type: "assistant.message", data: { content: "https://github.com/org/app/pull/10 and https://github.com/org/app/pull/11" } }),
+        JSON.stringify({ type: "session.usage_checkpoint", data: { totalNanoAiu: 450000 } }),
+      ].join("\n") + "\n",
+    );
+
+    const crossRep = collectMetrics({
+      repo: "org/app",
+      prs: [
+        { number: 10, title: "feat: pre-window", url: "https://github.com/org/app/pull/10", mergedAt: "2026-11-04T10:00:00Z", headRefOid: sha1, mergeCommit: { oid: sha1 }, files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+        { number: 11, title: "feat: in-window", url: "https://github.com/org/app/pull/11", mergedAt: "2026-11-10T10:00:00Z", headRefOid: sha1, mergeCommit: { oid: sha1 }, files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+      ],
+      from: "2026-11-06T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+      checkoutDir: dir,
+      sessionsDir,
+      targetRef: sha1,
+    });
+    assert.deepEqual(crossRep.autonomy.sharedPrNumbers, [11], "in-window PR #11 shares s-cross with pre-window PR #10");
+    assert.equal(crossRep.durableFirstPassYield.eligibleCount, 0, "cross-window shared session must not be treated as unique");
+    assert.equal(crossRep.autonomy.sharedSessions.length, 1);
+    assert.equal(crossRep.autonomy.sharedSessions[0].totalNanoAiu, 450000);
+    assert.match(formatMarkdownReport(crossRep), /4\.50e\+5/);
+
+    // 3. Truncated PR pagination marks affected metrics `prs_truncated`
+    const truncFetch = fetchMergedPrs("org/app", {
+      maxPages: 1,
+      execFn: () =>
+        JSON.stringify({
+          data: {
+            repository: {
+              pullRequests: {
+                pageInfo: { hasNextPage: true, endCursor: "c1" },
+                nodes: [
+                  {
+                    number: 11,
+                    title: "feat: in-window",
+                    url: "https://github.com/org/app/pull/11",
+                    body: "",
+                    createdAt: "2026-11-10T09:00:00Z",
+                    mergedAt: "2026-11-10T10:00:00Z",
+                    updatedAt: "2026-11-10T10:00:00Z",
+                    headRefOid: sha1,
+                    mergeCommit: { oid: sha1 },
+                    files: { pageInfo: { hasNextPage: false }, nodes: [{ path: "README.md", additions: 1, deletions: 0 }] },
+                    commits: { totalCount: 1, nodes: [{ commit: { committedDate: "2026-11-10T09:00:00Z" } }] },
+                  },
+                ],
+              },
+            },
+          },
+        }),
+    });
+    assert.equal(truncFetch.truncated, true);
+    const truncRep = collectMetrics({
+      repo: "org/app",
+      prs: truncFetch,
+      prsTruncated: truncFetch.truncated,
+      from: "2026-11-06T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+      checkoutDir: dir,
+      sessionsDir,
+      targetRef: sha1,
+    });
+    assert.equal(truncRep.durability.codeSurvival.status, "prs_truncated");
+    assert.equal(truncRep.durability.fixupStatus, "prs_truncated");
+    assert.equal(truncRep.durableFirstPassYield.status, "prs_truncated");
+    assert.equal(truncRep.durableFirstPassYield.rate, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(sessionsDir, { recursive: true, force: true });
   }
 });
