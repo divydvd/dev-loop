@@ -16,7 +16,7 @@ const BLOCKED_REPORT_RE = /\b(?:blocked|not\s+ready)\b/i;
 const TEST_FILE_RE = /(?:^|\/)(?:__tests__|tests?)\/|(?:\.|_)(?:test|spec)\.[a-z0-9]+$|(?:Test|Tests|Spec)\.(?:[cm]?[jt]sx?|kt|java|py|rb|go|rs|swift)$/;
 const isTestFile = (p) => !p.startsWith("docs/") && !/\.(?:md|mdc|txt|rst|json)$/i.test(p) && TEST_FILE_RE.test(p);
 
-const stripJsComments = (s) => String(s || "").replace(/("(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|`(?:\\.|[^`\\])*`|\/(?![/*])(?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\r\n])+\/[dgimsuvy]*)|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, (m, lit) => lit || " ");
+const stripJsComments = (s) => String(s || "").replace(/("(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|`(?:\\.|[^`\\])*`|(?<=^\s*|(?:(?<!\+)\+(?!\+)|(?<!-)-(?!-)|[=(\[{},!?:;&|*~^<>%])\s*|(?<![.$\w])(?:return|throw|case|typeof|void|delete|in|instanceof|new|await|yield|else|do)\b\s*)\/(?![/*])(?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\r\n])+\/[dgimsuvy]*)|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/gm, (m, lit) => lit || " ");
 
 function runGit(cwd, args) {
   try { return { ok: true, stdout: execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }) }; }

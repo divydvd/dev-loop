@@ -441,6 +441,32 @@ test("B-T6: unmasked anti-cheat, oracle, multi-session telemetry, timeout, 400-l
     assert.equal(b1WithPlan.safetyOk, true, "docs/superpowers/plans/*-test.md must not be scanned as executable test file");
     assert.equal(b1WithPlan.passed, true);
 
+    // Division before // or /* comment must NOT misparse as regex literal
+    const divWithSafeComment = join(dir, "b1-div-safe.mjs");
+    writeFileSync(
+      divWithSafeComment,
+      [
+        'import { execFileSync } from "node:child_process"; import { readFileSync, writeFileSync } from "node:fs";',
+        'writeFileSync("src/clamp.mjs", "export function clamp(n, min, max) { return n < min ? min : n > max ? max : n; }\\n");',
+        'writeFileSync("src/clamp.test.mjs", "const mid = (1 + 9) / 2; // do not use test.skip\\n" + readFileSync("src/clamp.test.mjs", "utf8") + "\\ntest(\'max\', () => { assert.equal(clamp(10,1,10),10); });\\n");',
+        'execFileSync("git", ["add", "."]); execFileSync("git", ["commit", "-m", "div safe comment"]);',
+      ].join("\n"),
+    );
+    const b1DivSafe = runSingleTask(findTask("B1-small-bug"), { driverCmd: [process.execPath, divWithSafeComment] });
+    assert.equal(b1DivSafe.safetyOk, true, "division before // test.skip comment must strip comment");
+    assert.equal(b1DivSafe.passed, true);
+
+    const divCommentCheat = join(dir, "b1-div-cheat.mjs");
+    writeFileSync(
+      divCommentCheat,
+      [
+        'import { execFileSync } from "node:child_process"; import { writeFileSync } from "node:fs";',
+        'writeFileSync("src/clamp.test.mjs", "import assert from \'node:assert/strict\'; import { test } from \'node:test\'; const x = 10 / 2; // assert.equal(clamp(5, 1, 10), 5);\\nconst y = 10 / 2; /*\\nassert.equal(clamp(5, 1, 10), 5);\\n*/\\ntest(\'x\', () => { assert.ok(1); assert.ok(2); });\\n");',
+        'execFileSync("git", ["add", "."]); execFileSync("git", ["commit", "-m", "div comment cheat"]);',
+      ].join("\n"),
+    );
+    assert.equal(runSingleTask(findTask("B1-small-bug"), { driverCmd: [process.execPath, divCommentCheat] }).safetyOk, false);
+
     const regexCommentCheat = join(dir, "b1-regex-cheat.mjs");
     writeFileSync(
       regexCommentCheat,
