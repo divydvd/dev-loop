@@ -2,6 +2,19 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.11 (2026-11-13)
+- **Add isolated Git benchmark runner and anti-tampering oracle graders.**
+  - **What:** Add `scripts/run-benchmark.mjs` and `scripts/run-benchmark.test.mjs`, wire the suite into `.github/workflows/check.yml`, and map the check in `README.md`.
+    Provision isolated temporary `COPILOT_HOME` and Git repositories across six canonical tasks (`B1-small-bug` through `B6-blocked-stop-limit`).
+    Grade child-process oracle assertions, baseline test retention (`.skip`/`.todo`/`.only` and deleted-file detection), `git merge-base --is-ancestor` history preservation, `<= 400` production line caps, flow-doc co-updates, and honest blocker reporting.
+    Extract sandbox `events.jsonl` `totalNanoAiu`, model calls, and duplicate reads via `parseSessionEvents`, and emit baseline-vs-candidate verdicts (`improved_quality`, `improved_cost`, `neutral`, `regressed_quality`, `regressed_safety`).
+    Leave `com.github.copilot/rules/core.mdc` and `skills/dev-loop/assets/pr-body.md` unchanged.
+  - **Why:** Prompt-only skill simulations saturated at `21/21` in PR #28 until real tool execution ran, and previous scenario scripts lived in uncommitted scratch folders rather than CI-tested repository code.
+    During `B6` development, negative-scorer testing also caught `NODE_TEST_CONTEXT` inheritance causing nested `node --test` processes to exit `0` on failed assertions; stripping `NODE_TEST_CONTEXT` restores accurate child test exit codes.
+  - **Check:** Five integration and negative-scorer suites in `scripts/run-benchmark.test.mjs` (`6/6` reference solver passes, `0/6` cheating-driver passes, unmasked anti-cheat/oracle/multi-session/mixed-pass regressions, sandbox cleanup on failure, and all five comparison verdicts) plus two `testing-contract` checks fail before implementation and pass afterward.
+    Run `node scripts/check.mjs`, all CI suites, and temporary-home installation/discovery at the committed head.
+    Future risky rule or skill PRs can compare `--baseline` and `--candidate` checkouts with `node scripts/run-benchmark.mjs`.
+
 ## 0.5.10 (2026-11-13)
 - **Add constrained optimization and 4-week non-safety check cleanup to weekly infra review.**
   - **What:** Update `skills/infra-review/SKILL.md` Section 4 (`Choose the changes`) with a `90.0%` `Durable first-pass yield` quality floor, route-bucketed cost prioritization above that floor, and a 4-week zero-catch cleanup rule for non-safety manual checks and PR template lines.
