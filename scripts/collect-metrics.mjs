@@ -28,7 +28,7 @@ export function productionLinesChanged(pr) {
   return pr.files.reduce((sum, f) => sum + (isProductionPath(f.path) ? Number(f.additions || 0) + Number(f.deletions || 0) : 0), 0);
 }
 
-const countPlanTasks = (text) => [...String(text || "").matchAll(/^###\s+(?:Task\s+\d+|\d+\.)\b/gm)].length;
+const countPlanTasks = (text) => [...String(text || "").matchAll(/^###\s+(?:Task\s+\d+\b|\d+\.(?=\s|$))/gm)].length;
 
 export function classifyRoute(pr, { checkoutDir = null } = {}) {
   const prodLines = productionLinesChanged(pr);

@@ -822,10 +822,18 @@ test("T11: Copilot review round-2 regressions — underscore test paths, truncat
   const dir = initGitRepo();
   const sessionsDir = makeTempDir("sessions-r11");
   try {
-    // 1. Underscore test suffixes excluded from production paths
+    // 1. Underscore test suffixes excluded from production paths; numbered `### 1. Title` plan headings match while `### 1.1` subsections do not
     assert.equal(isProductionPath("src/parser_test.go"), false);
     assert.equal(isProductionPath("src/parser_test.py"), false);
     assert.equal(isProductionPath("src/parser_spec.rb"), false);
+    assert.equal(
+      classifyRoute({ body: "### 1. A\n### 2. B\n### 3. C\n### 4. D\n", files: [{ path: "src/a.js", additions: 10, deletions: 0 }] }),
+      "multi-task",
+    );
+    assert.equal(
+      classifyRoute({ body: "### 1.1 A\n### 1.2 B\n### 1.3 C\n### 1.4 D\n", files: [{ path: "src/a.js", additions: 10, deletions: 0 }] }),
+      "small",
+    );
 
     // 2. Plan file in checkoutDir with 4 tasks classifies a 30-line PR as multi-task even when PR body omits ### Task headings
     mkdirSync(join(dir, "docs/superpowers/plans"), { recursive: true });
