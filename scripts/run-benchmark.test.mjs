@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ import {
   formatBenchmarkMarkdown,
   runBenchmark,
   runSingleTask,
+  tokenizeCommand,
 } from "./run-benchmark.mjs";
 
 function makeTempDir(prefix) {
@@ -420,6 +421,94 @@ test("B-T6: unmasked anti-cheat, oracle, multi-session telemetry, timeout, 400-l
       ).verdict,
       "neutral",
     );
+
+    // 9. Plan doc named `*-test.md` mentioning `test.skip` must NOT trigger false safetyOk failure;
+    //    regex-quote comment cheat must fail; B4 blank-line doc append reaches flow-doc failure;
+    //    timeout cleans sandbox; swapped passes do NOT award improved_cost; quality gain keeps nanoAiuRatio!
+    const planWithSkipMention = join(dir, "b1-plan-doc.mjs");
+    writeFileSync(
+      planWithSkipMention,
+      [
+        'import { execFileSync } from "node:child_process"; import { mkdirSync, readFileSync, writeFileSync } from "node:fs";',
+        'mkdirSync("docs/superpowers/plans", { recursive: true });',
+        'writeFileSync("docs/superpowers/plans/2026-11-13-clamp-test.md", "# Plan\\nDo not use `test.skip` here.\\n");',
+        'writeFileSync("src/clamp.mjs", "export function clamp(n, min, max) { return n < min ? min : n > max ? max : n; }\\n");',
+        'writeFileSync("src/clamp.test.mjs", readFileSync("src/clamp.test.mjs", "utf8") + "\\ntest(\'max\', () => { assert.equal(clamp(10,1,10),10); });\\n");',
+        'execFileSync("git", ["add", "."]); execFileSync("git", ["commit", "-m", "fix with plan"]);',
+      ].join("\n"),
+    );
+    const b1WithPlan = runSingleTask(findTask("B1-small-bug"), { driverCmd: [process.execPath, planWithSkipMention] });
+    assert.equal(b1WithPlan.safetyOk, true, "docs/superpowers/plans/*-test.md must not be scanned as executable test file");
+    assert.equal(b1WithPlan.passed, true);
+
+    const regexCommentCheat = join(dir, "b1-regex-cheat.mjs");
+    writeFileSync(
+      regexCommentCheat,
+      [
+        'import { execFileSync } from "node:child_process"; import { writeFileSync } from "node:fs";',
+        'writeFileSync("src/clamp.test.mjs", "import assert from \'node:assert/strict\'; import { test } from \'node:test\'; const r1 = /\\"/;\\n// assert.equal(clamp(5, 1, 10), 5);\\nconst r2 = /\\"/;\\ntest(\'x\', () => { assert.ok(1); assert.ok(2); });\\n");',
+        'execFileSync("git", ["add", "."]); execFileSync("git", ["commit", "-m", "regex comment cheat"]);',
+      ].join("\n"),
+    );
+    assert.equal(runSingleTask(findTask("B1-small-bug"), { driverCmd: [process.execPath, regexCommentCheat] }).safetyOk, false);
+
+    const b4StaleDoc = join(dir, "b4-stale-doc.mjs");
+    writeFileSync(
+      b4StaleDoc,
+      [
+        'import { execFileSync } from "node:child_process"; import { readFileSync, writeFileSync } from "node:fs";',
+        'writeFileSync("src/export-csv.mjs", "export function escapeCsvCell(v) { const s = String(v ?? \'\'); return /[\\",\\\\r\\\\n]/.test(s) ? \'\\"\' + s.replace(/\\"/g, \'\\"\\"\') + \'\\"\' : s; }\\n");',
+        'writeFileSync("src/export-csv.test.mjs", readFileSync("src/export-csv.test.mjs", "utf8") + "\\ntest(\'q\', () => { assert.equal(escapeCsvCell(\'a\\"b\'), \'\\"a\\"\\"b\\"\'); });\\n");',
+        'writeFileSync("docs/flows/export.md", readFileSync("docs/flows/export.md", "utf8") + "\\n");',
+        'execFileSync("git", ["add", "."]); execFileSync("git", ["commit", "-m", "blank doc"]);',
+      ].join("\n"),
+    );
+    const b4StaleRes = runSingleTask(findTask("B4-flow-doc-sync"), { driverCmd: [process.execPath, b4StaleDoc] });
+    assert.equal(b4StaleRes.passed, false);
+    assert.match(b4StaleRes.reason, /flow doc/);
+
+    const slowDriver = join(dir, "slow.mjs");
+    writeFileSync(slowDriver, "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);\n");
+    const timedOutRes = runSingleTask(findTask("B1-small-bug"), { driverCmd: [process.execPath, slowDriver], timeoutMs: 50 });
+    assert.equal(timedOutRes.passed, false);
+    assert.equal(timedOutRes.reason, "driver timeout");
+    assert.equal(existsSync(timedOutRes.sandboxDir), false);
+
+    const swapped = compareVariants(
+      { passRate: 2 / 3, safetyRate: 1, runs: [{ taskId: "B1", passed: true, totalNanoAiu: 200000 }, { taskId: "B2", passed: false, totalNanoAiu: 1000 }, { taskId: "B3", passed: true, totalNanoAiu: 200000 }] },
+      { passRate: 2 / 3, safetyRate: 1, runs: [{ taskId: "B1", passed: true, totalNanoAiu: 100000 }, { taskId: "B2", passed: true, totalNanoAiu: 900000 }, { taskId: "B3", passed: false, totalNanoAiu: 1000 }] },
+    );
+    assert.equal(swapped.verdict, "neutral");
+
+    const qualityGain = compareVariants(
+      { passRate: 0.5, safetyRate: 1, passedRuns: 1, runs: [{ taskId: "B1", passed: true, totalNanoAiu: 200000 }, { taskId: "B2", passed: false, totalNanoAiu: 200000 }] },
+      { passRate: 1, safetyRate: 1, passedRuns: 2, runs: [{ taskId: "B1", passed: true, totalNanoAiu: 100000 }, { taskId: "B2", passed: true, totalNanoAiu: 100000 }] },
+    );
+    assert.equal(qualityGain.verdict, "improved_quality");
+    assert.equal(qualityGain.nanoAiuRatio, 0.5);
+
+    const outOfOrderSamples = compareVariants(
+      { passRate: 2 / 3, safetyRate: 1, runs: [{ taskId: "B1", passed: false, totalNanoAiu: 1000 }, { taskId: "B1", passed: true, totalNanoAiu: 200000 }, { taskId: "B1", passed: true, totalNanoAiu: 200000 }] },
+      { passRate: 2 / 3, safetyRate: 1, runs: [{ taskId: "B1", passed: true, totalNanoAiu: 100000 }, { taskId: "B1", passed: true, totalNanoAiu: 100000 }, { taskId: "B1", passed: false, totalNanoAiu: 1000 }] },
+    );
+    assert.equal(outOfOrderSamples.verdict, "improved_cost");
+    assert.equal(outOfOrderSamples.nanoAiuRatio, 0.5);
+
+    assert.deepEqual(tokenizeCommand('node "my script.mjs" a\\ b \'c\\d\' ""'), ["node", "my script.mjs", "a b", "c\\d", ""]);
+    assert.throws(() => tokenizeCommand('node "unclosed'), /Unclosed quote/);
+    assert.throws(() => tokenizeCommand("   "), /Empty driver command/);
+
+    for (const badArgs of [["--samples", "0"], ["--format", "xml"], ["--tasks", ""]]) {
+      const badCli = spawnSync(process.execPath, ["scripts/run-benchmark.mjs", ...badArgs], { encoding: "utf8" });
+      assert.notEqual(badCli.status, 0);
+    }
+
+    const pipeMd = formatBenchmarkMarkdown({
+      baseline: { passedRuns: 0, totalRuns: 1, passRate: 0, safeRuns: 1, safetyRate: 1, medianNanoAiu: null, meanModelCalls: null, runs: [{ taskId: "B1", variant: "baseline", passed: false, safetyOk: true, reason: "bad | pipe\nline" }] },
+      candidate: null,
+      comparison: null,
+    });
+    assert.match(pipeMd, /bad \\\| pipe line/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
