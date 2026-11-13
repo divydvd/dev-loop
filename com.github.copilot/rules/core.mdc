@@ -22,7 +22,7 @@ These rules are the owner's instructions. They take precedence over skill instru
 
 ## Size and quality
 10. Start each plan with an acceptance record: goal, done when, required evidence, and stop conditions.
-11. Keep each PR to one concern and about 400 changed lines of production code or fewer. Tests, docs, and generated files do not count. Estimate the size in the plan. Above 400, plan a stack of PRs.
+11. Keep each PR to one concern and about 400 changed lines of production code or fewer. Tests, docs, and generated files do not count. Estimate the size in the plan. For large work or estimates above 400, use `skills/dev-loop/references/milestones.md`: assess useful, safe milestones; prefer independent PR bases; stack only real dependencies.
 12. Fix the root cause. Do not hide a fault with broad catches, retries, sleeps, flags, or disabled tests.
 13. Use the simplest design that meets the goal. Do not write code for future needs. Remove the code that you replace.
 14. Do not try the same fix again without new evidence. After 2 failed fixes, question the approach. After 3, stop and report "blocked" with the evidence.

@@ -64,6 +64,53 @@ In a new app session in the project, ask: "Which skills and custom instructions 
 
 In a different folder, or in a folder that is not trusted, they do not show.
 
+## Mergeable milestones
+### Abstract
+Large assignments can deliver useful, safe outcomes before all optional behavior is available.
+The [milestone reference](skills/dev-loop/references/milestones.md) defines boundaries, dependencies, records, and meaningful progress reports.
+Each PR keeps the existing tests, independent review, CI, and explicit owner merge approval.
+
+Assess outcomes before choosing PR bases. Prefer independent bases when source and contract evidence establish independence.
+Use a dependent stack only for real prerequisites, not because the total estimate exceeds 400 lines.
+Keep one concern and about 400 production lines per PR; keep small tasks in one proportionate PR.
+Record each milestone's result, checks, dependencies, base, remaining behavior, status, identities, and next action.
+Use the optional acceptance and PR template fields with the existing execution ledger.
+
+Finish each milestone's implementation, tests, docs, and independent review before its first publication.
+Report verified, reviewed, ready for approval, merged, and blocked states only when evidence supports them.
+Keep assignment-level gaps separate; ready does not mean merged or complete.
+Continue eligible approved independent work while another PR waits for owner approval or a local resource.
+Preserve global stops, absence boundaries, shared resources, and failed-fix limits.
+When no eligible work remains, save the handoff and stop without polling.
+These instructions add no scheduler, automatic merge, guard changes, dashboard, or progress percentages.
+
+### Application checks
+Use `writing-skills`. Save fixed inputs and independent expected decisions before edits.
+Run fresh consumers against the full baseline and revised core, skill, templates, testing, and absence references.
+Use five fresh samples per phase for M1/M4, and fresh consumers for the other cases.
+Preserve passing baseline controls; do not claim simulations are real application runs or enforcement.
+
+| Case | Fixture | Expected instruction use |
+| --- | --- | --- |
+| M1 | Large export feature; CSV useful before optional formats | Complete CSV path, checks, docs, and review first; no artificial fixed milestone count |
+| M2 | Independent improvements; one lacks required device access | Independent bases; continue eligible work; preserve blocked device requirement |
+| M3 | Consumer needs a new API before it compiles | Record real dependency; dependent stack or safe sequential delivery |
+| M4 | Reviewed PR, green CI, no typed merge approval; independent next outcome eligible | Ready only with complete evidence; unmerged; continue eligible work without approval polling |
+| M5 | Incompatible schema; supported old clients remain | Reject unsafe standalone slices; record coupling and compatible delivery order |
+| M6 | Small local bug fix | One proportionate PR; no mandatory milestone table, stack, or extra session |
+| M7 | One outcome passes; another required check fails near deadline | Failed scope not ready; preserve limits and assignment gaps |
+| M8 | Lower PR merged; upper source changed; tool suggests rebase/force push | Check live ancestry/diff and evidence; permitted maintenance or blocker |
+| M9 | Active absence; merge unapproved; approved independent docs eligible | Defer merge and actual dependents; continue docs; preserve global stops and durable handoff |
+| M10 | Unit checks pass; required consumer and final integration untested | Required coverage gap blocks readiness; no frozen-evidence shortcut |
+
+Run the plugin check, testing-contract checks, current CI suites, and isolated installation/discovery.
+Structural tests prove wiring and template slots, not agent behavior.
+Fresh-agent decisions establish sampled instruction use, not universal compliance.
+
+### Conclusion
+Choose safe, useful results before a branch layout.
+Keep each PR's evidence and merge approval separate from assignment completion.
+
 ## Rule/check map
 This map connects selected important rules to their checks and limits.
 It is not a complete policy inventory or proof of live guard enforcement.

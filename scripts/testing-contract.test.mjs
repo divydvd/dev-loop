@@ -13,6 +13,51 @@ const acceptance = read("skills/dev-loop/assets/acceptance-record.md");
 const pr = read("skills/dev-loop/assets/pr-body.md");
 const regression = read("skills/dev-loop/assets/regression-matrix.md");
 const profile = read("skills/dev-loop/assets/project-profile.md");
+const milestones = read("skills/dev-loop/references/milestones.md");
+
+test("milestone guidance resolves from routing, planning, execution, and reporting", () => {
+  assert.ok(milestones, "missing milestone reference");
+  for (const [heading, end] of [
+    ["## 1. Route", "## 2. Plan"], ["## 2. Plan", "## 3. Build"],
+    ["## 3. Build", "## 4. Flow docs"], ["## 8. Report", "## Stop conditions"],
+  ]) {
+    const section = skill.split(heading)[1]?.split(end)[0] ?? "";
+    assert.match(section, /references\/milestones\.md/, `missing wiring: ${heading}`);
+  }
+});
+
+test("milestone records connect acceptance, evidence, and PR scope", () => {
+  for (const field of [
+    "Milestone selection", "Milestone ID", "Observable result", "Acceptance checks",
+    "Dependencies", "Branch / base", "Remaining behavior", "Status",
+    "Tested / reviewed identity", "PR / next action",
+  ]) {
+    assert.ok(acceptance.includes(field), `missing milestone slot: ${field}`);
+  }
+  for (const field of ["Milestone ID", "Delivered scope", "Remaining scope", "Dependencies"]) {
+    assert.ok(pr.includes(field), `missing PR milestone slot: ${field}`);
+  }
+  assert.match(acceptance, /optional.*multi.milestone/i);
+});
+
+test("milestone readiness preserves whole-assignment gaps and merge boundaries", () => {
+  assert.match(milestones, /independent PRs.*integration base/i);
+  assert.match(milestones, /stack.*real.*dependenc/i);
+  assert.match(milestones, /current.*head/i);
+  assert.match(milestones, /typed.*approval/i);
+  assert.match(milestones, /required.*integration.*checks/i);
+  assert.match(milestones, /global.*stop/i);
+  assert.match(milestones, /overall assignment.*milestone/i);
+  assert.match(milestones, /no eligible work.*save.*stop/i);
+});
+
+test("copied acceptance records preserve normal-mode milestone continuation", () => {
+  const blocked = acceptance.split("  - Blocked:")[1]?.split("\n\n")[0] ?? "";
+  assert.match(blocked, /approved multi.milestone assignment/);
+  assert.match(blocked, /references\/milestones\.md/);
+  assert.match(blocked, /actual dependents.*eligible independent work/);
+  assert.match(blocked, /Global safety stops.*three failed fixes.*stop/);
+});
 
 // These checks protect instruction wiring. Fresh consuming agents test instruction use.
 test("substantive routes load testing guidance before implementation", () => {

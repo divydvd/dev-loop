@@ -4,6 +4,13 @@
 ## Acceptance record
 <Copy it from the plan. For a trivial change, write "none: trivial change". Check each "done when" item that has evidence.>
 
+### Milestone scope (optional)
+<Use for a PR in a multi-milestone assignment. Otherwise write "not applicable: one focused PR".>
+- Milestone ID: <stable plan ID>
+- Delivered scope: <complete useful result and compatibility limits>
+- Remaining scope: <unavailable behavior and assignment-level required gaps; not hidden by this PR's readiness>
+- Dependencies: <real prerequisites, evidence, branch/base reason; or independence evidence>
+
 ## Evidence
 | Check | Command or scenario | Result | Commit |
 | --- | --- | --- | --- |
