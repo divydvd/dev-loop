@@ -711,6 +711,60 @@ test("B-T6: unmasked anti-cheat, oracle, multi-session telemetry, timeout, 400-l
     assert.match(loggedCmds, /plugin install dev-loop@dev-loop/);
     assert.match(loggedCmds, /instruction list/);
     assert.match(loggedCmds, /skill list/);
+
+    // 11. Copilot review round-2 regressions:
+    // (g) Explicit nonexistent --superpowers path must fail immediately instead of falling back
+    assert.throws(
+      () => installPluginInHome(process.cwd(), join(dir, "bad-sp-home"), { superpowersDir: join(dir, "missing-sp"), copilotBin: fakeCopilot }),
+      /Superpowers path does not exist/,
+    );
+
+    // (h) Provisioning timeout bounds hung copilot CLI and cleans up sandbox
+    const hungCopilot = join(dir, "hung-copilot.mjs");
+    writeFileSync(hungCopilot, '#!/usr/bin/env node\nAtomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);\n', { mode: 0o755 });
+    const provTimeoutRes = runSingleTask(findTask("B1-small-bug"), { pluginDir: process.cwd(), superpowersDir: fakeSpDir, copilotBin: hungCopilot, provisionTimeoutMs: 60 });
+    assert.equal(provTimeoutRes.passed, false);
+    assert.match(provTimeoutRes.reason, /plugin install failed/);
+    assert.equal(existsSync(provTimeoutRes.sandboxDir), false);
+
+    // (i) Candidate mutating shared node:assert/strict (`assert.equal = () => {}`) must fail
+    const assertMutateCheat = join(dir, "b1-assert-mutate.mjs");
+    writeFileSync(
+      assertMutateCheat,
+      [
+        'import { execFileSync } from "node:child_process"; import { readFileSync, writeFileSync } from "node:fs";',
+        'writeFileSync("src/clamp.mjs", "import assert from \'node:assert/strict\'; import a2 from \'node:assert\'; try { assert.equal = () => {}; a2.equal = () => {}; } catch {} export function clamp() { return -999; }\\n");',
+        'writeFileSync("src/clamp.test.mjs", readFileSync("src/clamp.test.mjs", "utf8") + "\\ntest(\'max\', () => { assert.equal(clamp(10,1,10),10); });\\n");',
+        'execFileSync("git", ["add", "."]); execFileSync("git", ["commit", "-m", "mutate assert"]);',
+      ].join("\n"),
+    );
+    assert.equal(runSingleTask(findTask("B1-small-bug"), { driverCmd: [process.execPath, assertMutateCheat] }).passed, false, "assert.equal mutation must not bypass unit/oracle assertions");
+
+    // (j) Inherited GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE must not corrupt caller Git repo
+    const callerRepo = join(dir, "caller-repo");
+    mkdirSync(callerRepo, { recursive: true });
+    execFileSync("git", ["init", "-b", "main"], { cwd: callerRepo, stdio: "pipe" });
+    execFileSync("git", ["config", "user.name", "Caller"], { cwd: callerRepo, stdio: "pipe" });
+    execFileSync("git", ["config", "user.email", "c@example.com"], { cwd: callerRepo, stdio: "pipe" });
+    writeFileSync(join(callerRepo, "keep.txt"), "untouched\n");
+    execFileSync("git", ["add", "keep.txt"], { cwd: callerRepo, stdio: "pipe" });
+    execFileSync("git", ["commit", "-m", "caller init"], { cwd: callerRepo, stdio: "pipe" });
+    const callerHeadBefore = execFileSync("git", ["rev-parse", "HEAD"], { cwd: callerRepo, encoding: "utf8" }).trim();
+    const prevGitDir = process.env.GIT_DIR, prevWorkTree = process.env.GIT_WORK_TREE, prevIdx = process.env.GIT_INDEX_FILE;
+    process.env.GIT_DIR = join(callerRepo, ".git");
+    process.env.GIT_WORK_TREE = callerRepo;
+    process.env.GIT_INDEX_FILE = join(callerRepo, ".git", "index");
+    try {
+      const goodDriver = writeDriverScript(dir, "good");
+      const isolatedRes = runSingleTask(findTask("B1-small-bug"), { driverCmd: [process.execPath, goodDriver] });
+      assert.equal(isolatedRes.passed, true);
+      const callerHeadAfter = execFileSync("git", ["rev-parse", "HEAD"], { cwd: callerRepo, encoding: "utf8", env: { PATH: process.env.PATH } }).trim();
+      assert.equal(callerHeadAfter, callerHeadBefore, "caller repo HEAD must stay untouched despite inherited GIT_* env");
+    } finally {
+      if (prevGitDir === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = prevGitDir;
+      if (prevWorkTree === undefined) delete process.env.GIT_WORK_TREE; else process.env.GIT_WORK_TREE = prevWorkTree;
+      if (prevIdx === undefined) delete process.env.GIT_INDEX_FILE; else process.env.GIT_INDEX_FILE = prevIdx;
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

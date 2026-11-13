@@ -58,18 +58,22 @@ export function stripJsComments(src, blankLiterals = false) {
   }
   return out;
 }
+function cleanChildEnv(env = process.env, extra = {}) {
+  const out = { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" }, drop = new Set(["NODE_TEST_CONTEXT", "NODE_OPTIONS", "SIGNING_PRIVATE_KEY", "EXPECTED_SIG"]);
+  for (const [k, v] of Object.entries(env)) if (v !== undefined && !k.startsWith("GIT_") && !drop.has(k)) out[k] = v;
+  return { ...out, ...extra };
+}
 function runGit(cwd, args) {
-  try { return { ok: true, stdout: execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }) }; }
+  try { return { ok: true, stdout: execFileSync("git", args, { cwd, env: cleanChildEnv(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }) }; }
   catch (err) { return { ok: false, stdout: String(err?.stdout || ""), stderr: String(err?.stderr || "") }; }
 }
-const cleanChildEnv = ({ NODE_TEST_CONTEXT: _n, SIGNING_PRIVATE_KEY: _k, EXPECTED_SIG: _s, ...base } = process.env, extra = {}) => ({ ...base, ...extra });
+const ASSERT_GUARD = "--import=data:text/javascript,import a from 'node:assert';import s from 'node:assert/strict';Object.freeze(a);Object.freeze(s);Object.freeze(console);Object.defineProperty(process.stdout,'write',{value:process.stdout.write.bind(process.stdout),writable:false,configurable:false});";
 function runNode(cwd, args, extraEnv = {}, timeout = 15_000) {
-  const res = spawnSync(process.execPath, args, { cwd, env: cleanChildEnv(process.env, extraEnv), encoding: "utf8", timeout });
+  const res = spawnSync(process.execPath, [ASSERT_GUARD, ...args], { cwd, env: cleanChildEnv(process.env, extraEnv), encoding: "utf8", timeout });
   return { ok: res.status === 0 && !res.error, timedOut: res.error?.code === "ETIMEDOUT", stdout: res.stdout || "", stderr: res.stderr || "" };
 }
 function runOracle(cwd, script, extraEnv = {}, timeout = 15_000) {
-  const tok = `__ORACLE_${randomBytes(8).toString("hex")}__`;
-  const res = runNode(cwd, ["--input-type=module", "-e", `${script}; console.log(${JSON.stringify(tok)});`], extraEnv, timeout);
+  const tok = `__ORACLE_${randomBytes(8).toString("hex")}__`, res = runNode(cwd, ["--input-type=module", "-e", `${script}; console.log(${JSON.stringify(tok)});`], extraEnv, timeout);
   return res.ok && res.stdout.includes(tok);
 }
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -92,10 +96,8 @@ function runVerifiedTests(repoDir, files, requiredTitles = [], extraEnv = {}, ti
 }
 function runBaselineSnapshots(repoDir, snapshots = {}, extraEnv = {}, timeout = 15_000) {
   const tmpFiles = [];
-  try {
-    for (const [rel, src] of Object.entries(snapshots)) { const p = rel.replace(/\.mjs$/, ".__base__.mjs"); writeFileSync(join(repoDir, p), src); tmpFiles.push(p); }
-    return tmpFiles.length ? runVerifiedTests(repoDir, tmpFiles, [], extraEnv, timeout).ok : true;
-  } finally { for (const p of tmpFiles) rmSync(join(repoDir, p), { force: true }); }
+  try { for (const [rel, src] of Object.entries(snapshots)) { const p = rel.replace(/\.mjs$/, ".__base__.mjs"); writeFileSync(join(repoDir, p), src); tmpFiles.push(p); } return tmpFiles.length ? runVerifiedTests(repoDir, tmpFiles, [], extraEnv, timeout).ok : true; }
+  finally { for (const p of tmpFiles) rmSync(join(repoDir, p), { force: true }); }
 }
 export function tokenizeCommand(cmd) {
   if (Array.isArray(cmd)) { if (!cmd.length) throw new Error("Empty driver command"); return cmd; }
@@ -287,8 +289,10 @@ function extractSandboxTelemetry(homeDir) {
   }
   return hasSession ? { totalNanoAiu: hasNano && !missingActiveNano ? nanoSum : null, modelCalls: calls, duplicateReadRate: readChars > 0 ? dupChars / readChars : null } : { totalNanoAiu: null, modelCalls: null, duplicateReadRate: null };
 }
-export function installPluginInHome(pluginDir, homeDir, { superpowersDir = null, copilotBin = "copilot", cwd = homeDir } = {}) {
-  const env = cleanChildEnv(process.env, { COPILOT_HOME: homeDir }), run = (args) => execFileSync(copilotBin, args, { cwd, env, encoding: "utf8", stdio: "pipe" });
+export function installPluginInHome(pluginDir, homeDir, { superpowersDir = null, copilotBin = "copilot", cwd = homeDir, timeoutMs = 60_000 } = {}) {
+  if (superpowersDir && !existsSync(superpowersDir)) throw new Error(`Superpowers path does not exist: ${superpowersDir}`);
+  mkdirSync(homeDir, { recursive: true });
+  const env = cleanChildEnv(process.env, { COPILOT_HOME: homeDir }), run = (args) => execFileSync(copilotBin, args, { cwd, env, encoding: "utf8", stdio: "pipe", timeout: timeoutMs });
   const localSp = superpowersDir || join(homedir(), ".copilot/installed-plugins/superpowers-marketplace/superpowers");
   let spSource = "obra/superpowers-marketplace";
   if (existsSync(localSp)) {
@@ -300,18 +304,17 @@ export function installPluginInHome(pluginDir, homeDir, { superpowersDir = null,
   const plugins = run(["plugin", "list"]), instr = run(["instruction", "list"]), skills = run(["skill", "list"]);
   if (!plugins.includes("superpowers@superpowers-marketplace") || !plugins.includes("dev-loop@dev-loop") || !instr.includes("core") || !skills.includes("dev-loop")) throw new Error("Plugin/instruction/skill discovery verification failed");
 }
-export function runSingleTask(task, { variant = "baseline", pluginDir = null, superpowersDir = null, driverCmd = null, keepSandbox = false, timeoutMs = 180_000, testTimeoutMs = 15_000 } = {}) {
-  const sandboxDir = mkdtempSync(join(tmpdir(), `dev-loop-bench-${variant}-${task.id}-`));
-  const homeDir = join(sandboxDir, "home"), repoDir = join(sandboxDir, "repo");
+export function runSingleTask(task, { variant = "baseline", pluginDir = null, superpowersDir = null, copilotBin = "copilot", driverCmd = null, keepSandbox = false, timeoutMs = 180_000, provisionTimeoutMs = 60_000, testTimeoutMs = 15_000 } = {}) {
+  const sandboxDir = mkdtempSync(join(tmpdir(), `dev-loop-bench-${variant}-${task.id}-`)), homeDir = join(sandboxDir, "home"), repoDir = join(sandboxDir, "repo");
   mkdirSync(homeDir, { recursive: true }); mkdirSync(repoDir, { recursive: true });
   try {
     initBaseRepo(repoDir, Boolean(task.hasFlowDocs));
     const baseInfo = task.setup(repoDir);
     if (!driverCmd && pluginDir) {
-      try { installPluginInHome(pluginDir, homeDir, { superpowersDir, cwd: repoDir }); }
+      try { installPluginInHome(pluginDir, homeDir, { superpowersDir, copilotBin, cwd: repoDir, timeoutMs: provisionTimeoutMs }); }
       catch (err) { return { taskId: task.id, route: task.route, variant, sandboxDir, passed: false, safetyOk: true, reason: `plugin install failed: ${err?.message || err}`, totalNanoAiu: null, modelCalls: null, duplicateReadRate: null }; }
     }
-    const argv = driverCmd ? tokenizeCommand(driverCmd) : ["copilot", "-p", task.prompt, "--allow-all-tools", "--trust-folder"];
+    const argv = driverCmd ? tokenizeCommand(driverCmd) : [copilotBin, "-p", task.prompt, "--allow-all-tools", "--trust-folder"];
     const proc = spawnSync(argv[0], argv.slice(1), { cwd: repoDir, env: cleanChildEnv(process.env, { COPILOT_HOME: homeDir, BENCHMARK_TASK_ID: task.id, BENCHMARK_VARIANT: variant, BENCHMARK_PROMPT: task.prompt }), encoding: "utf8", timeout: timeoutMs });
     const driverResult = { exitCode: proc.status, error: proc.error ? proc.error.message : null, stdout: proc.stdout || "", stderr: proc.stderr || "", timedOut: proc.error?.code === "ETIMEDOUT" };
     const integrity = checkTestIntegrity(repoDir, baseInfo.requiredSnippets), hist = checkHistoryAndSize(repoDir, baseInfo), telemetry = extractSandboxTelemetry(homeDir);
@@ -324,11 +327,8 @@ export function runSingleTask(task, { variant = "baseline", pluginDir = null, su
     if (!safetyOk) return { taskId: task.id, route: task.route, variant, sandboxDir, passed: false, safetyOk: false, reason: integrity.reason || (!hist.safetyOk ? hist.reason : graded.reason), ...telemetry };
     if (hist.reason) return { taskId: task.id, route: task.route, variant, sandboxDir, passed: false, safetyOk: true, reason: hist.reason, ...telemetry };
     return { taskId: task.id, route: task.route, variant, sandboxDir, passed: Boolean(graded.passed), safetyOk: true, reason: graded.reason, ...telemetry };
-  } finally {
-    if (!keepSandbox) rmSync(sandboxDir, { recursive: true, force: true });
-  }
+  } finally { if (!keepSandbox) rmSync(sandboxDir, { recursive: true, force: true }); }
 }
-
 export function runBenchmark({ variant = "baseline", pluginDir = null, superpowersDir = null, tasks = BENCHMARK_TASKS, samples = 1, driverCmd = null, keepSandboxes = false } = {}) {
   const runs = [];
   for (const task of tasks) for (let s = 0; s < samples; s++) runs.push(runSingleTask(task, { variant, pluginDir, superpowersDir, driverCmd, keepSandbox: keepSandboxes }));
@@ -354,7 +354,6 @@ function matchedPassingCost(baseline, candidate) {
   const ratio = !missingCost && cMeds.length > 0 ? median(cMeds) / median(bMeds) : null;
   return { ratio, canImproveCost: ratio !== null && !regressedTask };
 }
-
 export function compareVariants(baseline, candidate) {
   const { ratio: costRatio, canImproveCost } = matchedPassingCost(baseline, candidate);
   let verdict = "neutral";
