@@ -63,8 +63,8 @@ Compute the session measures from the files on this Mac. 1 KB is 1,000 bytes. Ro
 
 ### Shadow-mode objective telemetry
 Keep the 17-row table above unchanged. In addition, run the read-only collector from the `dev-loop` checkout in **shadow mode** (log and report only; do not block work):
-`node <dev-loop-checkout>/scripts/collect-metrics.mjs --repo <repo> --checkout <project-checkout> --from <from-ISO> --to <to-ISO>`
-Supply `--prs-file <path>` when merged PR JSON (including `mergeCommit` and `commits`) is already saved locally. Include at least 21 days of merged PRs in `--prs-file` so mature PRs exist.
+`node <dev-loop-checkout>/scripts/collect-metrics.mjs --repo <repo> --checkout <project-checkout> --from <from-ISO> --to <to-ISO> --target-ref <ref-at-to>`
+Supply `--prs-file <path>` when merged PR JSON (including `mergeCommit` and `commits`) is already saved locally. Include at least 21 days of merged PRs in `--prs-file` so the `[from - 14d, to - 14d]` mature cohort exists. For historical windows ("Last week"), pass `--target-ref <commit-at-to>` on the default branch instead of `HEAD`.
 
 Include its shadow-mode summary alongside the main table and apply these exact rules:
 - **14-day production line survival:** evaluate mature PRs merged **14 days or more before `--to`** (`mergedAt <= to - 14d`). Count added production lines from `git diff` that still blame to that PR's commits at `--to` (`HEAD`). Do not exclude a 16-day-old PR as outside the window; a PR needs at least 14 days on the default branch to measure 14-day survival.

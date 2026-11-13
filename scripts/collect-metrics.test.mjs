@@ -316,11 +316,12 @@ test("T5 & T6: analyzeSessions handles cumulative totalNanoAiu, edit-aware dupli
       JSON.stringify({ type: "assistant.message", data: { content: "Opened https://github.com/org/app/pull/31" } }),
       JSON.stringify({ type: "session.compaction_start", data: {} }),
       JSON.stringify({ type: "session.usage_checkpoint", data: { totalNanoAiu: 250000 } }),
+      JSON.stringify({ type: "session.shutdown", data: { totalNanoAiu: null } }), // null shutdown must NOT overwrite 250000 with 0!
       '{"type":"assistant.turn_start","data":{"truncated":', // malformed trailing line from live writer
     ];
     writeFileSync(join(s1, "events.jsonl"), s1Events.join("\n"));
 
-    // Session 2: shared coordinator session mapped to both PR #32 and PR #33
+    // Session 2: shared coordinator-started session mapped to both PR #32 and PR #33, with 2 owner repeat-rule messages
     const s2 = join(sessionsDir, "sess-shared");
     mkdirSync(s2, { recursive: true });
     writeFileSync(
@@ -330,6 +331,9 @@ test("T5 & T6: analyzeSessions handles cumulative totalNanoAiu, edit-aware dupli
     writeFileSync(
       join(s2, "events.jsonl"),
       [
+        JSON.stringify({ type: "user.message", data: { source: "agent-parent", content: "Coordinated child kickoff" } }), // counts as kickoff!
+        JSON.stringify({ type: "user.message", data: { content: "Remember small PRs" } }), // repeat #1
+        JSON.stringify({ type: "user.message", data: { content: "Also run device test" } }), // repeat #2
         JSON.stringify({ type: "assistant.turn_start", data: { turnId: "1" } }),
         JSON.stringify({ type: "assistant.message", data: { content: "Tracking https://github.com/org/app/pull/32 and https://github.com/org/app/pull/33" } }),
         JSON.stringify({ type: "session.usage_checkpoint", data: { totalNanoAiu: 900000 } }),
@@ -337,15 +341,17 @@ test("T5 & T6: analyzeSessions handles cumulative totalNanoAiu, edit-aware dupli
     );
 
     const prs = [
+      { number: 3, url: "https://github.com/org/app/pull/3", mergedAt: "2026-11-11T09:30:00Z" }, // prefix of /pull/31!
       { number: 31, url: "https://github.com/org/app/pull/31", mergedAt: "2026-11-11T10:00:00Z" },
       { number: 32, url: "https://github.com/org/app/pull/32", mergedAt: "2026-11-11T11:00:00Z" },
       { number: 33, url: "https://github.com/org/app/pull/33", mergedAt: "2026-11-11T12:00:00Z" },
     ];
 
     const out = analyzeSessions(prs, { sessionsDir, repo: "org/app" });
+    assert.equal(out.perPr[3].attribution, "unmatched", "PR #3 must not match /pull/31");
     const p31 = out.perPr[31];
     assert.equal(p31.attribution, "unique");
-    assert.equal(p31.totalNanoAiu, 250000); // latest checkpoint, NOT 350000
+    assert.equal(p31.totalNanoAiu, 250000); // latest checkpoint, NOT 350000 and NOT overwritten by null shutdown
     assert.equal(p31.modelCalls, 2); // 1 turn_start + 1 compaction_start
     assert.equal(p31.totalReadChars, 400);
     assert.equal(p31.duplicateReadChars, 100);
@@ -356,6 +362,7 @@ test("T5 & T6: analyzeSessions handles cumulative totalNanoAiu, edit-aware dupli
     assert.equal(out.perPr[32].sharedSession, true);
     assert.equal(out.perPr[33].attribution, "ambiguous");
     assert.deepEqual(out.sharedPrNumbers, [32, 33]);
+    assert.equal(out.totalOwnerRepeatMessages, 3, "counts s1 (1) + sess-shared (2) once without dropping shared session");
   } finally {
     rmSync(sessionsDir, { recursive: true, force: true });
   }
@@ -434,6 +441,8 @@ test("T6 & T7: collectMetrics and CLI compute route medians, firstPushGreenRate,
     assert.equal(report.autonomy.firstPushGreenRate, 0.5);
     assert.equal(report.verification.verifiedCount, 2); // #1 exact SHA, #2 exempt_no_prod_code
     assert.equal(report.verification.rate, 1);
+    assert.equal(report.durableFirstPassYield.passedCount, 1); // only #1 has attributed session; #2 is unmatched (not estimated!)
+    assert.equal(report.durableFirstPassYield.eligibleCount, 1);
     assert.equal(report.durableFirstPassYield.rate, 1);
     assert.equal(report.routeBuckets.small.count, 1);
     assert.equal(report.routeBuckets.small.medianNanoAiu, 140000);
@@ -530,8 +539,95 @@ test("T8: fetchMergedPrs uses bounded GraphQL without authors and normalizes nes
   assert.equal(calls[0].cmd, "gh");
   assert.equal(calls[0].args[0], "api");
   assert.equal(calls[0].args[1], "graphql");
+  assert.ok(!calls[0].args.includes("-F"), "must use -f raw string fields, not -F typed coercion");
+  assert.ok(calls[0].args.join(" ").includes("commits(last:50)"), "must fetch newest commits");
   assert.ok(!calls[0].args.join(" ").includes("authors"), "must not query authors connection");
   assert.equal(prs.length, 1);
   assert.deepEqual(prs[0].files, [{ path: "skills/infra-review/SKILL.md", additions: 20, deletions: 2 }]);
   assert.deepEqual(prs[0].commits, [{ committedDate: "2026-11-11T13:44:26Z" }]);
+});
+
+test("T9: review regressions — renames, bounded mature cohort, post-window fixups, repo#N reverts, truncated files, and invalid SHAs", () => {
+  const dir = initGitRepo();
+  try {
+    // Old PR #1 (40 days before to -> outside [from - 14d, to - 14d) cohort!)
+    writeFileSync(join(dir, "src/ancient.js"), "export const old1 = 1;\nexport const old2 = 2;\n");
+    git(dir, ["add", "."]);
+    git(dir, ["commit", "-m", "feat: ancient (#1)"]);
+    const sha1 = git(dir, ["rev-parse", "HEAD"]);
+
+    // Mature PR #2 (16 days before to -> inside [from - 14d, to - 14d) cohort!): adds 3 lines in src/renameme.js
+    writeFileSync(join(dir, "src/renameme.js"), "export const r1 = 1;\nexport const r2 = 2;\nexport const r3 = 3;\n");
+    git(dir, ["add", "."]);
+    git(dir, ["commit", "-m", "feat: renameme (#2)"]);
+    const sha2 = git(dir, ["rev-parse", "HEAD"]);
+
+    // In-window PR #3: renames src/renameme.js -> src/renamed.js and modifies 1 line (2 of 3 lines from PR #2 survive!)
+    git(dir, ["mv", "src/renameme.js", "src/renamed.js"]);
+    writeFileSync(join(dir, "src/renamed.js"), "export const r1 = 100;\nexport const r2 = 2;\nexport const r3 = 3;\n");
+    git(dir, ["add", "."]);
+    git(dir, ["commit", "-m", "refactor: rename file (#3)"]);
+    const sha3 = git(dir, ["rev-parse", "HEAD"]);
+
+    // Post-window PR #4 (merged AFTER `to`): Reverts org/app#3 — must NOT count inside [from, to) report!
+    writeFileSync(join(dir, "src/after.js"), "export const a = 1;\n");
+    git(dir, ["add", "."]);
+    git(dir, ["commit", "-m", "revert (#4)"]);
+    const sha4 = git(dir, ["rev-parse", "HEAD"]);
+
+    const allPrs = [
+      { number: 1, title: "feat: ancient", body: "", mergedAt: "2026-10-01T10:00:00Z", headRefOid: sha1, mergeCommit: { oid: sha1 }, files: [{ path: "src/ancient.js", additions: 2, deletions: 0 }] },
+      { number: 2, title: "feat: renameme", body: "", mergedAt: "2026-10-28T10:00:00Z", headRefOid: sha2, mergeCommit: { oid: sha2 }, files: [{ path: "src/renameme.js", additions: 3, deletions: 0 }] },
+      { number: 3, title: "refactor: rename", body: "", mergedAt: "2026-11-10T10:00:00Z", headRefOid: sha3, mergeCommit: { oid: sha3 }, files: [{ path: "src/renamed.js", additions: 1, deletions: 1 }] },
+      { number: 4, title: "Revert \"refactor: rename\"", body: "Reverts org/app#3 and fixes https://github.com/org/app/pull/3", mergedAt: "2026-11-15T10:00:00Z", headRefOid: sha4, mergeCommit: { oid: sha4 }, files: [{ path: "src/after.js", additions: 1, deletions: 0 }] },
+    ];
+
+    // Direct detectFixups catches Reverts org/app#3 and PR URL when #4 is in scope
+    const fullFixups = detectFixups(allPrs, { checkoutDir: dir, windowDays: 14 });
+    assert.deepEqual(fullFixups.fixupPrNumbers, [4]);
+    assert.equal(fullFixups.details.length, 1);
+
+    // Windowed collectMetrics [2026-11-06, 2026-11-13) excludes #1 from mature cohort and excludes post-to #4!
+    const rep = collectMetrics({
+      repo: "org/app",
+      prs: allPrs,
+      from: "2026-11-06T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+      checkoutDir: dir,
+      targetRef: sha3,
+    });
+    assert.equal(rep.durability.codeSurvival.addedLines, 3, "only PR #2 is in [from-14d, to-14d), not ancient PR #1");
+    assert.equal(rep.durability.codeSurvival.survivingLines, 2, "follows rename src/renameme.js -> src/renamed.js");
+    assert.equal(rep.durability.fixupPrCount, 0, "post-to PR #4 excluded");
+
+    // Truncated files list must NOT be classified trivial or exempt_no_prod_code
+    assert.equal(classifyRoute({ files: [{ path: "README.md", additions: 2, deletions: 0 }], filesTruncated: true }), "multi-task");
+    const truncEv = verifyPrEvidence(
+      { number: 90, headRefOid: sha3, files: [{ path: "README.md", additions: 2, deletions: 0 }], filesTruncated: true },
+      { repo: "org/app", ledgerData: { units: {}, validations: [] }, checkoutDir: dir },
+    );
+    assert.equal(truncEv.verified, false);
+
+    // Invalid flag-like headRefOid rejected safely; missing local SHA gets distinct unverified status
+    const badSha = verifyPrEvidence(
+      { number: 91, headRefOid: "--all", files: [{ path: "src/renamed.js", additions: 1, deletions: 0 }] },
+      { repo: "org/app", ledgerData: { units: {}, validations: [] }, checkoutDir: dir },
+    );
+    assert.equal(badSha.verified, false);
+    assert.equal(badSha.status, "invalid_head_sha");
+
+    const missingLocal = verifyPrEvidence(
+      { number: 92, headRefOid: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", files: [{ path: "src/renamed.js", additions: 1, deletions: 0 }] },
+      { repo: "org/app", ledgerData: { units: {}, validations: [] }, checkoutDir: dir },
+    );
+    assert.equal(missingLocal.verified, false);
+    assert.equal(missingLocal.status, "unverified_head_missing_locally");
+
+    // Accurate Markdown n/a labels on empty window
+    const emptyMd = formatMarkdownReport(collectMetrics({ repo: "org/app", prs: [] }));
+    assert.doesNotMatch(emptyMd, /n\/a \(ok\)/);
+    assert.match(emptyMd, /n\/a \(no_prs\)/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

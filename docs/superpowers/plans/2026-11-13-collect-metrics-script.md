@@ -19,7 +19,7 @@
   - [x] `scripts/collect-metrics.mjs` maps merged PRs to local sessions, marks shared multi-PR sessions as `ambiguous` instead of double-counting, reads cumulative `totalNanoAiu` from the final checkpoint, computes duplicate file-read share (resetting after edits), and reports route-bucketed medians (`trivial`, `small`, `multi-task`).
   - [x] `scripts/collect-metrics.mjs` computes first-push green rate (`postOpenCommits === 0`), counts direct owner repeat-instruction steering messages (excluding kickoffs, subagents, skills, notifications, and approvals), and computes `durableFirstPassYield`.
   - [x] `skills/infra-review/SKILL.md` wires `node scripts/collect-metrics.mjs` as a shadow-mode companion check with explicit interpretation limits, verified by RED/GREEN fresh-agent scenarios.
-  - [ ] `node scripts/check.mjs`, all CI suites (including `scripts/collect-metrics.test.mjs` in `.github/workflows/check.yml`), temporary `COPILOT_HOME` discovery, and independent agent review pass at the head commit.
+  - [x] `node scripts/check.mjs`, all CI suites (including `scripts/collect-metrics.test.mjs` in `.github/workflows/check.yml`), temporary `COPILOT_HOME` discovery, and independent agent review pass at the head commit.
 - **Required evidence:** `node scripts/check.mjs`; `node --test scripts/*.test.mjs tools/work-ledger/*.test.mjs`; RED/GREEN fresh-agent `infra-review` scenarios; temporary `COPILOT_HOME` install and `copilot instruction list` / `copilot skill list`; read-only smoke run on `divydvd/dev-loop`; independent review. No device test: this repository has no app.
 - **Test matrix:** Saved below before implementation under `references/testing.md`.
 - **Regression selection:** No permanent project regression inventory is configured (`AGENTS.md`); retain all existing CI suites (`device-handoff`, `branch-maintenance`, `independent-review`, `testing-contract`, and `tools/work-ledger/*.test.mjs`) and README `F1-F4` controls.
@@ -34,7 +34,7 @@
 ### Milestone record
 | Milestone ID | Observable result | Acceptance checks / evidence | Dependencies / evidence | Branch / base / reason | Remaining behavior / compatibility limits | Status | Tested / reviewed identity | PR / next action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| M1 | Read-only `scripts/collect-metrics.mjs` and shadow-mode `infra-review` wiring | T1–T8, CI suites, RED/GREEN skill checks, temp-home discovery | None; reads existing Git, PR JSON, `work-ledger`, and `events.jsonl` formats | `divydvd-dev-loop-evaluation-analysis` -> `main` (independent additive tool) | Shadow-mode reporting only; does not auto-prune rules (`M2`) or run task benchmarks (`M3`) | in progress | pending | Not published; execute Tasks 1–4 |
+| M1 | Read-only `scripts/collect-metrics.mjs` and shadow-mode `infra-review` wiring | T1–T9, CI suites, RED/GREEN skill checks, temp-home discovery | None; reads existing Git, PR JSON, `work-ledger`, and `events.jsonl` formats | `divydvd-dev-loop-evaluation-analysis` -> `main` (independent additive tool) | Shadow-mode reporting only; does not auto-prune rules (`M2`) or run task benchmarks (`M3`) | verified | reviewed and re-tested at head | Open PR for owner review |
 | M2 | 90% quality-floor optimization rule and 4-week zero-catch pruning step in `infra-review` | Future skill application checks | Depends on `M1` JSON metric fields (`durableFirstPassYield`, `routeBuckets`) | Future branch -> `main` after `M1` | Not started in this PR | planned | none | Separate follow-up after owner reviews `M1` |
 | M3 | Executable code benchmark runner (`scripts/run-benchmark.mjs`) | Future sandbox fixture suite | Independent of `M1`; uses `copilot` CLI / SDK in temp worktrees | Future branch -> `main` | Not started in this PR | planned | none | Separate follow-up |
 
@@ -52,18 +52,20 @@
 | T7 | CLI offline execution, missing optional directories, malformed JSONL resilience, and bounded GraphQL | yes | CLI with `--prs-file`, absent dirs, truncated JSONL line, plus `fetchMergedPrs` GraphQL check | Exits 0, emits `n/a` for absent sources, avoids 500k GraphQL `authors` node limit | automated CLI + unit test | `scripts/collect-metrics.test.mjs` | passed | `node --test scripts/collect-metrics.test.mjs` + live `divydvd/dev-loop` run | `b196dd1` |
 | T8 | `infra-review` shadow-mode skill wiring and agent compliance | yes | Baseline vs revised `skills/infra-review/SKILL.md` on fixed `M1-IR` scenario + `F1` control | Contract test RED->GREEN; `5/5` GREEN round-2 fresh samples pass all 5 items `(a)-(e)` | structural + fresh subagent checks | `scripts/testing-contract.test.mjs` & `M1-IR` samples | passed | `node --test scripts/testing-contract.test.mjs` + `green-r2-1..5` | `b196dd1` |
 
+| T9 | Review regressions (renames, bounded `[from-14d, to-14d]` cohort, `repo#N` reverts, truncated files, invalid SHAs) | yes | Temp Git repo with renamed file, 40d/16d/post-`to` PRs, `Reverts org/app#3`, `filesTruncated`, and `--all` SHA | Follows rename, bounds mature cohort & fix-ups, rejects `--all` flag SHA, accurate `n/a` reasons | automated regression test | `scripts/collect-metrics.test.mjs` | passed | `node --test scripts/collect-metrics.test.mjs` (9/9 pass) | final head |
+
 - Category assessment:
-  - boundaries and invalid input -> T1, T2, T7 (0 added lines, missing dirs, truncated active `events.jsonl` line).
-  - permissions and state changes -> T5 (cumulative checkpoints across session resume; file edit invalidating read-cache state).
+  - boundaries and invalid input -> T1, T2, T7, T9 (0 added lines, missing dirs, truncated active `events.jsonl` line, flag-like invalid SHA).
+  - permissions and state changes -> T5 (cumulative checkpoints across session resume and `null` shutdown; file edit invalidating read-cache state).
   - concurrency and retries -> T7 (read-only access without locking or mutating live `work-ledger` or `events.jsonl`, including active partial writes).
-  - partial failure and recovery -> T4, T7 (missing local Git commits or missing ledger directory degrade to explicit `n/a` / `commit_missing` without throwing).
+  - partial failure and recovery -> T4, T7, T9 (missing local Git commits or missing ledger directory degrade to explicit status / `n/a` without throwing).
   - existing consumers -> T8 (existing 17-row `infra-review` table, `check.mjs`, and `testing-contract.test.mjs` remain intact).
   - UI, accessibility, and device -> excluded: repository has no UI or device app (`AGENTS.md`).
-  - migration and compatibility -> T4, T5 (supports both `units[key].evidence` and `validations` in `ledger.json` v1, and both squash and merge commits).
+  - migration and compatibility -> T4, T5, T9 (supports `ledger.json` v1, squash and merge commits, and Git file renames).
   - performance -> optional limit: `git blame` runs only on production files touched by mature-window PRs, keeping repo runs under a few seconds.
-- Required blockers: T1–T8 currently `not run` before implementation.
+- Required blockers: none.
 - Optional limits: Sampled fresh-agent checks verify instruction use, not universal model compliance.
-- Reassessment: Update after implementation and independent review.
+- Reassessment: T1–T8 retained at `b196dd1` and re-verified with T9 after independent review fixes.
 
 ## Global Constraints
 - `com.github.copilot/rules/core.mdc` stays unchanged (59 lines <= 60).
@@ -86,7 +88,7 @@
 
 **Files:**
 - Read: `skills/infra-review/SKILL.md`
-- Artifact: `/Users/divydwivedi/.copilot/session-state/c339c1ed-388b-4561-94f2-3fd2c56531da/files/m1-skill-eval.md`
+- Artifact: session workspace `files/m1-skill-eval.md` (uncommitted session artifact)
 
 **Interfaces:**
 - Produces: Verbatim RED baseline observations for `skills/infra-review/SKILL.md` across 5 fresh subagent samples on a fixed weekly review fixture (shared multi-PR session, docs-only commit after ledger validation, mixed trivial/multi-task PRs, and code churn after merge).
