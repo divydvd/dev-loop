@@ -51,6 +51,14 @@ test("milestone readiness preserves whole-assignment gaps and merge boundaries",
   assert.match(milestones, /no eligible work.*save.*stop/i);
 });
 
+test("copied acceptance records preserve normal-mode milestone continuation", () => {
+  const blocked = acceptance.split("  - Blocked:")[1]?.split("\n\n")[0] ?? "";
+  assert.match(blocked, /approved multi.milestone assignment/);
+  assert.match(blocked, /references\/milestones\.md/);
+  assert.match(blocked, /actual dependents.*eligible independent work/);
+  assert.match(blocked, /Global safety stops.*three failed fixes.*stop/);
+});
+
 // These checks protect instruction wiring. Fresh consuming agents test instruction use.
 test("substantive routes load testing guidance before implementation", () => {
   const start = skill.split("## Before you start")[1]?.split("### Absence mode")[0] ?? "";

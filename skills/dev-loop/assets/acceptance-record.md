@@ -15,7 +15,7 @@
 - **Risky area:** <none | the area from the profile> (a risky area needs the owner's plan review)
 - **Stop conditions:**
   - Done: each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass and no required coverage gap remains. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
-  - Blocked: 3 failed fixes, missing access, no device, or a product decision. Normally, stop and report with the evidence. During confirmed active absence mode, defer affected steps and their dependents under the absence reference, then continue only eligible independent work. Stop when none remains. Three failed fixes still require a stop.
+  - Blocked: 3 failed fixes, missing access, no device, or a product decision. Normally, stop and report with the evidence. For an approved multi-milestone assignment, use `references/milestones.md`: defer the blocked milestone and its actual dependents, then continue only eligible independent work. During confirmed active absence mode, also apply the absence reference. Stop when no eligible work remains. Global safety stops and three failed fixes still require a stop.
 
 ### Milestone record (optional for multi-milestone assignments)
 <Use only for an assignment with multiple milestones under `references/milestones.md`. Keep small tasks small.>

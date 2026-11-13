@@ -20,6 +20,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     All current CI suites and extra script tests pass locally: 268 passed, one platform-specific skip.
     Run the plugin check, all current CI suites, and temporary-home installation/discovery at the final commit.
     Record actual results and independent coverage in the PR; sampled decisions do not prove runtime enforcement.
+    Automatic review found stale absence-only blocker wording in the copied acceptance record.
+    Align that wording with the milestone reference; add a failing structural regression before the correction.
+    Verify the correction with focused M2/M9 consumers and independent review, then repeat final-head tiers.
     The next weekly review checks false dependencies, unsafe slices, repeated status requests, and assignment gaps.
 
 ## 0.5.6 (2026-11-04)
