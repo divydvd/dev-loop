@@ -2,6 +2,16 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.12 (2026-11-14)
+- **Add 5-box active work time, bottleneck shares, and parallelism telemetry to weekly review and benchmark runner.**
+  - **What:** Extend `scripts/collect-metrics.mjs` (`mergeIntervals`, `parseSessionEvents`, `collectMetrics`, and Markdown output) to compute merged `activeSec` (excluding `humanWaitSec` for `ask_user`/`relay_session_input` and between-turn idle pauses), five active-time buckets (`modelSec`, `buildTestSec`, `pollSec`, `subagentSec`, `ioOtherSec`), `parallelismFactor`, and route-level `medianActiveSec`, `dominantBottleneck`, and `medianParallelism` while keeping shared multi-PR sessions marked `ambiguous`.
+    Extend `scripts/run-benchmark.mjs` to extract merged multi-session `activeSec`, `medianActiveSec`, `medianParallelism`, and diagnostic `activeSecRatio`.
+    Update `skills/infra-review/SKILL.md` Sections 2 and 4 so weekly reviews target recurring active-time bottlenecks (`dominantBottleneck` or `1.00x` serial `parallelismFactor`) above the `90.0%` `Durable first-pass yield` floor without counting `humanWaitSec` or cutting safety gates.
+  - **Why:** Across 385 local sessions (`SmarType`, `dev-loop`, `app-kit`, `verdict`), non-token shell delays (`141.0 h` Gradle builds/locks and `53.5 h` GitHub check/review polling) accounted for over half of active work time while `totalNanoAiu` remained blind to bash waiting, and `61.5 h` of `ask_user` human waits distorted raw wall-clock duration.
+    Five fresh baseline `infra-review` consumers lacked `activeSec`, the five time buckets, and `parallelismFactor` (`5/5`), and `3/5` selected `open no PR` when `small` sessions had healthy `totalNanoAiu` (`1.8e11`) and `3%` duplicate reads but `26 min` recurring active delay (`19 min` `pollSec` and `1.0x` serial subagents).
+  - **Check:** Suites `S-T1`–`S-T4` in `scripts/collect-metrics.test.mjs`, `S-T5` in `scripts/run-benchmark.test.mjs`, and `T-IR7` in `scripts/testing-contract.test.mjs` fail before implementation and pass afterward, alongside five fresh revised `infra-review` consumers (`5/5`), `node scripts/check.mjs`, and temporary-home discovery.
+    The next weekly review checks route `medianActiveSec`, `dominantBottleneck`, and `medianParallelism` alongside `totalNanoAiu`.
+
 ## 0.5.11 (2026-11-13)
 - **Add isolated Git benchmark runner and anti-tampering oracle graders.**
   - **What:** Add `scripts/run-benchmark.mjs` and `scripts/run-benchmark.test.mjs`, wire the suite into `.github/workflows/check.yml`, and map the check in `README.md`.

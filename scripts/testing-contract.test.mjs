@@ -327,3 +327,16 @@ test("README documents the executable benchmark runner and maps its anti-tamperi
     assert.ok(readme.includes(id), `missing benchmark task in README: ${id}`);
   }
 });
+
+test("infra review defines 5-box active work time, parallelismFactor, and quality-gated speed bottleneck selection", () => {
+  const infra = read("skills/infra-review/SKILL.md");
+  for (const field of ["activeSec", "humanWaitSec", "parallelismFactor", "modelSec", "buildTestSec", "pollSec", "subagentSec", "ioOtherSec", "dominantBottleneck"]) {
+    assert.ok(infra.includes(field), `missing speed telemetry field in infra-review SKILL.md: ${field}`);
+  }
+  const choose = infra.split("## 4. Choose the changes")[1]?.split("## 5. Output")[0] ?? "";
+  assert.match(choose, /dominantBottleneck/);
+  assert.match(choose, /parallelismFactor/);
+  const readme = read("README.md");
+  assert.ok(readme.includes("T-IR7"), "README must document T-IR7 speed application check");
+});
+
