@@ -326,14 +326,15 @@ export function parseSessionEvents(eventsPath) {
     if (b.endMs !== null && b.endMs >= b.startMs) { const iv = [b.startMs, b.endMs]; subagentIvs.push(iv); toolClockIvs.push(iv); toolWorkMs += b.endMs - b.startMs; }
   }
   const allActiveIvs = [...modelIvs, ...buildTestIvs, ...pollIvs, ...subagentIvs, ...ioOtherIvs];
-  const hasTimed = allActiveIvs.length > 0 || humanIvs.length > 0;
-  const mergedToolSec = sumMergedSec(toolClockIvs);
-  const timeBuckets = allActiveIvs.length > 0 ? { modelSec: sumMergedSec(modelIvs), buildTestSec: sumMergedSec(buildTestIvs), pollSec: sumMergedSec(pollIvs), subagentSec: sumMergedSec(subagentIvs), ioOtherSec: sumMergedSec(ioOtherIvs) } : null;
+  const mergedActive = mergeIntervals(allActiveIvs), mergedTools = mergeIntervals(toolClockIvs);
+  const mergedToolSec = mergedTools.reduce((a, [s, e]) => a + (e - s), 0) / 1000;
+  const timeBuckets = mergedActive.length > 0 ? { modelSec: sumMergedSec(modelIvs), buildTestSec: sumMergedSec(buildTestIvs), pollSec: sumMergedSec(pollIvs), subagentSec: sumMergedSec(subagentIvs), ioOtherSec: sumMergedSec(ioOtherIvs) } : null;
   return {
-    lines, totalNanoAiu: latestNanoAiu, modelCalls, compactions, totalReadChars, duplicateReadChars,
+    lines, activeIntervals: mergedActive, toolIntervals: mergedTools, toolWorkSec: toolWorkMs / 1000,
+    totalNanoAiu: latestNanoAiu, modelCalls, compactions, totalReadChars, duplicateReadChars,
     duplicateReadRate: totalReadChars > 0 ? duplicateReadChars / totalReadChars : null, ownerRepeatMessages,
-    activeSec: allActiveIvs.length > 0 ? sumMergedSec(allActiveIvs) : null,
-    humanWaitSec: hasTimed ? sumMergedSec(humanIvs) : null,
+    activeSec: mergedActive.length > 0 ? mergedActive.reduce((a, [s, e]) => a + (e - s), 0) / 1000 : null,
+    humanWaitSec: mergedActive.length > 0 || humanIvs.length > 0 ? sumMergedSec(humanIvs) : null,
     parallelismFactor: mergedToolSec > 0 ? (toolWorkMs / 1000) / mergedToolSec : null,
     timeBuckets,
   };
@@ -376,7 +377,7 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNu
       sharedPrNumbers.push(pr.number);
       perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", totalNanoAiu: null, modelCalls: null, duplicateReadRate: null, ownerRepeatMessages: null, activeSec: null, humanWaitSec: null, parallelismFactor: null, timeBuckets: null };
     } else {
-      const { lines: _lines, createdAt: _c, id, ...metrics } = s;
+      const { lines: _lines, activeIntervals: _ai, toolIntervals: _ti, toolWorkSec: _tw, createdAt: _c, id, ...metrics } = s;
       perPr[pr.number] = { sessionId: id, sharedSession: false, attribution: "unique", ...metrics };
     }
   }

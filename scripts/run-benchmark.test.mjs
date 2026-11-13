@@ -769,3 +769,57 @@ test("B-T6: unmasked anti-cheat, oracle, multi-session telemetry, timeout, 400-l
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("S-T5: runBenchmark and compareVariants extract merged sandbox activeSec, parallelismFactor, and diagnostic activeSecRatio without verdict flakiness", () => {
+  const dir = makeTempDir("speed-t5");
+  try {
+    const timedDriver = join(dir, "timed-b2.mjs");
+    writeFileSync(
+      timedDriver,
+      [
+        'import { execFileSync } from "node:child_process"; import { mkdirSync, readFileSync, writeFileSync } from "node:fs"; import { join } from "node:path";',
+        'const v = process.env.BENCHMARK_VARIANT, home = process.env.COPILOT_HOME;',
+        'const end1 = v === "candidate" ? "2026-11-14T10:00:12.000Z" : "2026-11-14T10:00:24.000Z";',
+        'mkdirSync(join(home, "session-state", "s-main"), { recursive: true });',
+        'mkdirSync(join(home, "session-state", "s-child"), { recursive: true });',
+        'writeFileSync(join(home, "session-state", "s-main", "events.jsonl"), [',
+        '  JSON.stringify({ timestamp: "2026-11-14T10:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),',
+        '  JSON.stringify({ timestamp: "2026-11-14T10:00:02.000Z", type: "assistant.message", data: { turnId: "0" } }),',
+        '  JSON.stringify({ timestamp: "2026-11-14T10:00:02.000Z", type: "tool.execution_start", data: { toolCallId: "t1", toolName: "task", arguments: {} } }),',
+        '  JSON.stringify({ timestamp: "2026-11-14T10:00:02.000Z", type: "tool.execution_start", data: { toolCallId: "t2", toolName: "task", arguments: {} } }),',
+        '  JSON.stringify({ timestamp: end1, type: "tool.execution_complete", data: { toolCallId: "t1", success: true } }),',
+        '  JSON.stringify({ timestamp: end1, type: "tool.execution_complete", data: { toolCallId: "t2", success: true } }),',
+        '  JSON.stringify({ type: "session.usage_checkpoint", data: { totalNanoAiu: 100000 } }),',
+        '].join("\\n") + "\\n");',
+        // Overlapping child session inside [10:00:04, 10:00:10] must merge with s-main rather than double-counting!
+        'writeFileSync(join(home, "session-state", "s-child", "events.jsonl"), [',
+        '  JSON.stringify({ timestamp: "2026-11-14T10:00:04.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),',
+        '  JSON.stringify({ timestamp: "2026-11-14T10:00:10.000Z", type: "assistant.message", data: { turnId: "0" } }),',
+        '  JSON.stringify({ type: "session.usage_checkpoint", data: { totalNanoAiu: 100000 } }),',
+        '].join("\\n") + "\\n");',
+        'writeFileSync("README.md", readFileSync("README.md", "utf8").replace("validtes", "validates"));',
+        'execFileSync("git", ["add", "README.md"]); execFileSync("git", ["commit", "-m", "docs: fix typo"]);',
+      ].join("\n"),
+    );
+
+    const b2 = BENCHMARK_TASKS.filter((t) => t.id === "B2-trivial-typo");
+    const base = runBenchmark({ variant: "baseline", tasks: b2, driverCmd: [process.execPath, timedDriver] });
+    const cand = runBenchmark({ variant: "candidate", tasks: b2, driverCmd: [process.execPath, timedDriver] });
+
+    assert.equal(base.medianActiveSec, 24, "overlapping s-child [04..10] merges into s-main [00..24] = 24s");
+    assert.equal(cand.medianActiveSec, 12, "candidate [00..12] = 12s");
+    assert.equal(cand.runs[0].parallelismFactor, 2, "two parallel 10s task calls in 10s window = 2.0x");
+
+    const cmp = compareVariants(base, cand);
+    assert.equal(cmp.activeSecRatio, 0.5);
+    assert.equal(cmp.verdict, "neutral", "equal nanoAIU and passRate stays neutral so wall-clock jitter never flips verdicts");
+
+    const md = formatBenchmarkMarkdown({ baseline: base, candidate: cand, comparison: cmp });
+    assert.match(md, /Median active \(s\)/);
+    assert.match(md, /24\.0/);
+    assert.match(md, /12\.0/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
