@@ -2,6 +2,26 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.7 (2026-11-13)
+- **Plan safe, useful milestones before selecting PR dependencies.**
+  - **What:** Replace size-only stacking with evidence-based independent or dependent PR bases.
+    Add an on-demand milestone contract and optional records in the existing acceptance and PR templates.
+    Keep per-PR delivery gates and separate assignment gaps. Continue only eligible independent work during local blockers.
+    Preserve typed per-head merge approval, required checks, review limits, absence boundaries, and global failure stops.
+  - **Why:** All five fresh M1/M4 baseline consumers selected complete CSV delivery but imposed unnecessary chained PR bases.
+    A fresh M2 consumer stopped independent parser work because a separate required device test lacked access.
+    Baseline consumers already preserved merge approval, safe migration boundaries, real dependencies, small-task scope,
+    required integration coverage, absence boundaries, allowed maintenance, and failed-fix limits.
+    These passing controls are not newly repaired failures.
+  - **Check:** Three new structural checks fail before implementation for missing reference wiring and record slots.
+    All 20 testing-contract checks pass after implementation.
+    Five fresh revised M1/M4 consumers select complete CSV scope and independent PDF bases, without automatic merging or approval polling.
+    Fresh revised M2 continues eligible parser work; M3/M5–M10 retain the baseline safety controls.
+    All current CI suites and extra script tests pass locally: 268 passed, one platform-specific skip.
+    Run the plugin check, all current CI suites, and temporary-home installation/discovery at the final commit.
+    Record actual results and independent coverage in the PR; sampled decisions do not prove runtime enforcement.
+    The next weekly review checks false dependencies, unsafe slices, repeated status requests, and assignment gaps.
+
 ## 0.5.6 (2026-11-04)
 - **Clarify validation recovery and readiness reports.**
   - **What:** Replace the blanket verification-failure route with a product/tool/environment distinction and a short handoff in the existing ledger.

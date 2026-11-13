@@ -68,7 +68,9 @@ For non-UI tasks, skip that reference and the profile's UI reuse pointers.
   - If the fix is bigger, write a plan (step 2).
 - **Trivial change:** only harmless spelling or formatting edits qualify for the independent-review exemption. Record the reason in the PR body. A changed command or operational instruction is not trivial. A config change that changes behavior is a behavior change. For a harmless edit, make the change and go to step 4. In step 6, run only the fast checks.
 - **Question:** for an explicit design-review request, use `design-review` as review-only work. Otherwise, answer with evidence (paths, commands, and results). Do not change code.
-- **Big work** (more than about 3 PRs): you are the lead. Split the work into a stack of PRs, with one child session for each PR. Use the `pr-stack` and `orchestrate` skills when they are available. Review each child PR before you report.
+- **Large work:** read `references/milestones.md` before choosing delivery boundaries, including work likely to need more than about 3 PRs.
+  Assess useful, safe milestones first. Prefer independent PR bases; use stacks only for real dependencies.
+  For work needing child sessions, use `orchestrate`; use `pr-stack` only for dependent PRs. Review each child PR before reporting.
 
 ### Design review (optional)
 Automatic design review requires the project's `Design review (optional)` profile section, `Enabled: yes`, and concrete matching `Applies when` criteria.
@@ -90,12 +92,17 @@ A review-only request does not start implementation. A late review alone does no
 - Select existing flows from the project's permanent regression inventory under `references/testing.md`; link case IDs in the task record.
   Use `assets/regression-matrix.md` when establishing a project baseline, not a duplicate inventory or a list of permanent passes.
 - Make tasks of 2–5 minutes. Mark the tasks that can run in parallel.
-- Estimate the changed lines of production code for each task, and fill in the "Size estimate" of the acceptance record. Tests, docs, and generated files do not count. If the total is more than 400, split the plan into a stack of PRs now, with one concern for each PR. Give each PR its own branch, made from the branch of the PR before it. Name each branch and its base in the plan. Split now, before the build.
+- Estimate production lines per task and PR in the acceptance record. Tests, docs, and generated files do not count.
+  For large work or totals above 400, use `references/milestones.md` before the build.
+  Record useful outcomes, acceptance checks, real dependencies, and each PR's branch and base.
+  Keep each PR to one concern and about 400 production lines or fewer; do not make a stack from size alone.
 - If a task touches a risky area from the profile, mark the task and the plan "risky". Wait for the owner's plan review only then.
 - Choose the execution method from the core rules. Do not ask.
 
 ## 3. Build
 - Follow `executing-plans` or `subagent-driven-development`, as core rule 7 says. Use test-driven development.
+- For multi-milestone assignments, use `references/milestones.md` to select eligible work and maintain the existing execution ledger.
+  Finish each milestone's tests, docs, and independent review before its first publication.
 - Update affected cases and evidence under `references/testing.md` when requirements, source, setup, or consumers change.
 - Maintain affected permanent inventory entries and real test references in the same PR under `references/testing.md`.
 - With `executing-plans`, after each task in a risky area, get one independent review: use `requesting-code-review` for the commits of that task. Give the reviewer the task, the acceptance record, and the review checklist. Before the next task, fix the findings that pass `receiving-code-review`. `subagent-driven-development` already reviews each task.
@@ -110,6 +117,8 @@ A review-only request does not start implementation. A late review alone does no
 
 ## 5. Self-review
 Do this step for each substantive change, including small features and small fixes.
+For multi-milestone work, apply steps 5–7 and the Done gate to each PR's declared scope.
+Retain assignment-level gaps and required final integration checks; one ready PR does not complete the assignment.
 - Do a "simplify" pass. Remove the code, flags, and abstractions that the goal does not need.
 - Check the change against the acceptance record and the profile's review checklist.
 - Extend independent review to check requirements, source, consumers, and missing cases under `references/testing.md`.
@@ -185,6 +194,7 @@ For a project with no device test, or a change outside its device-test tier, rep
    Record a blocked refresh with its reason and the last verified installed identity. Do not claim that a blocked refresh succeeded.
 
 ## 8. Report
+For multi-milestone assignments, use `references/milestones.md` for meaningful transitions and separate assignment and milestone status.
 Send the owner one short message. The first sentence states overall PR readiness, before any partial success.
 Before a PR exists, use "Work is not ready" rather than inventing a PR number.
 Use these fields in order; omit only fields that do not apply:
@@ -205,7 +215,7 @@ Include the acceptance-to-case evidence links, required blockers, and optional l
 
 ## Stop conditions
 - **Done:** each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass and no required coverage gaps remain. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
-- **Blocked:** 3 failed fixes, missing access, no device, or a product decision that the repo does not answer. Normally, stop and report what you tried, the evidence, and the decision needed. During confirmed active absence mode, use `references/absence-mode.md` to defer affected steps and check independent work. Three failed fixes still require a stop.
+- **Blocked:** 3 failed fixes, missing access, no device, or a product decision that the repo does not answer. Normally, stop and report what you tried, the evidence, and the decision needed. For an approved multi-milestone assignment, use `references/milestones.md` to defer the blocked milestone and its actual dependents, then select eligible independent work. During confirmed active absence mode, also use `references/absence-mode.md`. Global safety stops and three failed fixes still require a stop.
 - **Ask the owner** only at the feature design, at a plan for a risky area, and before a destructive action. During active absence mode, record these needs for the handoff; do not execute the blocked work or replace its approval.
 
 ## After compaction, or in a new session
