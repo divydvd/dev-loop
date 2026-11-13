@@ -347,9 +347,10 @@ export function runBenchmark({ variant = "baseline", pluginDir = null, superpowe
   const totalRuns = runs.length, passedRuns = runs.filter((r) => r.passed).length, safeRuns = runs.filter((r) => r.safetyOk).length;
   return { variant, totalRuns, passedRuns, safeRuns, passRate: totalRuns > 0 ? passedRuns / totalRuns : null, safetyRate: totalRuns > 0 ? safeRuns / totalRuns : null, medianNanoAiu: median(runs.map((r) => r.totalNanoAiu)), meanModelCalls: mean(runs.map((r) => r.modelCalls)), medianDuplicateReadRate: median(runs.map((r) => r.duplicateReadRate)), medianActiveSec: median(runs.map((r) => r.activeSec)), medianParallelism: median(runs.map((r) => r.parallelismFactor)), runs };
 }
-function matchedPassingRatio(baseline, candidate, runField, summaryField) {
+function matchedPassingRatio(baseline, candidate, runField, summaryField, allowZero = false) {
+  const validVal = (x) => Number.isFinite(x) && (allowZero ? x >= 0 : x > 0);
   if (!Array.isArray(baseline.runs) || !Array.isArray(candidate.runs)) {
-    const ratio = candidate[summaryField] > 0 && baseline[summaryField] > 0 ? candidate[summaryField] / baseline[summaryField] : null;
+    const ratio = validVal(candidate[summaryField]) && baseline[summaryField] > 0 ? candidate[summaryField] / baseline[summaryField] : null;
     return { ratio, canImprove: ratio !== null };
   }
   const byTask = (runs) => runs.reduce((m, r) => m.set(r?.taskId ?? "", [...(m.get(r?.taskId ?? "") || []), r]), new Map());
@@ -360,15 +361,15 @@ function matchedPassingRatio(baseline, candidate, runField, summaryField) {
     if (bAll.length !== cAll.length) return { ratio: null, canImprove: false };
     const bPass = bAll.filter((r) => r?.passed), cPass = cAll.filter((r) => r?.passed);
     if (cPass.length < bPass.length) regressedTask = true;
-    if (cPass.some((r) => !(r[runField] > 0)) || bPass.some((r) => !(r[runField] > 0))) missing = true;
+    if (cPass.some((r) => !validVal(r[runField])) || bPass.some((r) => !validVal(r[runField]))) missing = true;
     else if (bPass.length > 0 && cPass.length > 0) { bMeds.push(median(bPass.map((r) => r[runField]))); cMeds.push(median(cPass.map((r) => r[runField]))); }
   }
-  const ratio = !missing && cMeds.length > 0 ? median(cMeds) / median(bMeds) : null;
+  const bMed = median(bMeds), ratio = !missing && cMeds.length > 0 && bMed > 0 ? median(cMeds) / bMed : null;
   return { ratio, canImprove: ratio !== null && !regressedTask };
 }
 export function compareVariants(baseline, candidate) {
   const { ratio: costRatio, canImprove: canImproveCost } = matchedPassingRatio(baseline, candidate, "totalNanoAiu", "medianNanoAiu");
-  const { ratio: activeSecRatio } = matchedPassingRatio(baseline, candidate, "activeSec", "medianActiveSec");
+  const { ratio: activeSecRatio } = matchedPassingRatio(baseline, candidate, "activeSec", "medianActiveSec", true);
   let verdict = "neutral";
   if (candidate.safetyRate !== null && ((baseline.safetyRate !== null && candidate.safetyRate < baseline.safetyRate) || (candidate.safetyRate < 1 && (baseline.safetyRate === null || baseline.safetyRate === 1)))) verdict = "regressed_safety";
   else if (candidate.passRate !== null && baseline.passRate !== null && candidate.passRate < baseline.passRate) verdict = "regressed_quality";
@@ -378,8 +379,9 @@ export function compareVariants(baseline, candidate) {
 }
 const fmtPct = (r) => (r === null || r === undefined ? "n/a" : `${(r * 100).toFixed(1)}%`), cleanCell = (s) => String(s ?? "").replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
 export function formatBenchmarkMarkdown({ baseline: b, candidate: c, comparison: cmp }) {
-  const row = (name, x) => `| ${name} | ${x.passedRuns}/${x.totalRuns} (${fmtPct(x.passRate)}) | ${x.safeRuns}/${x.totalRuns} (${fmtPct(x.safetyRate)}) | ${x.medianNanoAiu !== null ? x.medianNanoAiu.toExponential(2) : "n/a"} | ${x.meanModelCalls !== null ? x.meanModelCalls.toFixed(1) : "n/a"} | ${x.medianActiveSec !== null && x.medianActiveSec !== undefined ? x.medianActiveSec.toFixed(1) : "n/a"} |`;
-  const lines = ["### Dev-loop executable benchmark report", ...(cmp ? [`**Verdict:** \`${cmp.verdict}\``, ""] : []), "| Variant | Passed | Safety | Median `totalNanoAiu` | Mean model calls | Median active (s) |", "| --- | --- | --- | --- | --- | --- |", row("baseline", b), ...(c ? [row("candidate", c)] : []), "", "| Task | Variant | Passed | Safety | Reason |", "| --- | --- | --- | --- | --- |"];
+  const row = (name, x) => `| ${name} | ${x.passedRuns}/${x.totalRuns} (${fmtPct(x.passRate)}) | ${x.safeRuns}/${x.totalRuns} (${fmtPct(x.safetyRate)}) | ${x.medianNanoAiu !== null ? x.medianNanoAiu.toExponential(2) : "n/a"} | ${x.meanModelCalls !== null ? x.meanModelCalls.toFixed(1) : "n/a"} | ${x.medianActiveSec !== null && x.medianActiveSec !== undefined ? x.medianActiveSec.toFixed(1) : "n/a"} | ${x.medianParallelism !== null && x.medianParallelism !== undefined ? `${x.medianParallelism.toFixed(2)}x` : "n/a"} |`;
+  const cmpLine = cmp ? `**Verdict:** \`${cmp.verdict}\`${cmp.activeSecRatio !== null && cmp.activeSecRatio !== undefined ? ` (Active time ratio: \`${cmp.activeSecRatio.toFixed(2)}x\`)` : ""}` : null;
+  const lines = ["### Dev-loop executable benchmark report", ...(cmpLine ? [cmpLine, ""] : []), "| Variant | Passed | Safety | Median `totalNanoAiu` | Mean model calls | Median active (s) | Median parallelism |", "| --- | --- | --- | --- | --- | --- | --- |", row("baseline", b), ...(c ? [row("candidate", c)] : []), "", "| Task | Variant | Passed | Safety | Reason |", "| --- | --- | --- | --- | --- |"];
   for (const r of [...b.runs, ...(c ? c.runs : [])]) lines.push(`| ${r.taskId} | ${r.variant} | ${r.passed ? "yes" : "no"} | ${r.safetyOk ? "yes" : "no"} | ${cleanCell(r.reason)} |`);
   return lines.join("\n");
 }

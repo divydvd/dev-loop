@@ -816,8 +816,18 @@ test("S-T5: runBenchmark and compareVariants extract merged sandbox activeSec, p
 
     const md = formatBenchmarkMarkdown({ baseline: base, candidate: cand, comparison: cmp });
     assert.match(md, /Median active \(s\)/);
+    assert.match(md, /Median parallelism/);
+    assert.match(md, /Active time ratio: `0\.50x`/);
+    assert.match(md, /2\.00x/);
     assert.match(md, /24\.0/);
     assert.match(md, /12\.0/);
+
+    // Valid 0s candidate run yields activeSecRatio: 0 (not null!)
+    const zeroCmp = compareVariants(
+      { passRate: 1, safetyRate: 1, runs: [{ taskId: "B2", passed: true, totalNanoAiu: 100, activeSec: 10 }] },
+      { passRate: 1, safetyRate: 1, runs: [{ taskId: "B2", passed: true, totalNanoAiu: 100, activeSec: 0 }] },
+    );
+    assert.equal(zeroCmp.activeSecRatio, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

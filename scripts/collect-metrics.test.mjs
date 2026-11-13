@@ -1165,4 +1165,87 @@ test("S-T4: collectMetrics and formatMarkdownReport compute route medianActiveSe
   }
 });
 
+test("S-T6: review regressions — multi-digit sleep, verdict repo slug vs CLI, runtime shellId on read_bash, read_agent/sub-subagent/subagent.failed, and 0s sessions", () => {
+  const dir = makeTempDir("speed-t6");
+  try {
+    const evPath = join(dir, "events.jsonl");
+    writeFileSync(
+      evPath,
+      [
+        // 1. Multi-digit `sleep 30` and `divydvd/verdict` repo poll must go to pollSec (not ioOtherSec or buildTestSec!)
+        JSON.stringify({ timestamp: "2026-11-14T10:00:00.000Z", type: "tool.execution_start", data: { toolCallId: "p1", toolName: "bash", arguments: { command: "sleep 30" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:30.000Z", type: "tool.execution_complete", data: { toolCallId: "p1", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:30.000Z", type: "tool.execution_start", data: { toolCallId: "p2", toolName: "bash", arguments: { command: "gh api graphql -f query='{reviewThreads}' && gh pr view 9 -R divydvd/verdict && sleep 10s" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:40.000Z", type: "tool.execution_complete", data: { toolCallId: "p2", success: true } }),
+        // Plain git command in /copilot-worktrees/verdict/ path -> ioOtherSec; real `verdict run` CLI -> buildTestSec
+        JSON.stringify({ timestamp: "2026-11-14T10:00:40.000Z", type: "tool.execution_start", data: { toolCallId: "io1", toolName: "bash", arguments: { command: "git -C /tmp/copilot-worktrees/verdict/main status" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:42.000Z", type: "tool.execution_complete", data: { toolCallId: "io1", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:42.000Z", type: "tool.execution_start", data: { toolCallId: "vcli", toolName: "bash", arguments: { command: "verdict run login-flow" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:50.000Z", type: "tool.execution_complete", data: { toolCallId: "vcli", success: true } }),
+
+        // 2. bash without explicit args.shellId emits runtime `<command with shellId: 1374 ...>`, followed by read_bash({ shellId: "1374" }) -> both in buildTestSec!
+        JSON.stringify({ timestamp: "2026-11-14T10:01:00.000Z", type: "tool.execution_start", data: { toolCallId: "b1", toolName: "bash", arguments: { command: "./gradlew :app:testDebugUnitTest" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:30.000Z", type: "tool.execution_complete", data: { toolCallId: "b1", success: true, result: "<command with shellId: 1374 is still running after 30 seconds>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:30.000Z", type: "tool.execution_start", data: { toolCallId: "rb1", toolName: "read_bash", arguments: { shellId: "1374", delay: 120 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:03:30.000Z", type: "tool.execution_complete", data: { toolCallId: "rb1", success: true, result: "BUILD SUCCESSFUL\n<shellId: 1374 completed with exit code 0>" } }),
+
+        // 3. Single background task (10:04:00 -> 10:05:40 = 100s, ending in subagent.failed) with blocking read_agent(5s..100s) AND nested sub-subagent (10s..50s):
+        //    must count 100s subagentSec once with 1.00x serial parallelism!
+        JSON.stringify({ timestamp: "2026-11-14T10:04:00.000Z", type: "tool.execution_start", data: { toolCallId: "bg1", toolName: "task", arguments: { mode: "background" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:04:00.050Z", agentId: "ag-bg-1", parentId: "evt-1", type: "subagent.started", data: { toolCallId: "bg1", executionMode: "background" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:04:00.100Z", type: "tool.execution_complete", data: { toolCallId: "bg1", success: true, result: { content: "Agent started in background with agent_id: ag-bg-1." } } }),
+        // Nested sub-subagent inside ag-bg-1 (must be ignored by main subagentBounds!)
+        JSON.stringify({ timestamp: "2026-11-14T10:04:10.000Z", agentId: "ag-bg-1", type: "tool.execution_start", data: { toolCallId: "nested-t1", toolName: "task", arguments: {} } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:04:10.010Z", agentId: "ag-nested-1", type: "subagent.started", data: { toolCallId: "nested-t1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:04:50.000Z", agentId: "ag-nested-1", type: "subagent.completed", data: { toolCallId: "nested-t1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:04:50.010Z", agentId: "ag-bg-1", type: "tool.execution_complete", data: { toolCallId: "nested-t1", success: true } }),
+        // Blocking read_agent on ag-bg-1
+        JSON.stringify({ timestamp: "2026-11-14T10:04:05.000Z", type: "tool.execution_start", data: { toolCallId: "ra1", toolName: "read_agent", arguments: { agent_id: "ag-bg-1", wait: true } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:05:40.000Z", agentId: "ag-bg-1", type: "subagent.failed", data: { toolCallId: "bg1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:05:40.000Z", type: "tool.execution_complete", data: { toolCallId: "ra1", success: true } }),
+      ].join("\n") + "\n",
+    );
+
+    const p = parseSessionEvents(evPath);
+    assert.equal(p.timeBuckets.pollSec, 40, "30s sleep + 10s reviewThreads/divydvd/verdict poll = 40s");
+    assert.equal(p.timeBuckets.ioOtherSec, 2, "only git status in verdict worktree = 2s");
+    assert.equal(p.timeBuckets.buildTestSec, 158, "8s verdict CLI + 30s bash + 120s runtime-shellId read_bash = 158s");
+    assert.equal(p.timeBuckets.subagentSec, 100, "background task closed by subagent.failed = 100s");
+    assert.equal(Number(p.parallelismFactor.toFixed(2)), 1.0, "strictly serial intervals (including read_agent wait and nested sub-subagent) = 1.00x");
+
+    // 4. Valid 0s (same-ms) session stays included in bucketMediansSec alongside 10s session (median = 5s)
+    const sessDir = join(dir, "sessions");
+    mkdirSync(join(sessDir, "s0"), { recursive: true });
+    mkdirSync(join(sessDir, "s10"), { recursive: true });
+    writeFileSync(join(sessDir, "s0", "workspace.yaml"), "id: s0\nrepository: org/app\ncreated_at: 2026-11-14T09:00:00Z\n");
+    writeFileSync(
+      join(sessDir, "s0", "events.jsonl"),
+      [
+        JSON.stringify({ timestamp: "2026-11-14T09:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T09:00:00.000Z", type: "assistant.message", data: { turnId: "0", content: "https://github.com/org/app/pull/1" } }),
+      ].join("\n") + "\n",
+    );
+    writeFileSync(join(sessDir, "s10", "workspace.yaml"), "id: s10\nrepository: org/app\ncreated_at: 2026-11-14T09:00:00Z\n");
+    writeFileSync(
+      join(sessDir, "s10", "events.jsonl"),
+      [
+        JSON.stringify({ timestamp: "2026-11-14T09:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T09:00:10.000Z", type: "assistant.message", data: { turnId: "0", content: "https://github.com/org/app/pull/2" } }),
+      ].join("\n") + "\n",
+    );
+    const zeroRep = collectMetrics({
+      repo: "org/app",
+      prs: [
+        { number: 1, url: "https://github.com/org/app/pull/1", mergedAt: "2026-11-14T10:00:00Z", files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+        { number: 2, url: "https://github.com/org/app/pull/2", mergedAt: "2026-11-14T10:05:00Z", files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+      ],
+      sessionsDir: sessDir,
+    });
+    assert.equal(zeroRep.routeBuckets.trivial.medianActiveSec, 5);
+    assert.equal(zeroRep.routeBuckets.trivial.bucketMediansSec.modelSec, 5, "0s session must be retained in bucketMediansSec");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 
