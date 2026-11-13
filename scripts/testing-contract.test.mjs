@@ -137,7 +137,7 @@ test("required gaps block ready claims while optional limits remain explicit", (
 
 test("CI runs the testing contract alongside existing suites", () => {
   const workflow = read(".github/workflows/check.yml");
-  for (const suite of ["testing-contract", "independent-review", "branch-maintenance", "device-handoff"]) {
+  for (const suite of ["testing-contract", "independent-review", "branch-maintenance", "device-handoff", "collect-metrics"]) {
     assert.ok(workflow.includes(`node --test scripts/${suite}.test.mjs`), `missing CI suite: ${suite}`);
   }
 });
@@ -291,4 +291,17 @@ test("infra review uses the existing map before adding an automatic check", () =
   assert.match(infra, /regression test/i);
   assert.match(infra, /known limitation/i);
   assert.match(infra, /live.*activat/i);
+});
+
+test("infra review runs the objective telemetry collector in shadow mode", () => {
+  const infra = read("skills/infra-review/SKILL.md");
+  assert.match(infra, /node .*scripts\/collect-metrics\.mjs/);
+  assert.match(infra, /shadow mode/i);
+  assert.match(infra, /14.*day.*survival|survival.*14.*day/i);
+  assert.match(infra, /work-ledger.*docs-only|docs-only.*work-ledger/i);
+  for (const route of ["trivial", "small", "multi-task"]) {
+    assert.ok(infra.includes(route), `missing route bucket: ${route}`);
+  }
+  assert.match(infra, /totalNanoAiu/);
+  assert.match(infra, /ambiguous/i);
 });

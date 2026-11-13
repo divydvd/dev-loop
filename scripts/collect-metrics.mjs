@@ -40,12 +40,9 @@ function sameSha(a, b) {
   return x.startsWith(y) || y.startsWith(x);
 }
 
-function runGit(checkoutDir, args) {
-  try {
-    return { ok: true, stdout: execFileSync("git", args, { cwd: checkoutDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 }) };
-  } catch {
-    return { ok: false, stdout: "" };
-  }
+function runGit(cwd, args) {
+  try { return { ok: true, stdout: execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 }) }; }
+  catch { return { ok: false, stdout: "" }; }
 }
 
 function median(values) {
@@ -55,10 +52,10 @@ function median(values) {
   return nums.length % 2 === 1 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
 }
 
-function mean(values) {
+const mean = (values) => {
   const nums = values.filter((v) => Number.isFinite(v));
   return nums.length ? nums.reduce((acc, v) => acc + v, 0) / nums.length : null;
-}
+};
 
 function prCommitSet(checkoutDir, mergeSha) {
   if (!mergeSha || !runGit(checkoutDir, ["rev-parse", "--verify", `${mergeSha}^1`]).ok) return null;
@@ -71,12 +68,9 @@ function blameCountsAtRef(checkoutDir, ref, filePath, cache) {
   if (cache.has(key)) return cache.get(key);
   const counts = new Map();
   if (runGit(checkoutDir, ["cat-file", "-e", `${ref}:${filePath}`]).ok) {
-    const blame = runGit(checkoutDir, ["blame", "--line-porcelain", ref, "--", filePath]);
-    if (blame.ok) {
-      for (const line of blame.stdout.split(/\r?\n/)) {
-        const m = line.match(/^([0-9a-f]{40})\s+\d+\s+\d+/);
-        if (m) counts.set(m[1], (counts.get(m[1]) || 0) + 1);
-      }
+    for (const line of runGit(checkoutDir, ["blame", "--line-porcelain", ref, "--", filePath]).stdout.split(/\r?\n/)) {
+      const m = line.match(/^([0-9a-f]{40})\s+\d+\s+\d+/);
+      if (m) counts.set(m[1], (counts.get(m[1]) || 0) + 1);
     }
   }
   cache.set(key, counts);
@@ -124,18 +118,12 @@ export function detectFixups(prs, { checkoutDir = null, windowDays = 14 } = {}) 
 
   const details = [], fixupSet = new Set(), regressedSet = new Set();
   const recordLink = (laterNum, targetNum, method, matched) => {
-    matched.add(targetNum);
-    fixupSet.add(laterNum);
-    regressedSet.add(targetNum);
+    matched.add(targetNum); fixupSet.add(laterNum); regressedSet.add(targetNum);
     details.push({ fixupPr: laterNum, targetPr: targetNum, method });
   };
-
   for (let i = 0; i < sorted.length; i++) {
-    const later = sorted[i];
-    const laterMs = Date.parse(later.mergedAt || later.createdAt || "");
-    const text = `${later.title || ""}\n${later.body || ""}`;
-    const matchedTargets = new Set();
-
+    const later = sorted[i], laterMs = Date.parse(later.mergedAt || later.createdAt || "");
+    const text = `${later.title || ""}\n${later.body || ""}`, matchedTargets = new Set();
     if (FIX_SIGNAL_RE.test(text)) {
       for (const m of text.matchAll(/#(\d+)\b/g)) {
         const refNum = Number(m[1]);
@@ -146,33 +134,28 @@ export function detectFixups(prs, { checkoutDir = null, windowDays = 14 } = {}) 
         }
       }
     }
-
     const isBugfixPr = BUGFIX_TITLE_RE.test(String(later.title || "").trim()) || /\b(?:revert|regression|fix-up|fixup)\b/i.test(text);
     const mergeSha = later?.mergeCommit?.oid || later?.headRefOid;
     if (!hasGit || !isBugfixPr || !mergeSha || !runGit(checkoutDir, ["rev-parse", "--verify", `${mergeSha}^1`]).ok) continue;
-    const diff = runGit(checkoutDir, ["diff", "-U0", `${mergeSha}^1`, mergeSha]);
     let currentFile = null;
-    for (const line of diff.stdout.split(/\r?\n/)) {
+    for (const line of runGit(checkoutDir, ["diff", "-U0", `${mergeSha}^1`, mergeSha]).stdout.split(/\r?\n/)) {
       if (line.startsWith("--- a/")) currentFile = line.slice(6);
       else if (line.startsWith("--- /dev/null")) currentFile = null;
       else if (currentFile && isProductionPath(currentFile) && line.startsWith("@@ ")) {
         const hm = line.match(/^@@ -(\d+)(?:,(\d+))?\s+\+/);
         const start = Number(hm?.[1] || 0), count = hm?.[2] === undefined ? 1 : Number(hm[2]);
         if (start <= 0 || count <= 0) continue;
-        const blame = runGit(checkoutDir, ["blame", "-L", `${start},+${count}`, "--line-porcelain", `${mergeSha}^1`, "--", currentFile]);
-        for (const bl of blame.stdout.split(/\r?\n/)) {
+        for (const bl of runGit(checkoutDir, ["blame", "-L", `${start},+${count}`, "--line-porcelain", `${mergeSha}^1`, "--", currentFile]).stdout.split(/\r?\n/)) {
           const sm = bl.match(/^([0-9a-f]{40})\s+\d+\s+\d+/);
           const owner = sm ? shaOwner.get(sm[1]) : null;
-          if (!owner || owner.number === later.number || matchedTargets.has(owner.number)) continue;
-          const ownerMs = Date.parse(owner.mergedAt || owner.createdAt || "");
-          if (Number.isFinite(laterMs) && Number.isFinite(ownerMs) && laterMs >= ownerMs && laterMs - ownerMs <= windowMs) {
+          const ownerMs = owner ? Date.parse(owner.mergedAt || owner.createdAt || "") : NaN;
+          if (owner && owner.number !== later.number && !matchedTargets.has(owner.number) && Number.isFinite(laterMs) && Number.isFinite(ownerMs) && laterMs >= ownerMs && laterMs - ownerMs <= windowMs) {
             recordLink(later.number, owner.number, "blame_churn", matchedTargets);
           }
         }
       }
     }
   }
-
   return { count: fixupSet.size, fixupPrNumbers: [...fixupSet].sort((a, b) => a - b), regressedPrNumbers: [...regressedSet].sort((a, b) => a - b), details };
 }
 
@@ -191,24 +174,18 @@ export function verifyPrEvidence(pr, { repo = "", ledgerData = null, checkoutDir
   const hasProd = (pr?.files || []).some((f) => isProductionPath(f.path) && Number(f.additions || 0) + Number(f.deletions || 0) > 0);
   if (Array.isArray(pr?.files) && !hasProd) return { verified: true, status: "exempt_no_prod_code", testedSha: null };
   if (!ledgerData) return { verified: null, status: "unavailable", testedSha: null };
-
-  const head = pr?.headRefOid;
-  const validatedShas = collectLedgerValidatedShas(ledgerData, repo);
+  const head = pr?.headRefOid, validatedShas = collectLedgerValidatedShas(ledgerData, repo);
   const direct = validatedShas.find((s) => sameSha(s, head));
   if (direct) return { verified: true, status: "verified_head", testedSha: direct };
-
   if (checkoutDir && existsSync(checkoutDir) && head) {
     const ancestors = runGit(checkoutDir, ["rev-list", "--first-parent", "--max-count=30", head]);
-    if (ancestors.ok) {
-      for (const anc of ancestors.stdout.split(/\s+/).filter(Boolean).slice(1)) {
-        if (!validatedShas.some((s) => sameSha(s, anc))) continue;
-        const diff = runGit(checkoutDir, ["diff", "--name-only", anc, head]);
-        if (!diff.ok) break;
-        const changed = diff.stdout.split(/\r?\n/).filter(Boolean);
-        return changed.every((f) => !isProductionPath(f))
-          ? { verified: true, status: "verified_ancestry_docs_only", testedSha: anc }
-          : { verified: false, status: "unverified_prod_after_test", testedSha: anc };
-      }
+    for (const anc of ancestors.ok ? ancestors.stdout.split(/\s+/).filter(Boolean).slice(1) : []) {
+      if (!validatedShas.some((s) => sameSha(s, anc))) continue;
+      const diff = runGit(checkoutDir, ["diff", "--name-only", anc, head]);
+      if (!diff.ok) break;
+      return diff.stdout.split(/\r?\n/).filter(Boolean).every((f) => !isProductionPath(f))
+        ? { verified: true, status: "verified_ancestry_docs_only", testedSha: anc }
+        : { verified: false, status: "unverified_prod_after_test", testedSha: anc };
     }
   }
   return { verified: false, status: "unverified", testedSha: null };
@@ -306,36 +283,25 @@ function readJsonSafe(filePath) {
 
 export function collectMetrics({ repo = "", prs = [], from = null, to = null, maturityDays = 14, checkoutDir = null, ledgerDir = null, sessionsDir = null, targetRef = "HEAD" } = {}) {
   const fromMs = from ? Date.parse(from) : -Infinity, toMs = to ? Date.parse(to) : Infinity;
-  const windowPrs = prs.filter((pr) => {
-    const m = Date.parse(pr.mergedAt || pr.createdAt || "");
-    return !Number.isFinite(m) || (m >= fromMs && m < toMs);
-  });
-
+  const windowPrs = prs.filter((pr) => { const m = Date.parse(pr.mergedAt || pr.createdAt || ""); return !Number.isFinite(m) || (m >= fromMs && m < toMs); });
   const matureCutoffMs = (Number.isFinite(toMs) ? toMs : Date.now()) - maturityDays * DAY_MS;
   const maturePrs = prs.filter((pr) => Number.isFinite(Date.parse(pr.mergedAt || "")) && Date.parse(pr.mergedAt) <= matureCutoffMs);
-  const codeSurvival = !checkoutDir || !existsSync(checkoutDir)
-    ? { status: "unavailable", addedLines: 0, survivingLines: 0, rate: null, perPr: [] }
-    : maturePrs.length === 0
-      ? { status: "no_mature_prs", addedLines: 0, survivingLines: 0, rate: null, perPr: [] }
-      : computeCodeSurvival(maturePrs, { checkoutDir, targetRef });
-
+  const codeSurvival = !checkoutDir || !existsSync(checkoutDir) ? { status: "unavailable", addedLines: 0, survivingLines: 0, rate: null, perPr: [] }
+    : maturePrs.length === 0 ? { status: "no_mature_prs", addedLines: 0, survivingLines: 0, rate: null, perPr: [] }
+    : computeCodeSurvival(maturePrs, { checkoutDir, targetRef });
   const fixups = detectFixups(prs, { checkoutDir, windowDays: maturityDays });
   const windowFixups = fixups.details.filter((d) => windowPrs.some((p) => p.number === d.fixupPr));
   const ledgerData = readJsonSafe(ledgerDir ? join(ledgerDir, "ledger.json") : null);
   const sessionAnalysis = analyzeSessions(windowPrs, { sessionsDir, repo });
-
   let verifiedCount = 0, verifiableCount = 0, firstPushGreenCount = 0, commitInfoCount = 0, totalRepeatMessages = 0, durablePassCount = 0;
   const buckets = { trivial: [], small: [], "multi-task": [] };
-
   for (const pr of windowPrs) {
-    const route = classifyRoute(pr), prodLines = productionLinesChanged(pr);
-    const ev = verifyPrEvidence(pr, { repo, ledgerData, checkoutDir });
+    const route = classifyRoute(pr), prodLines = productionLinesChanged(pr), ev = verifyPrEvidence(pr, { repo, ledgerData, checkoutDir });
     if (ev.verified !== null) { verifiableCount += 1; if (ev.verified) verifiedCount += 1; }
     let firstPushGreen = null;
     if (Array.isArray(pr.commits) && pr.createdAt) {
       commitInfoCount += 1;
-      const openMs = Date.parse(pr.createdAt);
-      firstPushGreen = pr.commits.filter((c) => Date.parse(c.committedDate || c.authoredDate || "") > openMs).length === 0;
+      firstPushGreen = pr.commits.filter((c) => Date.parse(c.committedDate || c.authoredDate || "") > Date.parse(pr.createdAt)).length === 0;
       if (firstPushGreen) firstPushGreenCount += 1;
     }
     const sess = sessionAnalysis.perPr[pr.number] || { attribution: "unmatched" };
