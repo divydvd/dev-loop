@@ -720,7 +720,7 @@ test("T10: Copilot review regressions — mixed commit_missing cohort, missing r
     assert.equal(mixedSurvival.perPr[0].rate, 1);
 
     // 2. Session without `repository:` in workspace.yaml must be excluded when `repo` is specified;
-    //    cross-window shared session (handling PR #10 before `from` and PR #11 inside `[from, to)`) must mark #11 `ambiguous` and surface deduplicated sharedSession summary!
+    //    cross-window shared session (handling PR #10 before `from`, PR #11 inside `[from, to)`, and PR #12 AFTER `to`) must mark #11 `ambiguous` and surface deduplicated sharedSession summary!
     const sNoRepo = join(sessionsDir, "s-no-repo");
     mkdirSync(sNoRepo, { recursive: true });
     writeFileSync(join(sNoRepo, "workspace.yaml"), "id: s-no-repo\ncreated_at: 2026-11-01T00:00:00Z\n");
@@ -739,7 +739,7 @@ test("T10: Copilot review regressions — mixed commit_missing cohort, missing r
       join(sCross, "events.jsonl"),
       [
         JSON.stringify({ type: "assistant.turn_start", data: { turnId: "1" } }),
-        JSON.stringify({ type: "assistant.message", data: { content: "https://github.com/org/app/pull/10 and https://github.com/org/app/pull/11" } }),
+        JSON.stringify({ type: "assistant.message", data: { content: "https://github.com/org/app/pull/11 and https://github.com/org/app/pull/12" } }),
         JSON.stringify({ type: "session.usage_checkpoint", data: { totalNanoAiu: 450000 } }),
       ].join("\n") + "\n",
     );
@@ -747,8 +747,10 @@ test("T10: Copilot review regressions — mixed commit_missing cohort, missing r
     const crossRep = collectMetrics({
       repo: "org/app",
       prs: [
-        { number: 10, title: "feat: pre-window", url: "https://github.com/org/app/pull/10", mergedAt: "2026-11-04T10:00:00Z", headRefOid: sha1, mergeCommit: { oid: sha1 }, files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+        // Pre-cohort PR #5 (older than from - 14d) with missing commit must NOT poison fixupStatus!
+        { number: 5, title: "feat: very old", mergedAt: "2026-09-01T10:00:00Z", headRefOid: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", mergeCommit: { oid: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" }, files: [{ path: "src/old.js", additions: 5, deletions: 0 }] },
         { number: 11, title: "feat: in-window", url: "https://github.com/org/app/pull/11", mergedAt: "2026-11-10T10:00:00Z", headRefOid: sha1, mergeCommit: { oid: sha1 }, files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+        { number: 12, title: "feat: post-to-window", url: "https://github.com/org/app/pull/12", mergedAt: "2026-11-14T10:00:00Z", headRefOid: sha1, mergeCommit: { oid: sha1 }, files: [{ path: "README.md", additions: 1, deletions: 0 }] },
       ],
       from: "2026-11-06T00:00:00Z",
       to: "2026-11-13T00:00:00Z",
@@ -756,13 +758,14 @@ test("T10: Copilot review regressions — mixed commit_missing cohort, missing r
       sessionsDir,
       targetRef: sha1,
     });
-    assert.deepEqual(crossRep.autonomy.sharedPrNumbers, [11], "in-window PR #11 shares s-cross with pre-window PR #10");
-    assert.equal(crossRep.durableFirstPassYield.eligibleCount, 0, "cross-window shared session must not be treated as unique");
+    assert.equal(crossRep.durability.fixupStatus, "ok", "ancient pre-cohort PR #5 must not poison fixupStatus");
+    assert.deepEqual(crossRep.autonomy.sharedPrNumbers, [11], "in-window PR #11 shares s-cross with post-to PR #12");
+    assert.equal(crossRep.durableFirstPassYield.eligibleCount, 0, "cross-to shared session must not be treated as unique");
     assert.equal(crossRep.autonomy.sharedSessions.length, 1);
     assert.equal(crossRep.autonomy.sharedSessions[0].totalNanoAiu, 450000);
     assert.match(formatMarkdownReport(crossRep), /4\.50e\+5/);
 
-    // 3. Truncated PR pagination marks affected metrics `prs_truncated`
+    // 3. Truncated PR pagination marks affected metrics `prs_truncated` and suppresses route session medians
     const truncFetch = fetchMergedPrs("org/app", {
       maxPages: 1,
       execFn: () =>
@@ -802,10 +805,13 @@ test("T10: Copilot review regressions — mixed commit_missing cohort, missing r
       sessionsDir,
       targetRef: sha1,
     });
+    assert.equal(truncRep.prsTruncated, true);
     assert.equal(truncRep.durability.codeSurvival.status, "prs_truncated");
     assert.equal(truncRep.durability.fixupStatus, "prs_truncated");
     assert.equal(truncRep.durableFirstPassYield.status, "prs_truncated");
     assert.equal(truncRep.durableFirstPassYield.rate, null);
+    assert.equal(truncRep.routeBuckets.trivial.medianNanoAiu, null, "truncated PR list must not treat cross-page session as unique");
+    assert.match(formatMarkdownReport(truncRep), /First-push green rate \| n\/a \(prs_truncated\)/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(sessionsDir, { recursive: true, force: true });

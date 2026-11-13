@@ -109,6 +109,8 @@ export function computeCodeSurvival(prs, { checkoutDir, targetRef = "HEAD" } = {
   return { status: hasMissing ? "commit_missing" : "ok", addedLines: totalAdded, survivingLines: totalSurviving, rate: !hasMissing && totalAdded > 0 ? totalSurviving / totalAdded : null, perPr };
 }
 
+const mayTouchProd = (pr) => Boolean(pr?.filesTruncated || !Array.isArray(pr?.files) || productionLinesChanged(pr) > 0);
+
 export function detectFixups(prs, { repo = "", checkoutDir = null, windowDays = 14 } = {}) {
   const windowMs = windowDays * DAY_MS;
   const sorted = [...(prs || [])].sort((a, b) => Date.parse(a.mergedAt || a.createdAt || 0) - Date.parse(b.mergedAt || b.createdAt || 0));
@@ -118,7 +120,7 @@ export function detectFixups(prs, { repo = "", checkoutDir = null, windowDays = 
     for (const pr of sorted) {
       const shas = prCommitSet(checkoutDir, pr?.mergeCommit?.oid || pr?.headRefOid);
       if (shas) for (const sha of shas) shaOwner.set(sha, pr);
-      else if (productionLinesChanged(pr) > 0) missingCommit = true;
+      else if (mayTouchProd(pr)) missingCommit = true;
     }
   }
   const details = [], fixupSet = new Set(), regressedSet = new Set();
@@ -141,7 +143,7 @@ export function detectFixups(prs, { repo = "", checkoutDir = null, windowDays = 
     }
     const isBugfixPr = BUGFIX_TITLE_RE.test(String(later.title || "").trim());
     const mergeSha = later?.mergeCommit?.oid || later?.headRefOid;
-    if (!hasGit || !isBugfixPr) continue;
+    if (!hasGit || !isBugfixPr || !mayTouchProd(later)) continue;
     if (!SHA_RE.test(String(mergeSha || "")) || !runGit(checkoutDir, ["rev-parse", "--verify", `${mergeSha}^1`]).ok) { missingCommit = true; continue; }
     let currentFile = null;
     for (const line of runGit(checkoutDir, ["diff", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U0", `${mergeSha}^1`, mergeSha]).stdout.split(/\r?\n/)) {
@@ -162,8 +164,7 @@ export function detectFixups(prs, { repo = "", checkoutDir = null, windowDays = 
       }
     }
   }
-  const anyProdPr = sorted.some((pr) => pr?.filesTruncated || !Array.isArray(pr?.files) || productionLinesChanged(pr) > 0);
-  const status = !hasGit && anyProdPr ? "blame_unavailable" : missingCommit ? "commit_missing" : "ok";
+  const status = !hasGit && sorted.some(mayTouchProd) ? "blame_unavailable" : missingCommit ? "commit_missing" : "ok";
   return { status, count: fixupSet.size, fixupPrNumbers: [...fixupSet].sort((a, b) => a - b), regressedPrNumbers: [...regressedSet].sort((a, b) => a - b), details };
 }
 
@@ -306,13 +307,14 @@ export function collectMetrics({ repo = "", prs = [], prsTruncated = false, from
   const windowPrs = prsUpToEnd.filter((pr) => { const m = Date.parse(pr.mergedAt || pr.createdAt || ""); return !Number.isFinite(m) || m >= fromMs; });
   const matureLowerMs = Number.isFinite(fromMs) ? fromMs - maturityDays * DAY_MS : -Infinity, matureCutoffMs = (Number.isFinite(toMs) ? toMs : Date.now()) - maturityDays * DAY_MS;
   const maturePrs = prsUpToEnd.filter((pr) => { const m = Date.parse(pr.mergedAt || ""); return Number.isFinite(m) && m >= matureLowerMs && m <= matureCutoffMs; });
+  const fixupCohort = prsUpToEnd.filter((pr) => { const m = Date.parse(pr.mergedAt || pr.createdAt || ""); return !Number.isFinite(m) || m >= matureLowerMs; });
   const codeSurvival = truncated ? { status: "prs_truncated", addedLines: 0, survivingLines: 0, rate: null, perPr: [] }
     : !checkoutDir || !existsSync(checkoutDir) ? { status: "unavailable", addedLines: 0, survivingLines: 0, rate: null, perPr: [] }
     : maturePrs.length === 0 ? { status: "no_mature_prs", addedLines: 0, survivingLines: 0, rate: null, perPr: [] } : computeCodeSurvival(maturePrs, { checkoutDir, targetRef });
-  const fixups = detectFixups(prsUpToEnd, { repo, checkoutDir, windowDays: maturityDays }), fixupStatus = truncated ? "prs_truncated" : fixups.status;
+  const fixups = detectFixups(fixupCohort, { repo, checkoutDir, windowDays: maturityDays }), fixupStatus = truncated ? "prs_truncated" : fixups.status;
   const windowFixups = fixups.details.filter((d) => windowPrs.some((p) => p.number === d.fixupPr));
   const ledgerData = readJsonSafe(ledgerDir ? join(ledgerDir, "ledger.json") : null);
-  const sessionAnalysis = analyzeSessions(prsUpToEnd, { sessionsDir, repo, windowPrNumbers: windowPrs.map((p) => p.number) });
+  const sessionAnalysis = analyzeSessions(prs, { sessionsDir, repo, windowPrNumbers: windowPrs.map((p) => p.number) });
   let verifiedCount = 0, verifiableCount = 0, firstPushGreenCount = 0, commitInfoCount = 0, durablePassCount = 0, eligibleYieldCount = 0;
   const buckets = { trivial: [], small: [], "multi-task": [] };
   for (const pr of windowPrs) {
@@ -333,17 +335,17 @@ export function collectMetrics({ repo = "", prs = [], prsTruncated = false, from
     buckets[route].push({ number: pr.number, prodLines, session: sess, evidence: ev, firstPushGreen });
   }
   const routeBuckets = Object.fromEntries(Object.entries(buckets).map(([route, items]) => {
-    const u = items.filter((i) => i.session?.attribution === "unique");
-    return [route, { count: items.length, uniqueSessions: u.length, medianProdLines: median(items.map((i) => i.prodLines)), medianNanoAiu: median(u.map((i) => i.session.totalNanoAiu)), meanModelCalls: mean(u.map((i) => i.session.modelCalls)), medianDuplicateReadRate: median(u.map((i) => i.session.duplicateReadRate)) }];
+    const u = truncated ? [] : items.filter((i) => i.session?.attribution === "unique");
+    return [route, { count: items.length, uniqueSessions: u.length, medianProdLines: truncated ? null : median(items.map((i) => i.prodLines)), medianNanoAiu: median(u.map((i) => i.session.totalNanoAiu)), meanModelCalls: mean(u.map((i) => i.session.modelCalls)), medianDuplicateReadRate: median(u.map((i) => i.session.duplicateReadRate)) }];
   }));
   const allVerifiable = verifiableCount === windowPrs.length;
   const verificationStatus = truncated ? "prs_truncated" : windowPrs.length === 0 ? "no_prs" : ledgerData ? "ok" : allVerifiable ? "exempt_only" : "unavailable";
   const yieldStatus = truncated ? "prs_truncated" : windowPrs.length === 0 ? "no_prs" : !allVerifiable ? "ledger_unavailable" : fixupStatus !== "ok" ? fixupStatus : sessionAnalysis.status !== "ok" ? "sessions_unavailable" : eligibleYieldCount === 0 ? "no_attributed_sessions" : "ok";
   return {
-    repo, window: { from, to, maturityDays }, mergedPrCount: windowPrs.length, medianProdLines: median(windowPrs.map((p) => productionLinesChanged(p))),
+    repo, prsTruncated: truncated, window: { from, to, maturityDays }, mergedPrCount: windowPrs.length, medianProdLines: truncated ? null : median(windowPrs.map((p) => productionLinesChanged(p))),
     durability: { codeSurvival, fixupStatus, fixupPrCount: new Set(windowFixups.map((d) => d.fixupPr)).size, fixups: windowFixups },
     verification: { status: verificationStatus, verifiedCount, verifiableCount, rate: verificationStatus === "ok" || verificationStatus === "exempt_only" ? verifiedCount / windowPrs.length : null },
-    autonomy: { firstPushGreenCount, commitInfoCount, firstPushGreenRate: !truncated && commitInfoCount > 0 ? firstPushGreenCount / commitInfoCount : null, ownerRepeatMessages: sessionAnalysis.totalOwnerRepeatMessages, sharedPrNumbers: sessionAnalysis.sharedPrNumbers, sharedSessions: sessionAnalysis.sharedSessions },
+    autonomy: { status: truncated ? "prs_truncated" : sessionAnalysis.status, firstPushGreenCount, commitInfoCount, firstPushGreenRate: !truncated && commitInfoCount > 0 ? firstPushGreenCount / commitInfoCount : null, ownerRepeatMessages: truncated ? null : sessionAnalysis.totalOwnerRepeatMessages, sharedPrNumbers: truncated ? [] : sessionAnalysis.sharedPrNumbers, sharedSessions: truncated ? [] : sessionAnalysis.sharedSessions },
     durableFirstPassYield: { status: yieldStatus, passedCount: yieldStatus === "ok" ? durablePassCount : 0, eligibleCount: yieldStatus === "ok" ? eligibleYieldCount : 0, rate: yieldStatus === "ok" ? durablePassCount / eligibleYieldCount : null },
     routeBuckets,
   };
@@ -354,18 +356,20 @@ const fmtNum = (n, digits = 1) => (Number.isFinite(n) ? n.toFixed(digits) : "n/a
 export function formatMarkdownReport(r) {
   const cs = r.durability.codeSurvival;
   const survivalCell = cs.rate !== null ? fmtPct(cs.survivingLines, cs.addedLines, cs.rate) : `n/a (${cs.status === "ok" ? "no_added_prod_lines" : cs.status})`;
-  const fixupCell = r.durability.fixupStatus === "ok" ? String(r.durability.fixupPrCount) : `n/a (${r.durability.fixupStatus}; explicit refs: ${r.durability.fixupPrCount})`;
+  const partialLabel = r.durability.fixupStatus === "blame_unavailable" ? "explicit refs" : "detected";
+  const fixupCell = r.durability.fixupStatus === "ok" ? String(r.durability.fixupPrCount) : `n/a (${r.durability.fixupStatus}; ${partialLabel}: ${r.durability.fixupPrCount})`;
   const verifyCell = r.verification.rate !== null ? fmtPct(r.verification.verifiedCount, r.mergedPrCount, r.verification.rate) : `n/a (${r.verification.status})`;
-  const greenCell = r.autonomy.firstPushGreenRate !== null ? fmtPct(r.autonomy.firstPushGreenCount, r.autonomy.commitInfoCount, r.autonomy.firstPushGreenRate) : `n/a (${r.mergedPrCount === 0 ? "no_prs" : "no_commits"})`;
+  const greenCell = r.autonomy.firstPushGreenRate !== null ? fmtPct(r.autonomy.firstPushGreenCount, r.autonomy.commitInfoCount, r.autonomy.firstPushGreenRate) : `n/a (${r.prsTruncated ? "prs_truncated" : r.mergedPrCount === 0 ? "no_prs" : "no_commits"})`;
   const yieldCell = r.durableFirstPassYield.rate !== null ? fmtPct(r.durableFirstPassYield.passedCount, r.durableFirstPassYield.eligibleCount, r.durableFirstPassYield.rate) : `n/a (${r.durableFirstPassYield.status})`;
-  const sharedNote = r.autonomy.sharedSessions?.length
+  const repeatCell = r.autonomy.ownerRepeatMessages ?? `n/a (${r.autonomy.status || "unavailable"})`;
+  const sharedNote = r.prsTruncated ? "n/a (prs_truncated)" : r.autonomy.sharedSessions?.length
     ? r.autonomy.sharedSessions.map((s) => `ambiguous on #${s.inWindowPrNumbers.join(", #")} (${s.totalNanoAiu !== null ? s.totalNanoAiu.toExponential(2) : "n/a"} nanoAIU, ${s.modelCalls} calls)`).join("; ")
     : "none";
   const routeRows = ["trivial", "small", "multi-task"].map((route) => {
     const b = r.routeBuckets[route];
     return `| ${route} | ${b.count} | ${b.uniqueSessions} | ${fmtNum(b.medianProdLines, 0)} | ${b.medianNanoAiu !== null ? b.medianNanoAiu.toExponential(2) : "n/a"} | ${fmtNum(b.meanModelCalls, 1)} | ${b.medianDuplicateReadRate !== null ? `${(b.medianDuplicateReadRate * 100).toFixed(1)}%` : "n/a"} |`;
   });
-  return [`### Shadow-mode objective telemetry (${r.repo || "repo"})`, "| Objective measure | Value | Target |", "| --- | --- | --- |", `| Durable first-pass yield | ${yieldCell} | 90.0% or higher |`, `| Code survival rate (${r.window.maturityDays}d) | ${survivalCell} | 95.0% or higher |`, `| Fix-up PRs (${r.window.maturityDays}d, ref + blame) | ${fixupCell} | 0 |`, `| Ledger + ancestry verified merges | ${verifyCell} | 100.0% |`, `| First-push green rate | ${greenCell} | 70.0% or higher |`, `| Owner repeat-rule messages (matched sessions) | ${r.autonomy.ownerRepeatMessages ?? "n/a"} | 0 |`, `| Shared-session PRs (excluded from per-PR cost) | ${sharedNote} | observe |`, "", "| Task route | PRs | Unique sessions | Median prod lines | Median `totalNanoAiu` | Mean model calls | Median duplicate read |", "| --- | --- | --- | --- | --- | --- | --- |", ...routeRows].join("\n");
+  return [`### Shadow-mode objective telemetry (${r.repo || "repo"})`, "| Objective measure | Value | Target |", "| --- | --- | --- |", `| Durable first-pass yield | ${yieldCell} | 90.0% or higher |`, `| Code survival rate (${r.window.maturityDays}d) | ${survivalCell} | 95.0% or higher |`, `| Fix-up PRs (${r.window.maturityDays}d, ref + blame) | ${fixupCell} | 0 |`, `| Ledger + ancestry verified merges | ${verifyCell} | 100.0% |`, `| First-push green rate | ${greenCell} | 70.0% or higher |`, `| Owner repeat-rule messages (matched sessions) | ${repeatCell} | 0 |`, `| Shared-session PRs (excluded from per-PR cost) | ${sharedNote} | observe |`, "", "| Task route | PRs | Unique sessions | Median prod lines | Median `totalNanoAiu` | Mean model calls | Median duplicate read |", "| --- | --- | --- | --- | --- | --- | --- |", ...routeRows].join("\n");
 }
 
 const PR_GRAPHQL_QUERY = "query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(states:MERGED,first:50,after:$cursor,orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor} nodes{number title url body createdAt mergedAt updatedAt headRefOid mergeCommit{oid} files(first:100){pageInfo{hasNextPage} nodes{path additions deletions}} commits(last:50){totalCount nodes{commit{committedDate}}}}}}}";
