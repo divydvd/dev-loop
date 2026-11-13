@@ -11,6 +11,7 @@ import {
   collectMetrics,
   computeCodeSurvival,
   detectFixups,
+  fetchMergedPrs,
   formatMarkdownReport,
   isProductionPath,
   verifyPrEvidence,
@@ -178,7 +179,7 @@ test("T3: detectFixups catches 14-day explicit fix/revert refs and bug-fix blame
     git(dir, ["commit", "-m", "fix: guard null user token (#12)"]);
     const sha12 = git(dir, ["rev-parse", "HEAD"]);
 
-    // PR 13: feature touching auth.js (not a fix/revert)
+    // PR 13: feature touching auth.js whose body has dev-loop PR template boilerplate ("Regression selection", "Fixed findings") + mentions #10
     writeFileSync(join(dir, "src/auth.js"), "export function login(u) {\n  return u?.token ?? null;\n}\nexport const v = 2;\n");
     git(dir, ["add", "."]);
     git(dir, ["commit", "-m", "feat: export auth version (#13)"]);
@@ -192,15 +193,16 @@ test("T3: detectFixups catches 14-day explicit fix/revert refs and bug-fix blame
 
     const prs = [
       { number: 10, title: "feat: add login", body: "", mergedAt: "2026-11-01T10:00:00Z", mergeCommit: { oid: sha10 } },
-      { number: 11, title: "fix: post-merge config", body: "Fixes regression introduced by #10.", mergedAt: "2026-11-04T10:00:00Z", mergeCommit: { oid: sha11 } },
+      { number: 11, title: "fix: post-merge config", body: "Fixes regression introduced by #10. Also fixes #10.", mergedAt: "2026-11-04T10:00:00Z", mergeCommit: { oid: sha11 } },
       { number: 12, title: "fix: guard null user token", body: "Null check.", mergedAt: "2026-11-06T10:00:00Z", mergeCommit: { oid: sha12 } },
-      { number: 13, title: "feat: export auth version", body: "Adds v.", mergedAt: "2026-11-07T10:00:00Z", mergeCommit: { oid: sha13 } },
+      { number: 13, title: "Improve auth version export", body: "- Regression selection: reuse CI.\n- Fixed findings: None.\nPreserves merged #10.", mergedAt: "2026-11-07T10:00:00Z", mergeCommit: { oid: sha13 } },
       { number: 14, title: "fix: old edge case", body: "Fixes #10.", mergedAt: "2026-11-22T10:00:00Z", mergeCommit: { oid: sha14 } },
     ];
 
     const fixups = detectFixups(prs, { checkoutDir: dir, windowDays: 14 });
     assert.deepEqual(fixups.fixupPrNumbers, [11, 12]);
     assert.deepEqual(fixups.regressedPrNumbers, [10]);
+    assert.equal(fixups.details.length, 2, "must deduplicate repeated refs and ignore PR template boilerplate");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -300,10 +302,14 @@ test("T5 & T6: analyzeSessions handles cumulative totalNanoAiu, edit-aware dupli
       JSON.stringify({ type: "tool.execution_complete", data: { toolCallId: "c3", success: true, result: { content: "edited" } } }),
       JSON.stringify({ type: "tool.execution_start", data: { toolCallId: "c4", toolName: "view", arguments: { path: "/w/src/a.js" } } }),
       JSON.stringify({ type: "tool.execution_complete", data: { toolCallId: "c4", success: true, result: { content: "y".repeat(120) } } }), // post-edit, NOT duplicate
-      JSON.stringify({ type: "tool.execution_start", data: { toolCallId: "c5", toolName: "view", arguments: { path: "/w/src/b.js" } } }),
-      JSON.stringify({ type: "tool.execution_complete", data: { toolCallId: "c5", success: true, result: { content: "z".repeat(80) } } }),
+      JSON.stringify({ type: "tool.execution_start", data: { toolCallId: "c5", toolName: "view", arguments: { path: "/w/src/b.js", view_range: [1, 50] } } }),
+      JSON.stringify({ type: "tool.execution_complete", data: { toolCallId: "c5", success: true, result: { content: "z".repeat(40) } } }),
+      JSON.stringify({ type: "tool.execution_start", data: { toolCallId: "c6", toolName: "view", arguments: { path: "/w/src/b.js", view_range: [51, 100] } } }),
+      JSON.stringify({ type: "tool.execution_complete", data: { toolCallId: "c6", success: true, result: { content: "w".repeat(40) } } }), // disjoint chunk -> NOT duplicate!
       JSON.stringify({ type: "session.usage_checkpoint", data: { totalNanoAiu: 100000 } }),
       JSON.stringify({ type: "user.message", agentId: "sub-1", data: { content: "Keep small PRs and run device test" } }), // subagent (ignored)
+      JSON.stringify({ type: "user.message", data: { source: "agent-other-session", content: "Please check independent review and small PRs" } }), // data.source agent (ignored!)
+      JSON.stringify({ type: "user.message", data: { source: "system", content: "System reminder: run device test" } }), // data.source system (ignored!)
       JSON.stringify({ type: "user.message", data: { content: "<skill-context name=\"dev-loop\">keep small PRs</skill-context>" } }), // skill injection (ignored)
       JSON.stringify({ type: "user.message", data: { content: "Please run the device test before you report done" } }), // owner repeat rule (counted!)
       JSON.stringify({ type: "user.message", data: { content: "merge #31" } }), // approval (ignored)
@@ -488,4 +494,44 @@ test("T6 & T7: collectMetrics and CLI compute route medians, firstPushGreenRate,
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("T8: fetchMergedPrs uses bounded GraphQL without authors and normalizes nested files and commits", () => {
+  const calls = [];
+  const fakeExec = (cmd, args) => {
+    calls.push({ cmd, args });
+    return JSON.stringify({
+      data: {
+        repository: {
+          pullRequests: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              {
+                number: 34,
+                title: "Improve failure classification",
+                url: "https://github.com/divydvd/dev-loop/pull/34",
+                body: "",
+                createdAt: "2026-11-11T13:46:07Z",
+                mergedAt: "2026-11-13T08:49:15Z",
+                headRefOid: "ae86c9d",
+                mergeCommit: { oid: "1234567" },
+                files: { nodes: [{ path: "skills/infra-review/SKILL.md", additions: 20, deletions: 2 }] },
+                commits: { nodes: [{ commit: { committedDate: "2026-11-11T13:44:26Z" } }] },
+              },
+            ],
+          },
+        },
+      },
+    });
+  };
+
+  const prs = fetchMergedPrs("divydvd/dev-loop", { execFn: fakeExec });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cmd, "gh");
+  assert.equal(calls[0].args[0], "api");
+  assert.equal(calls[0].args[1], "graphql");
+  assert.ok(!calls[0].args.join(" ").includes("authors"), "must not query authors connection");
+  assert.equal(prs.length, 1);
+  assert.deepEqual(prs[0].files, [{ path: "skills/infra-review/SKILL.md", additions: 20, deletions: 2 }]);
+  assert.deepEqual(prs[0].commits, [{ committedDate: "2026-11-11T13:44:26Z" }]);
 });

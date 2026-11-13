@@ -11,8 +11,8 @@ const DAY_MS = 86_400_000;
 const SHA_RE = /^[0-9a-f]{7,40}$/i;
 const REPEAT_RULE_RE = /\b(?:device\s+test|small\s+prs?|400\s+lines|do\s+not\s+rebase|no\s+rebase|force[\s-]push|flow\s+docs?|independent\s+review|keep\s+it\s+simple|status\s+update|what(?:'s|\s+is)\s+the\s+status)\b/i;
 const NON_STEERING_PREFIX_RE = /^\s*(?:guards?\b|merge\s+#\d+|deploy\b|push\s+the\s+build\b|review\s+again\s+#\d+|away\s+mode\b|i'?m\s+back\b)/i;
-const FIX_SIGNAL_RE = /\b(?:fix(?:es|ed|up)?|fix-up|revert(?:s|ed)?|regress(?:ion|ed)?|broke|hotfix)\b|introduced\s+by\s+#\d+|after\s+#\d+/i;
-const BUGFIX_TITLE_RE = /^(?:fix|revert|hotfix)(?:\([^)]*\))?:/i;
+const EXPLICIT_FIXUP_RE = /\b(?:fix(?:es|ed|up)?|fix-up|revert(?:s|ed|ing)?(?:\s+of)?|regress(?:ion|ed)\s+(?:in|from|after)|broke\s+in|broken\s+by|introduced\s+(?:by|in)|after\s+regression\s+in)(?:\s+\w+){0,3}\s+(?:PR\s+)?#(\d+)\b/gi;
+const BUGFIX_TITLE_RE = /^(?:fix|revert|hotfix)(?:\([^)]*\))?:|\b(?:revert|fix-up|fixup|regression|hotfix)\b/i;
 
 export function isProductionPath(filePath) {
   const p = String(filePath || "").replace(/\\/g, "/").replace(/^\.\//, "");
@@ -124,17 +124,16 @@ export function detectFixups(prs, { checkoutDir = null, windowDays = 14 } = {}) 
   for (let i = 0; i < sorted.length; i++) {
     const later = sorted[i], laterMs = Date.parse(later.mergedAt || later.createdAt || "");
     const text = `${later.title || ""}\n${later.body || ""}`, matchedTargets = new Set();
-    if (FIX_SIGNAL_RE.test(text)) {
-      for (const m of text.matchAll(/#(\d+)\b/g)) {
-        const refNum = Number(m[1]);
-        const target = refNum !== later.number ? sorted.slice(0, i).find((p) => p.number === refNum) : null;
-        const targetMs = target ? Date.parse(target.mergedAt || target.createdAt || "") : NaN;
-        if (Number.isFinite(laterMs) && Number.isFinite(targetMs) && laterMs >= targetMs && laterMs - targetMs <= windowMs) {
-          recordLink(later.number, target.number, "explicit_ref", matchedTargets);
-        }
+    for (const m of text.matchAll(EXPLICIT_FIXUP_RE)) {
+      const refNum = Number(m[1]);
+      if (refNum === later.number || matchedTargets.has(refNum)) continue;
+      const target = sorted.slice(0, i).find((p) => p.number === refNum);
+      const targetMs = target ? Date.parse(target.mergedAt || target.createdAt || "") : NaN;
+      if (Number.isFinite(laterMs) && Number.isFinite(targetMs) && laterMs >= targetMs && laterMs - targetMs <= windowMs) {
+        recordLink(later.number, target.number, "explicit_ref", matchedTargets);
       }
     }
-    const isBugfixPr = BUGFIX_TITLE_RE.test(String(later.title || "").trim()) || /\b(?:revert|regression|fix-up|fixup)\b/i.test(text);
+    const isBugfixPr = BUGFIX_TITLE_RE.test(String(later.title || "").trim());
     const mergeSha = later?.mergeCommit?.oid || later?.headRefOid;
     if (!hasGit || !isBugfixPr || !mergeSha || !runGit(checkoutDir, ["rev-parse", "--verify", `${mergeSha}^1`]).ok) continue;
     let currentFile = null;
@@ -203,7 +202,7 @@ function parseWorkspaceYaml(filePath) {
 function parseSessionEvents(eventsPath) {
   const raw = readFileSync(eventsPath, "utf8");
   let latestNanoAiu = null, modelCalls = 0, compactions = 0, totalReadChars = 0, duplicateReadChars = 0, ownerRepeatMessages = 0, seenKickoff = false;
-  const toolStarts = new Map(), seenReadPaths = new Set();
+  const toolStarts = new Map(), seenReadsByPath = new Map();
   for (const line of raw.split(/\r?\n/)) {
     if (!line.trim()) continue;
     let evt;
@@ -215,18 +214,20 @@ function parseSessionEvents(eventsPath) {
     else if (type === "tool.execution_start" && data.toolCallId) {
       let args = data.arguments;
       if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = {}; } }
-      toolStarts.set(data.toolCallId, { toolName: data.toolName, path: args?.path || null });
+      const rangeKey = Array.isArray(args?.view_range) ? `${args.view_range[0]}:${args.view_range[1]}` : "full";
+      toolStarts.set(data.toolCallId, { toolName: data.toolName, path: args?.path || null, rangeKey });
     } else if (type === "tool.execution_complete" && data.success) {
       const start = toolStarts.get(data.toolCallId);
       if (!start?.path) continue;
-      if (start.toolName === "edit" || start.toolName === "create") seenReadPaths.delete(start.path);
+      if (start.toolName === "edit" || start.toolName === "create") seenReadsByPath.delete(start.path);
       else if (start.toolName === "view") {
         const len = String(typeof data.result === "string" ? data.result : data.result?.content ?? "").length;
         totalReadChars += len;
-        if (seenReadPaths.has(start.path)) duplicateReadChars += len;
-        else seenReadPaths.add(start.path);
+        const ranges = seenReadsByPath.get(start.path) || new Set();
+        if (ranges.has("full") || ranges.has(start.rangeKey)) duplicateReadChars += len;
+        else { ranges.add(start.rangeKey); seenReadsByPath.set(start.path, ranges); }
       }
-    } else if (type === "user.message" && !evt.agentId && !data.isAutopilotContinuation) {
+    } else if (type === "user.message" && !evt.agentId && !data.source && !data.isAutopilotContinuation) {
       const c = String(data.content ?? "");
       if (!c.trim() || c.includes("<skill-context") || c.includes("<cross_session_message") || c.includes("<system_notification") || NON_STEERING_PREFIX_RE.test(c)) continue;
       if (!seenKickoff) seenKickoff = true;
@@ -358,23 +359,30 @@ export function formatMarkdownReport(r) {
   ].join("\n");
 }
 
+const PR_GRAPHQL_QUERY = "query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(states:MERGED,first:50,after:$cursor,orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor} nodes{number title url body createdAt mergedAt headRefOid mergeCommit{oid} files(first:100){nodes{path additions deletions}} commits(first:50){nodes{commit{committedDate}}}}}}}";
+
+export function fetchMergedPrs(repo, { execFn = execFileSync, maxPages = 4 } = {}) {
+  const [owner, name] = String(repo || "").split("/");
+  if (!owner || !name) return [];
+  const out = [];
+  for (let page = 0, cursor = null; page < maxPages; page++) {
+    const args = ["api", "graphql", "-F", `owner=${owner}`, "-F", `name=${name}`, "-f", `query=${PR_GRAPHQL_QUERY}`, ...(cursor ? ["-F", `cursor=${cursor}`] : [])];
+    const conn = JSON.parse(execFn("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }))?.data?.repository?.pullRequests;
+    for (const n of conn?.nodes || []) out.push({ ...n, files: n.files?.nodes || [], commits: (n.commits?.nodes || []).map((c) => c.commit).filter(Boolean) });
+    if (!conn?.pageInfo?.hasNextPage || !conn?.pageInfo?.endCursor) break;
+    cursor = conn.pageInfo.endCursor;
+  }
+  return out;
+}
+
 function main() {
-  const { values: v } = parseArgs({
-    options: {
-      repo: { type: "string", default: "" }, "prs-file": { type: "string" }, checkout: { type: "string" },
-      "ledger-dir": { type: "string", default: join(homedir(), ".copilot", "work-ledger") },
-      "sessions-dir": { type: "string", default: join(homedir(), ".copilot", "session-state") },
-      from: { type: "string" }, to: { type: "string" }, "maturity-days": { type: "string", default: "14" },
-      "target-ref": { type: "string", default: "HEAD" }, format: { type: "string", default: "markdown" },
-    },
-  });
-  const prs = v["prs-file"] ? JSON.parse(readFileSync(resolve(v["prs-file"]), "utf8"))
-    : v.repo ? JSON.parse(execFileSync("gh", ["pr", "list", "-R", v.repo, "--state", "merged", "--limit", "200", "--json", "number,title,url,body,createdAt,mergedAt,headRefOid,mergeCommit,files,commits"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })) : [];
-  const report = collectMetrics({
-    repo: v.repo, prs, from: v.from || null, to: v.to || null, maturityDays: Number(v["maturity-days"] || 14),
-    checkoutDir: v.checkout ? resolve(v.checkout) : null, ledgerDir: v["ledger-dir"] ? resolve(v["ledger-dir"]) : null,
-    sessionsDir: v["sessions-dir"] ? resolve(v["sessions-dir"]) : null, targetRef: v["target-ref"] || "HEAD",
-  });
+  const { values: v } = parseArgs({ options: {
+    repo: { type: "string", default: "" }, "prs-file": { type: "string" }, checkout: { type: "string" },
+    "ledger-dir": { type: "string", default: join(homedir(), ".copilot", "work-ledger") }, "sessions-dir": { type: "string", default: join(homedir(), ".copilot", "session-state") },
+    from: { type: "string" }, to: { type: "string" }, "maturity-days": { type: "string", default: "14" }, "target-ref": { type: "string", default: "HEAD" }, format: { type: "string", default: "markdown" },
+  } });
+  const prs = v["prs-file"] ? JSON.parse(readFileSync(resolve(v["prs-file"]), "utf8")) : v.repo ? fetchMergedPrs(v.repo) : [];
+  const report = collectMetrics({ repo: v.repo, prs, from: v.from || null, to: v.to || null, maturityDays: Number(v["maturity-days"] || 14), checkoutDir: v.checkout ? resolve(v.checkout) : null, ledgerDir: v["ledger-dir"] ? resolve(v["ledger-dir"]) : null, sessionsDir: v["sessions-dir"] ? resolve(v["sessions-dir"]) : null, targetRef: v["target-ref"] || "HEAD" });
   console.log(v.format === "json" ? JSON.stringify(report, null, 2) : formatMarkdownReport(report));
 }
 
