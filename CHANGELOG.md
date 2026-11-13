@@ -2,6 +2,20 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.9 (2026-11-13)
+- **Add read-only shadow-mode objective telemetry collector for weekly infra review.**
+  - **What:** Add `scripts/collect-metrics.mjs` and `scripts/collect-metrics.test.mjs`, and wire `node <dev-loop-checkout>/scripts/collect-metrics.mjs` into `skills/infra-review/SKILL.md` in shadow mode.
+    Compute 14-day production line survival on mature PRs (`mergedAt <= to - 14d`), 14-day fix-up PRs (explicit references and bug-fix `git blame` churn), `work-ledger` + docs-only Git ancestry verification, first-push green CI rate, owner repeat-rule messages, durable first-pass yield, and route-bucketed (`trivial`, `small`, `multi-task`) medians for `totalNanoAiu` and duplicate file reads.
+    Mark shared multi-PR sessions as `ambiguous` (`excluded from per-PR cost`) and emit `n/a` when optional inputs are absent.
+    Leave `com.github.copilot/rules/core.mdc` and `skills/dev-loop/assets/pr-body.md` unchanged.
+  - **Why:** Fifteen of the 17 existing `infra-review` rows measure process steps or raw volume, and literal 7-character table matching reported `11/58` head-evidence PRs in PR #10 while Git ancestry was `47/49`.
+    Five fresh baseline `infra-review` consumers had no collector script, rejected a `work-ledger`-validated parent with a docs-only child commit (`5/5`), lacked `trivial`/`small`/`multi-task` route buckets (`5/5`), split `3` vs `2` on whether a 16-day-old PR qualifies for 14-day survival, and missed undocumented 11-day bug-fix blame churn (`4/5`).
+    Baseline consumers already avoided shared-session cost duplication and preserved `F1` layer classification (`5/5`); those passing controls remain preserved, not claimed as newly fixed defects.
+  - **Check:** Eleven unit/integration suites in `scripts/collect-metrics.test.mjs` and two new `testing-contract` checks fail before implementation and pass afterward.
+    Five fresh revised `infra-review` consumers run `node <dev-loop-checkout>/scripts/collect-metrics.mjs` in shadow mode, verify docs-only Git ancestry separately from literal table cells, classify `trivial`/`small`/`multi-task` routes with `ambiguous` shared-session cost, evaluate 16-day-old PR survival and 14-day blame churn consistently, and preserve `F1`.
+    Run `node scripts/check.mjs`, all CI test suites, a live read-only `divydvd/dev-loop` telemetry check, and temporary-home installation/discovery at the committed head.
+    The next weekly review compares literal table evidence with ledger-ancestry verification and checks route-bucketed `totalNanoAiu` and 14-day survival in shadow mode.
+
 ## 0.5.8 (2026-11-13)
 - **Plan safe, useful milestones before selecting PR dependencies.**
   - **What:** Replace size-only stacking with evidence-based independent or dependent PR bases.

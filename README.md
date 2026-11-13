@@ -14,6 +14,7 @@ A Copilot plugin that lets one session run the full development loop from one li
 | Device handoff tests | `scripts/device-handoff.test.mjs` | Regression checks for passing-build retention, monitor grants, and authorized post-merge refresh instructions. |
 | Independent review tests | `scripts/independent-review.test.mjs` | Regression checks for review scope, coverage reuse, exemptions, and readiness evidence. |
 | Testing contract checks | `scripts/testing-contract.test.mjs` | Structural checks for test planning, evidence fields, coverage review, and readiness instructions. |
+| Objective metrics collector | `scripts/collect-metrics.mjs` | Read-only shadow-mode collector for 14-day code survival, Git-ancestry ledger verification, autonomy, and route-bucketed `totalNanoAiu`. |
 | Work-ledger source | `tools/work-ledger/` | Separate SDK extension with classification corrections, scoped controls, and verified local Maven recovery. Owner installation remains outstanding. The plugin does not load it. |
 
 ## Layers
@@ -63,6 +64,34 @@ In a terminal in the project folder:
 In a new app session in the project, ask: "Which skills and custom instructions do you have?" The answer must include the 4 skills and "Dev-loop core rules".
 
 In a different folder, or in a folder that is not trusted, they do not show.
+
+## Objective infra-review telemetry
+### Abstract
+Markdown PR tables alone can undercount tested merges and omit post-merge code durability.
+`scripts/collect-metrics.mjs` computes read-only shadow-mode telemetry from Git history, `work-ledger`, PR metadata, and `events.jsonl`.
+The existing 17-row `infra-review` table stays intact while objective durability, verification, autonomy, and route-bucketed cost accumulate weekly evidence.
+
+Run `node scripts/collect-metrics.mjs --repo <owner/repo> --checkout <path> --from <ISO> --to <ISO>`.
+The script evaluates 14-day production line survival on mature PRs (`mergedAt <= to - 14d`) and detects 14-day fix-up PRs from explicit `#<N>` references and bug-fix `git blame` churn.
+It checks `work-ledger` validations at `headRefOid` and across docs-only first-parent Git ancestors while rejecting untested production edits after a tested SHA.
+It classifies PRs into `trivial`, `small`, and `multi-task` routes, reads the latest cumulative `totalNanoAiu` checkpoint, resets duplicate file-read tracking after edits, and marks shared multi-PR sessions `ambiguous` instead of duplicating cost.
+No `core.mdc` rule or `assets/pr-body.md` field changes.
+
+### Application checks
+Use `writing-skills` with five fresh consuming agents per phase on the fixed `M1-IR` weekly fixture and `F1` layer-classification control.
+
+| Case | Fixture | Expected instruction use |
+| --- | --- | --- |
+| T-IR1 | Weekly review of `example/app` | Run `node <dev-loop-checkout>/scripts/collect-metrics.mjs` in shadow mode alongside the 17-row table |
+| T-IR2 | Parent SHA validated in `work-ledger`; `git diff` to head touches `docs/` only; table still shows parent | Keep literal 7-char count in the legacy row; report verified in `work-ledger` + docs-only Git ancestry telemetry |
+| T-IR3 | Two PRs (`0` prod lines vs `310` prod lines, 5 tasks) share one coordinator session with two cumulative checkpoints | Classify `trivial` and `multi-task`; take latest `totalNanoAiu` once; mark per-PR cost `ambiguous` |
+| T-IR4 | PR merged 16 days ago (50 prod lines); bug-fix PR 5 days ago rewrites 20 lines without `#<N>` in body | Evaluate 16d-old PR as mature (`30/50` survival); record 14-day blame-churn fix-up |
+
+Run `node scripts/check.mjs`, `node --test scripts/collect-metrics.test.mjs`, `node --test scripts/testing-contract.test.mjs`, and temporary-home discovery.
+
+### Conclusion
+Automate weekly durability and cost collection before adding optimization thresholds or rule-pruning gates.
+The main risk is treating shared coordinator sessions as per-PR cost; explicit `ambiguous` labels prevent double-counting.
 
 ## Mergeable milestones
 ### Abstract
@@ -122,6 +151,7 @@ Source tests and structural checks do not prove that an agent followed an instru
 | Require independent review before substantive PR readiness | [Review instructions](skills/dev-loop/SKILL.md) | [Independent review suite](scripts/independent-review.test.mjs) | Structural checks preserve the instruction contract; they do not block an agent that skips review. |
 | Keep required coverage gaps visible | [Testing instructions](skills/dev-loop/references/testing.md) | [Testing contract suite](scripts/testing-contract.test.mjs) | Structural checks and sampled consuming-agent cases do not prove coverage of every future task. |
 | Guard protected Git history operations | [Work-ledger policy](tools/work-ledger/lib/policy.mjs) | [Guard policy suite](tools/work-ledger/guard-policy.test.mjs) | Runtime policy source is separate from the plugin. Source tests do not verify live installation; supported scoped controls can pause individual checks. |
+| Collect shadow-mode objective weekly metrics without estimating missing data | [Metrics collector](scripts/collect-metrics.mjs) | [Metrics collector suite](scripts/collect-metrics.test.mjs) | Read-only shadow-mode report; it does not block merges, verify unrecorded local runs, or disambiguate cost inside shared multi-PR sessions. |
 
 Infra review uses this map before adding another rule or check.
 Select additions from repeated or costly incidents, not a goal to map every instruction.

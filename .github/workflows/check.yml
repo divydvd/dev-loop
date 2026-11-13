@@ -15,4 +15,5 @@ jobs:
       - run: node --test scripts/branch-maintenance.test.mjs
       - run: node --test scripts/independent-review.test.mjs
       - run: node --test scripts/testing-contract.test.mjs
+      - run: node --test scripts/collect-metrics.test.mjs
       - run: node --test tools/work-ledger/*.test.mjs
