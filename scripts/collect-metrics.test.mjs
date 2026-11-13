@@ -1306,6 +1306,21 @@ test("S-T6: review regressions — multi-digit sleep, verdict repo slug vs CLI, 
     const r1Edge = parseSessionEvents(r1EdgePath);
     assert.equal(r1Edge.timeBuckets.modelSec, 25, "turn 39 keeps full 25s modelSec despite mid-turn synthetic assistant.message and prior unclosed turn 7");
     assert.equal(r1Edge.timeBuckets.buildTestSec, 52, "bg-det stays intact across stdout shellId collision: [0..51s] steering-confirmed + [120..121s] detached completion = 52s");
+
+    // 7. User-backgrounded shell footers (`moved to background by the user` and `is running in the background`)
+    const r1UserBgPath = join(dir, "r1-userbg.jsonl");
+    writeFileSync(
+      r1UserBgPath,
+      [
+        JSON.stringify({ timestamp: "2026-11-14T15:00:00.000Z", type: "tool.execution_start", data: { toolCallId: "ub1", toolName: "bash", arguments: { command: "./gradlew :app:testDebugUnitTest" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T15:00:05.000Z", type: "tool.execution_complete", data: { toolCallId: "ub1", success: true, result: "<command with shellId: 3562 moved to background by the user. You will be automatically notified when it completes.>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T15:01:00.000Z", type: "tool.execution_start", data: { toolCallId: "ub-r1", toolName: "read_bash", arguments: { shellId: "3562", delay: 2 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T15:01:02.000Z", type: "tool.execution_complete", data: { toolCallId: "ub-r1", success: true, result: "running...\n<command with shellId: 3562 is running in the background after the user moved it off the main turn.>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T15:01:20.000Z", type: "tool.execution_start", data: { toolCallId: "ub-stop", toolName: "stop_bash", arguments: { shellId: "3562" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T15:01:21.000Z", type: "tool.execution_complete", data: { toolCallId: "ub-stop", success: true, result: "Stopped" } }),
+      ].join("\n") + "\n",
+    );
+    assert.equal(parseSessionEvents(r1UserBgPath).timeBuckets.buildTestSec, 81, "user-backgrounded shell [0..81s] up to successful stop_bash = 81s");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

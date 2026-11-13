@@ -246,7 +246,7 @@ const isSyntheticAutoDispatchMsg = (d) =>
   !d.model && !d.interactionId && !d.content && Array.isArray(d.toolRequests) && d.toolRequests.length > 0;
 function parseShellFooter(resText) {
   const tag = resText.match(/<([^>\r\n]+)>\s*$/)?.[1] || "";
-  const runMatch = tag.match(/^command (?:started in (?:detached )?background )?with shellId:\s*([^\s]+)(?:\s+is still running\b|$)/i);
+  const runMatch = tag.match(/^command (?:started in (?:detached )?background )?with shellId:\s*([^\s]+)(?:\s+(?:is (?:still )?running\b|moved to background\b)|$)/i);
   if (runMatch) return { shellId: runMatch[1], state: "running" };
   const doneMatch = tag.match(/^(?:detached command with )?shellId:\s*([^\s]+)\s+(?:completed|stopped|terminated|killed)\b/i);
   if (doneMatch) return { shellId: doneMatch[1], state: "done" };
