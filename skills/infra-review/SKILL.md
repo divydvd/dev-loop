@@ -103,6 +103,10 @@ Preserve the fault threshold above. A category alone is not evidence that a chan
 
 ## 4. Choose the changes
 - Choose at most 3 changes. Start with the change that has the most evidence.
+- Apply constrained optimization from the shadow-mode telemetry:
+  - **Quality floor (`90.0%`):** When `Durable first-pass yield` has `status: ok`, is below `90.0%`, and meets Section 3's fault threshold (`2` or more occurrences, or `1` occurrence that caused a bad merge or a lost hour), prioritize durability, verification, or environment fixes ahead of cost reductions. Do not treat `n/a` or `unavailable` statuses or a single non-severe miss below Section 3's threshold as a confirmed fault.
+  - **Route-bucketed cost priority:** When `Durable first-pass yield` is `90.0%` or higher (or no durability/verification fault meets Section 3's threshold), target the highest-cost `Task route` (`trivial`, `small`, or `multi-task` with unique sessions) that shows recurring waste (`2` or more sessions), such as high median `totalNanoAiu`, model calls, or duplicate file reads.
+  - **4-week non-safety check cleanup:** Propose to remove or automate any non-safety manual check or non-safety PR template line that records zero confirmed findings or prevented regressions across **4 consecutive** observed weekly reviews. Exclude `n/a` or `unavailable` weeks from that 4-week count. Never prune mandatory safety gates (`core.mdc` design approval, risky-plan review, independent PR review, typed merge or deployment approval, device/data safeguards, or protected Git history guards).
 - Inspect the [rule/check map](../../README.md#rulecheck-map) before adding instructions or an automatic check.
   Record the existing enforcement point, regression test, and known limitation for each selected rule.
   Distinguish an instruction, a structural CI check, and a runtime guard.

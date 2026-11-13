@@ -2,6 +2,19 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.10 (2026-11-13)
+- **Add constrained optimization and 4-week non-safety check cleanup to weekly infra review.**
+  - **What:** Update `skills/infra-review/SKILL.md` Section 4 (`Choose the changes`) with a `90.0%` `Durable first-pass yield` quality floor, route-bucketed cost prioritization above that floor, and a 4-week zero-catch cleanup rule for non-safety manual checks and PR template lines.
+    Exclude `n/a` / `unavailable` weeks and sub-threshold single misses, and explicitly protect mandatory safety gates (`core.mdc` design, risky-plan, independent-review, merge/deploy approvals, device/data safety, and Git history guards).
+    Also fix trailing-newline `view_range` line-coverage boundary tracking (`r4563704684`) in `scripts/collect-metrics.mjs`.
+  - **Why:** Five fresh baseline `infra-review` consumers had no `90.0%` quality-floor rule (`5/5`), one refused to prioritize recurring `multi-task` duplicate-read waste above `95.0%` yield (`1/5`), and none proposed removing or automating a non-safety manual PR prose line with `0` confirmed catches across 4 observed weeks (`5/5`).
+    Baseline consumers already protected typed merge approval and ignored a `1/2` minor miss and `n/a` weeks (`5/5`); those passing controls remain preserved, not claimed as newly fixed defects.
+    Post-round-2 review on #37 (`r4563704684`) also found that trailing `\n` in `view` outputs marked `endLine + 1` as already read.
+  - **Check:** Unit regression `T12` in `scripts/collect-metrics.test.mjs` and structural check `T13` in `scripts/testing-contract.test.mjs` fail before implementation and pass afterward.
+    Five fresh revised `infra-review` consumers apply the `90.0%` floor, target recurring waste in the highest-cost `multi-task` route above `90.0%`, propose pruning/automating only the non-safety prose line while keeping merge approval, and preserve the `1/2` and `n/a` guards.
+    Run `node scripts/check.mjs`, all CI suites, and temporary-home installation/discovery at the committed head.
+    The next weekly review checks priority selection against `Durable first-pass yield` and tracks zero-catch non-safety checks across observed weeks.
+
 ## 0.5.9 (2026-11-13)
 - **Add read-only shadow-mode objective telemetry collector for weekly infra review.**
   - **What:** Add `scripts/collect-metrics.mjs` and `scripts/collect-metrics.test.mjs`, and wire `node <dev-loop-checkout>/scripts/collect-metrics.mjs` into `skills/infra-review/SKILL.md` in shadow mode.
