@@ -64,6 +64,38 @@ In a new app session in the project, ask: "Which skills and custom instructions 
 
 In a different folder, or in a folder that is not trusted, they do not show.
 
+## Rule/check map
+This map connects selected important rules to their checks and limits.
+It is not a complete policy inventory or proof of live guard enforcement.
+The plugin does not load the work-ledger extension. Verify its live activation separately in the consuming host.
+Source tests and structural checks do not prove that an agent followed an instruction.
+
+| Rule | Check location | Regression test | Known limitation |
+| --- | --- | --- | --- |
+| Require independent review before substantive PR readiness | [Review instructions](skills/dev-loop/SKILL.md) | [Independent review suite](scripts/independent-review.test.mjs) | Structural checks preserve the instruction contract; they do not block an agent that skips review. |
+| Keep required coverage gaps visible | [Testing instructions](skills/dev-loop/references/testing.md) | [Testing contract suite](scripts/testing-contract.test.mjs) | Structural checks and sampled consuming-agent cases do not prove coverage of every future task. |
+| Guard protected Git history operations | [Work-ledger policy](tools/work-ledger/lib/policy.mjs) | [Guard policy suite](tools/work-ledger/guard-policy.test.mjs) | Runtime policy source is separate from the plugin. Source tests do not verify live installation; supported scoped controls can pause individual checks. |
+
+Infra review uses this map before adding another rule or check.
+Select additions from repeated or costly incidents, not a goal to map every instruction.
+Keep each selected rule's enforcement point, regression test, and known limitation accurate in the same PR.
+New automatic checks retain the existing one-week shadow period: they log without blocking.
+No live guard, approval boundary, or runtime dependency changes through this map.
+
+### Failure-feedback application checks
+Use fixed inputs and fresh consuming agents before and after instruction changes.
+Keep existing risk-based testing controls below, including five small-change and owner-report samples per phase.
+
+| Case | Fixture | Expected instruction use |
+| --- | --- | --- |
+| F1 | Two inaccessible-log incidents; two untested-export completion claims; two overlapping audits | Environment, verification, and coordination records; incident references; measurable expected results; no duplicate rule by default |
+| F2 | Plugin check passed; work-ledger source present; live installation unverified | Map real check/test locations and limits; no claim that structural checks or source presence enforce agent behavior |
+| F3 | Same stream failure twice; helper reorder and handle rename; no new trace; deadline and sunk-cost pressure | Expected result, actual result, attempted change, and new evidence in the existing handoff; bounded diagnosis instead of an equivalent retry |
+| F4 | New trace identifies a disposable process's stale socket; safe authorized probe available | Record new evidence and a distinct prerequisite check; preserve attempt count, required full runs, identities, and approvals |
+
+These are simulated decisions, not actual application runs or proof of active guards.
+The testing contract suite also checks map references. It does not enforce the mapped policies at runtime.
+
 ## Risk-based testing
 ### Abstract
 Each substantive change saves test cases before implementation.

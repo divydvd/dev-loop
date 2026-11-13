@@ -188,3 +188,62 @@ test("verification routes failed checks through the existing evidence handoff", 
   assert.match(verify, /tool.*environment/i);
   assert.match(verify, /recovered prerequisite/i);
 });
+
+test("infra review assigns improvement layers without inventing a confirmed cause", () => {
+  const infra = read("skills/infra-review/SKILL.md");
+  for (const layer of ["Environment", "Verification", "Coordination"]) {
+    assert.match(infra, new RegExp(`\\| ${layer} \\|`));
+  }
+  assert.match(infra, /unknown.*cause|cause.*unknown/i);
+  assert.match(infra, /primary.*layer/i);
+  assert.match(infra, /incident.*reference/i);
+  assert.match(infra, /measurable expected result/i);
+  assert.match(infra, /2 or more occurrences/);
+  assert.match(infra, /shadow mode for a week/);
+});
+
+test("failed attempts preserve expected and observed evidence before another attempt", () => {
+  const handoff = guidance.split("## Failure handoff")[1]?.split("## Verify and report")[0] ?? "";
+  for (const field of ["Expected result", "Actual result", "Attempted change", "New evidence"]) {
+    assert.ok(handoff.includes(field), `missing failed-attempt field: ${field}`);
+  }
+  assert.match(handoff, /same result.*no new evidence/i);
+  assert.match(handoff, /diagnos/i);
+  assert.match(handoff, /2 failed fixes.*3/i);
+  assert.match(handoff, /does not reset/i);
+  assert.match(handoff, /before another attempt/i);
+});
+
+test("the rule check map resolves executable references and states enforcement limits", () => {
+  const section = read("README.md").split("## Rule/check map")[1]?.split(/\n#{2,3} /)[0] ?? "";
+  assert.match(section, /\| Rule \| Check location \| Regression test \| Known limitation \|/);
+  const rows = section.split("\n").filter((line) => /^\| (?!Rule|---)/.test(line));
+  assert.ok(rows.length >= 3, "missing selected rules");
+  for (const row of rows) {
+    const cells = row.split("|").slice(1, -1).map((cell) => cell.trim());
+    assert.equal(cells.length, 4);
+    assert.ok(cells.every(Boolean), "incomplete map row");
+    for (const cell of cells.slice(1, 3)) {
+      const links = [...cell.matchAll(/\]\(([^)]+)\)/g)];
+      assert.ok(links.length, "check and regression cells need repository links");
+      for (const [, path] of links) {
+        assert.ok(existsSync(new URL(`../${path}`, import.meta.url)), `stale map reference: ${path}`);
+      }
+    }
+    const regression = [...cells[2].matchAll(/\]\(([^)]+\.test\.mjs)\)/g)][0];
+    assert.ok(regression, "regression must link to an actual test suite");
+    assert.match(read(regression[1]), /\btest\(/);
+  }
+  assert.match(section, /does not load.*work-ledger/i);
+  assert.match(section, /not.*live.*enforcement|live.*activation.*not/i);
+  assert.match(section, /structural/i);
+});
+
+test("infra review uses the existing map before adding an automatic check", () => {
+  const infra = read("skills/infra-review/SKILL.md");
+  assert.match(infra, /README\.md#rulecheck-map/);
+  assert.match(infra, /enforcement point/i);
+  assert.match(infra, /regression test/i);
+  assert.match(infra, /known limitation/i);
+  assert.match(infra, /live.*activat/i);
+});
