@@ -1246,6 +1246,32 @@ test("S-T6: review regressions — multi-digit sleep, verdict repo slug vs CLI, 
     });
     assert.equal(zeroRep.routeBuckets.trivial.medianActiveSec, 5);
     assert.equal(zeroRep.routeBuckets.trivial.bucketMediansSec.modelSec, 5, "0s session must be retained in bucketMediansSec");
+
+    // 5. Copilot Round-1 regressions:
+    // (a) assistant.message omitting data.turnId still closes sole numbered open turn ("1")
+    // (b) async bash (0..1s) confirmed still running at read_bash (60..61s) with parallel view (10..20s), then completed at read_bash (120..121s)
+    const r1Path = join(dir, "r1-round1.jsonl");
+    writeFileSync(
+      r1Path,
+      [
+        JSON.stringify({ timestamp: "2026-11-14T11:00:00.000Z", type: "assistant.turn_start", data: { turnId: "1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:00:10.000Z", type: "assistant.message", data: { content: "No turnId field" } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:01:00.000Z", type: "tool.execution_start", data: { toolCallId: "ab1", toolName: "bash", arguments: { command: "./gradlew assembleDebug", mode: "async" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:01:01.000Z", type: "tool.execution_complete", data: { toolCallId: "ab1", success: true, result: "<command started in background with shellId: bg-99>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:01:10.000Z", type: "tool.execution_start", data: { toolCallId: "v99", toolName: "view", arguments: { path: "/a.kt" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:01:20.000Z", type: "tool.execution_complete", data: { toolCallId: "v99", success: true, result: "ok" } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:02:00.000Z", type: "tool.execution_start", data: { toolCallId: "rb99a", toolName: "read_bash", arguments: { shellId: "bg-99", delay: 1 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:02:01.000Z", type: "tool.execution_complete", data: { toolCallId: "rb99a", success: true, result: "compiling...\n<command with shellId: bg-99 is still running after 1 seconds.>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:03:00.000Z", type: "tool.execution_start", data: { toolCallId: "rb99b", toolName: "read_bash", arguments: { shellId: "bg-99", delay: 1 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:03:01.000Z", type: "tool.execution_complete", data: { toolCallId: "rb99b", success: true, result: "BUILD SUCCESSFUL\n<shellId: bg-99 completed with exit code 0>" } }),
+      ].join("\n") + "\n",
+    );
+    const r1 = parseSessionEvents(r1Path);
+    assert.equal(r1.timeBuckets.modelSec, 10, "assistant.message without turnId closes sole open turn");
+    assert.equal(r1.timeBuckets.buildTestSec, 62, "async shell [0..61s] confirmed running + [120..121s] final read = 62s without bridging [61..120s]");
+    assert.equal(r1.timeBuckets.ioOtherSec, 10);
+    assert.equal(r1.activeSec, 72, "10s model + 62s merged [0..61, 120..121] (covering 10..20s view) = 72s");
+    assert.equal(Number(r1.parallelismFactor.toFixed(2)), Number((72 / 62).toFixed(2)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
