@@ -11,7 +11,7 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Leave `com.github.copilot/rules/core.mdc` and `skills/dev-loop/assets/pr-body.md` unchanged.
   - **Why:** Prompt-only skill simulations saturated at `21/21` in PR #28 until real tool execution ran, and previous scenario scripts lived in uncommitted scratch folders rather than CI-tested repository code.
     During `B6` development, negative-scorer testing also caught `NODE_TEST_CONTEXT` inheritance causing nested `node --test` processes to exit `0` on failed assertions; stripping `NODE_TEST_CONTEXT` restores accurate child test exit codes.
-  - **Check:** Four integration and negative-scorer suites in `scripts/run-benchmark.test.mjs` (`6/6` reference solver passes, `0/6` cheating-driver passes, sandbox cleanup on failure, and all five comparison verdicts) plus two `testing-contract` checks fail before implementation and pass afterward.
+  - **Check:** Five integration and negative-scorer suites in `scripts/run-benchmark.test.mjs` (`6/6` reference solver passes, `0/6` cheating-driver passes, unmasked anti-cheat/oracle/multi-session/mixed-pass regressions, sandbox cleanup on failure, and all five comparison verdicts) plus two `testing-contract` checks fail before implementation and pass afterward.
     Run `node scripts/check.mjs`, all CI suites, and temporary-home installation/discovery at the committed head.
     Future risky rule or skill PRs can compare `--baseline` and `--candidate` checkouts with `node scripts/run-benchmark.mjs`.
 
