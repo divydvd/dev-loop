@@ -623,10 +623,48 @@ test("T9: review regressions — renames, bounded mature cohort, post-window fix
     assert.equal(missingLocal.verified, false);
     assert.equal(missingLocal.status, "unverified_head_missing_locally");
 
-    // Accurate Markdown n/a labels on empty window
+    // Accurate Markdown n/a labels on empty window and commit_missing mature PR
     const emptyMd = formatMarkdownReport(collectMetrics({ repo: "org/app", prs: [] }));
     assert.doesNotMatch(emptyMd, /n\/a \(ok\)/);
     assert.match(emptyMd, /n\/a \(no_prs\)/);
+
+    const missingMatureMd = formatMarkdownReport(
+      collectMetrics({
+        repo: "org/app",
+        prs: [{ number: 99, mergedAt: "2026-10-28T10:00:00Z", mergeCommit: { oid: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" }, files: [{ path: "src/x.js", additions: 5, deletions: 0 }] }],
+        from: "2026-11-06T00:00:00Z",
+        to: "2026-11-13T00:00:00Z",
+        checkoutDir: dir,
+        targetRef: sha3,
+      }),
+    );
+    assert.match(missingMatureMd, /n\/a \(commit_missing\)/);
+
+    // Shared session with 0 repeat reminders must still be excluded from durableFirstPassYield.eligibleCount (no selection bias!)
+    const zeroRepeatSharedDir = makeTempDir("zero-shared");
+    try {
+      const zs = join(zeroRepeatSharedDir, "s-shared");
+      mkdirSync(zs, { recursive: true });
+      writeFileSync(join(zs, "workspace.yaml"), "id: s-shared\nrepository: org/app\ncreated_at: 2026-11-09T00:00:00Z\n");
+      writeFileSync(
+        join(zs, "events.jsonl"),
+        JSON.stringify({ type: "assistant.message", data: { content: "https://github.com/org/app/pull/50 and https://github.com/org/app/pull/51" } }) + "\n",
+      );
+      const biasCheck = collectMetrics({
+        repo: "org/app",
+        prs: [
+          { number: 50, url: "https://github.com/org/app/pull/50", mergedAt: "2026-11-10T10:00:00Z", headRefOid: sha3, files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+          { number: 51, url: "https://github.com/org/app/pull/51", mergedAt: "2026-11-10T11:00:00Z", headRefOid: sha3, files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+        ],
+        from: "2026-11-06T00:00:00Z",
+        to: "2026-11-13T00:00:00Z",
+        sessionsDir: zeroRepeatSharedDir,
+      });
+      assert.equal(biasCheck.durableFirstPassYield.eligibleCount, 0);
+      assert.equal(biasCheck.durableFirstPassYield.status, "no_attributed_sessions");
+    } finally {
+      rmSync(zeroRepeatSharedDir, { recursive: true, force: true });
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

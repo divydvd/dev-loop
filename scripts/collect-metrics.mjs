@@ -105,7 +105,8 @@ export function computeCodeSurvival(prs, { checkoutDir, targetRef = "HEAD" } = {
     totalSurviving += prSurviving;
     perPr.push({ number: pr.number, status: "ok", addedLines: prAdded, survivingLines: prSurviving, rate: prAdded > 0 ? prSurviving / prAdded : null });
   }
-  return { status: "ok", addedLines: totalAdded, survivingLines: totalSurviving, rate: totalAdded > 0 ? totalSurviving / totalAdded : null, perPr };
+  const survivalStatus = totalAdded === 0 && perPr.some((p) => p.status === "commit_missing") ? "commit_missing" : "ok";
+  return { status: survivalStatus, addedLines: totalAdded, survivingLines: totalSurviving, rate: totalAdded > 0 ? totalSurviving / totalAdded : null, perPr };
 }
 
 export function detectFixups(prs, { repo = "", checkoutDir = null, windowDays = 14 } = {}) {
@@ -278,7 +279,7 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "" } = {}) {
     distinctSessions.set(s.id, s);
     if ((usageCounts.get(s.id) || 0) > 1) {
       sharedPrNumbers.push(pr.number);
-      perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", totalNanoAiu: null, modelCalls: null, duplicateReadRate: null, ownerRepeatMessages: s.ownerRepeatMessages === 0 ? 0 : null };
+      perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", totalNanoAiu: null, modelCalls: null, duplicateReadRate: null, ownerRepeatMessages: null };
     } else {
       const { raw: _raw, createdAt: _c, id, ...metrics } = s;
       perPr[pr.number] = { sessionId: id, sharedSession: false, attribution: "unique", ...metrics };
@@ -319,7 +320,7 @@ export function collectMetrics({ repo = "", prs = [], from = null, to = null, ma
     }
     const sess = sessionAnalysis.perPr[pr.number] || { attribution: "unmatched", ownerRepeatMessages: null };
     const isFixupOrRegressed = fixups.fixupPrNumbers.includes(pr.number) || fixups.regressedPrNumbers.includes(pr.number);
-    if (ev.verified !== null && sessionAnalysis.status === "ok" && Number.isFinite(sess.ownerRepeatMessages)) {
+    if (ev.verified !== null && sessionAnalysis.status === "ok" && sess.attribution === "unique") {
       eligibleYieldCount += 1;
       if (ev.verified === true && !isFixupOrRegressed && sess.ownerRepeatMessages === 0) durablePassCount += 1;
     }
