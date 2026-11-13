@@ -14,6 +14,8 @@ import {
   fetchMergedPrs,
   formatMarkdownReport,
   isProductionPath,
+  mergeIntervals,
+  parseSessionEvents,
   verifyPrEvidence,
 } from "./collect-metrics.mjs";
 
@@ -982,3 +984,108 @@ test("T12: trailing newline in view_range output does not mark endLine + 1 as al
     rmSync(sessionsDir, { recursive: true, force: true });
   }
 });
+
+test("S-T1: mergeIntervals merges unsorted, overlapping, and touching intervals while ignoring invalid pairs", () => {
+  assert.deepEqual(
+    mergeIntervals([
+      [5000, 8000],
+      [1000, 3000],
+      [2500, 4000],
+      [4000, 4500], // touching
+      [7000, 6000], // negative duration -> ignored
+      [NaN, 9000], // NaN -> ignored
+      null,
+    ]),
+    [
+      [1000, 4500],
+      [5000, 8000],
+    ],
+  );
+  assert.deepEqual(mergeIntervals([]), []);
+});
+
+test("S-T2: parseSessionEvents excludes ask_user human waits, reading pauses, and unclosed intervals from activeSec", () => {
+  const dir = makeTempDir("speed-t2");
+  try {
+    const evPath = join(dir, "events.jsonl");
+    writeFileSync(
+      evPath,
+      [
+        // Turn 0: 10s model thinking, then 2-hour (7200s) ask_user wait
+        JSON.stringify({ timestamp: "2026-11-14T10:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:10.000Z", type: "assistant.message", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:10.000Z", type: "tool.execution_start", data: { toolCallId: "ask1", toolName: "ask_user", arguments: {} } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:10.000Z", type: "tool.execution_complete", data: { toolCallId: "ask1", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:10.000Z", type: "assistant.turn_end", data: { turnId: "0" } }),
+        // 40-minute human reading pause before user replies at 12:40:10Z!
+        JSON.stringify({ timestamp: "2026-11-14T12:40:10.000Z", type: "user.message", data: { content: "Approved" } }),
+        // Turn 1: 5s model thinking + 2s view + unclosed bash call (must not poison activeSec)
+        JSON.stringify({ timestamp: "2026-11-14T12:40:10.000Z", type: "assistant.turn_start", data: { turnId: "1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:40:15.000Z", type: "assistant.message", data: { turnId: "1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:40:15.000Z", type: "tool.execution_start", data: { toolCallId: "v1", toolName: "view", arguments: { path: "/a.js" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:40:17.000Z", type: "tool.execution_complete", data: { toolCallId: "v1", success: true, result: "x" } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:40:17.000Z", type: "tool.execution_start", data: { toolCallId: "unclosed", toolName: "bash", arguments: { command: "sleep 999" } } }),
+      ].join("\n") + "\n",
+    );
+    const parsed = parseSessionEvents(evPath);
+    assert.equal(parsed.humanWaitSec, 7200);
+    assert.equal(parsed.activeSec, 17, "only 10s + 5s model + 2s view = 17s active, excluding 7200s ask_user and 40m reading pause");
+    assert.equal(parsed.timeBuckets.modelSec, 15);
+    assert.equal(parsed.timeBuckets.ioOtherSec, 2);
+
+    // Timestampless events.jsonl returns activeSec: null (not 0)
+    const noTsPath = join(dir, "no-ts.jsonl");
+    writeFileSync(noTsPath, JSON.stringify({ type: "assistant.turn_start", data: { turnId: "0" } }) + "\n");
+    const noTs = parseSessionEvents(noTsPath);
+    assert.equal(noTs.activeSec, null);
+    assert.equal(noTs.parallelismFactor, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("S-T3: parseSessionEvents deduplicates parallel subagents, ignores nested evt.agentId events, and classifies 5 boxes", () => {
+  const dir = makeTempDir("speed-t3");
+  try {
+    const evPath = join(dir, "events.jsonl");
+    writeFileSync(
+      evPath,
+      [
+        // 4s model turn dispatching 3 parallel 60s subagents (10:00:04 -> 10:01:04)
+        JSON.stringify({ timestamp: "2026-11-14T10:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:04.000Z", type: "assistant.message", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:04.000Z", type: "tool.execution_start", data: { toolCallId: "t1", toolName: "task", arguments: {} } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:04.000Z", type: "tool.execution_start", data: { toolCallId: "t2", toolName: "task", arguments: {} } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:04.000Z", type: "tool.execution_start", data: { toolCallId: "t3", toolName: "task", arguments: {} } }),
+        // Nested subagent events carrying agentId must NOT inflate modelSec or ioOtherSec!
+        JSON.stringify({ timestamp: "2026-11-14T10:00:05.000Z", agentId: "sub-1", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:35.000Z", agentId: "sub-1", type: "assistant.message", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:35.000Z", agentId: "sub-1", type: "tool.execution_start", data: { toolCallId: "sv1", toolName: "view", arguments: { path: "/x.js" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:40.000Z", agentId: "sub-1", type: "tool.execution_complete", data: { toolCallId: "sv1", success: true, result: "abc" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:04.000Z", type: "tool.execution_complete", data: { toolCallId: "t1", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:04.000Z", type: "tool.execution_complete", data: { toolCallId: "t2", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:04.000Z", type: "tool.execution_complete", data: { toolCallId: "t3", success: true } }),
+        // Compaction (6s) + Gradle test (20s) + GitHub check-runs poll (30s)
+        JSON.stringify({ timestamp: "2026-11-14T10:01:10.000Z", type: "session.compaction_start", data: {} }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:16.000Z", type: "session.compaction_complete", data: {} }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:20.000Z", type: "tool.execution_start", data: { toolCallId: "b1", toolName: "bash", arguments: { command: "./gradlew :app:testDebugUnitTest" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:40.000Z", type: "tool.execution_complete", data: { toolCallId: "b1", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:40.000Z", type: "tool.execution_start", data: { toolCallId: "p1", toolName: "bash", arguments: { command: "gh api repos/o/r/commits/abc/check-runs && sleep 10" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:02:10.000Z", type: "tool.execution_complete", data: { toolCallId: "p1", success: true } }),
+      ].join("\n") + "\n",
+    );
+    const p = parseSessionEvents(evPath);
+    assert.equal(p.timeBuckets.modelSec, 10, "4s turn + 6s compaction, ignoring nested sub-1 turn");
+    assert.equal(p.timeBuckets.subagentSec, 60, "3x60s parallel task calls merge to 60s");
+    assert.equal(p.timeBuckets.buildTestSec, 20);
+    assert.equal(p.timeBuckets.pollSec, 30);
+    assert.equal(p.timeBuckets.ioOtherSec, 0, "nested sub-1 view call must not leak into main ioOtherSec");
+    assert.equal(p.activeSec, 120);
+    // Tool work sum = 60+60+60 (tasks) + 20 (build) + 30 (poll) = 230s; merged tool clock = 60 + 20 + 30 = 110s
+    assert.equal(Number(p.parallelismFactor.toFixed(2)), Number((230 / 110).toFixed(2)));
+    assert.equal(p.totalReadChars, 3, "existing duplicate-read character accounting still includes subagent reads");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+

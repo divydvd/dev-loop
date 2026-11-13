@@ -221,41 +221,100 @@ function parseWorkspaceYaml(filePath) {
   return out;
 }
 
+const BUILD_TEST_CMD_RE = /\b(?:gradlew|gradle\.lock|node\s+--test|npm\s+(?:test|run\s+(?:test|build|lint|check))|pnpm\s+(?:test|build|lint)|yarn\s+(?:test|build|lint)|pytest|cargo\s+(?:test|build|check|clippy)|go\s+test|mvn\s+(?:test|verify|package)|dotnet\s+(?:test|build)|rspec|jest|vitest|adb\b|verdict\b|scripts\/check\.mjs)\b/i;
+const POLL_CMD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|pr\s+checks|run\s+watch|sleep\s+\d)\b/i;
+const HUMAN_WAIT_TOOLS = new Set(["ask_user", "relay_session_input"]);
+
+export function mergeIntervals(intervals = []) {
+  const valid = intervals.filter((iv) => Array.isArray(iv) && Number.isFinite(iv[0]) && Number.isFinite(iv[1]) && iv[1] >= iv[0]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const out = [];
+  for (const [s, e] of valid) {
+    if (!out.length || s > out[out.length - 1][1]) out.push([s, e]);
+    else if (e > out[out.length - 1][1]) out[out.length - 1][1] = e;
+  }
+  return out;
+}
+const sumMergedSec = (ivs) => mergeIntervals(ivs).reduce((acc, [s, e]) => acc + (e - s), 0) / 1000;
+
 export function parseSessionEvents(eventsPath) {
   const lines = readFileSync(eventsPath, "utf8").split(/\r?\n/);
-  let latestNanoAiu = null, modelCalls = 0, compactions = 0, totalReadChars = 0, duplicateReadChars = 0, ownerRepeatMessages = 0, seenKickoff = false;
-  const toolStarts = new Map(), seenReadsByPath = new Map();
+  let latestNanoAiu = null, modelCalls = 0, compactions = 0, totalReadChars = 0, duplicateReadChars = 0, ownerRepeatMessages = 0, seenKickoff = false, toolWorkMs = 0;
+  const toolStarts = new Map(), seenReadsByPath = new Map(), openTurns = new Map(), openCompactions = new Map(), shellCmdById = new Map(), subagentBounds = new Map();
+  const modelIvs = [], buildTestIvs = [], pollIvs = [], subagentIvs = [], ioOtherIvs = [], humanIvs = [], toolClockIvs = [];
   for (const line of lines) {
     if (!line.trim()) continue;
     let evt;
     try { evt = JSON.parse(line); } catch { continue; }
-    const { type, data = {} } = evt;
-    if (type === "assistant.turn_start") modelCalls += 1;
-    else if (type === "session.compaction_start") { modelCalls += 1; compactions += 1; }
-    else if ((type === "session.usage_checkpoint" || type === "session.shutdown") && data.totalNanoAiu !== null && data.totalNanoAiu !== "" && Number.isFinite(Number(data.totalNanoAiu))) latestNanoAiu = Number(data.totalNanoAiu);
-    else if (type === "tool.execution_start" && data.toolCallId) {
+    const { type, data = {} } = evt, ts = Date.parse(evt.timestamp || ""), isMain = !evt.agentId;
+    if (type === "assistant.turn_start") {
+      modelCalls += 1;
+      if (isMain && Number.isFinite(ts)) openTurns.set(String(data.turnId ?? ""), ts);
+    } else if (type === "assistant.message") {
+      const k = String(data.turnId ?? ""), st = openTurns.get(k);
+      if (isMain && Number.isFinite(st) && Number.isFinite(ts) && ts >= st) { modelIvs.push([st, ts]); openTurns.delete(k); }
+    } else if (type === "assistant.turn_end" && isMain) {
+      openTurns.delete(String(data.turnId ?? ""));
+    } else if (type === "session.compaction_start") {
+      modelCalls += 1; compactions += 1;
+      if (isMain && Number.isFinite(ts)) openCompactions.set(String(data.compactionAttemptId || "default"), ts);
+    } else if (type === "session.compaction_complete" && isMain) {
+      const k = String(data.compactionAttemptId || "default"), st = openCompactions.get(k);
+      if (Number.isFinite(st) && Number.isFinite(ts) && ts >= st) { modelIvs.push([st, ts]); openCompactions.delete(k); }
+    } else if (type === "subagent.started" && data.toolCallId && Number.isFinite(ts)) {
+      const prev = subagentBounds.get(data.toolCallId);
+      subagentBounds.set(data.toolCallId, { startMs: prev ? Math.min(prev.startMs, ts) : ts, endMs: prev?.endMs ?? null });
+    } else if (type === "subagent.completed" && data.toolCallId && Number.isFinite(ts)) {
+      const prev = subagentBounds.get(data.toolCallId);
+      if (prev && ts >= prev.startMs) subagentBounds.set(data.toolCallId, { ...prev, endMs: prev.endMs !== null ? Math.max(prev.endMs, ts) : ts });
+    } else if ((type === "session.usage_checkpoint" || type === "session.shutdown") && data.totalNanoAiu !== null && data.totalNanoAiu !== "" && Number.isFinite(Number(data.totalNanoAiu))) {
+      latestNanoAiu = Number(data.totalNanoAiu);
+    } else if (type === "tool.execution_start" && data.toolCallId) {
       let args = data.arguments;
       if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = {}; } }
       const startLine = Array.isArray(args?.view_range) && Number.isFinite(Number(args.view_range[0])) ? Math.max(1, Math.trunc(Number(args.view_range[0]))) : 1;
-      toolStarts.set(data.toolCallId, { toolName: data.toolName, path: args?.path || null, startLine });
-    } else if (type === "tool.execution_complete" && data.success) {
-      const start = toolStarts.get(data.toolCallId);
-      if (!start?.path) continue;
-      if (start.toolName === "edit" || start.toolName === "create") seenReadsByPath.delete(start.path);
-      else if (start.toolName === "view") {
-        const content = String(typeof data.result === "string" ? data.result : data.result?.content ?? "");
-        if (!content.length) continue;
-        totalReadChars += content.length;
-        const seenLines = seenReadsByPath.get(start.path) || new Set(), parts = content.split("\n");
-        const lineCount = content.endsWith("\n") ? parts.length - 1 : parts.length;
-        for (let i = 0; i < lineCount; i++) {
-          const lineNo = start.startLine + i, chars = parts[i].length + (i < parts.length - 1 ? 1 : 0);
-          if (seenLines.has(lineNo)) duplicateReadChars += chars;
-          else seenLines.add(lineNo);
-        }
-        seenReadsByPath.set(start.path, seenLines);
+      const cmd = String(args?.command || (data.toolName === "read_bash" && args?.shellId ? shellCmdById.get(String(args.shellId)) || "" : ""));
+      if (isMain && data.toolName === "bash" && args?.shellId) shellCmdById.set(String(args.shellId), cmd);
+      toolStarts.set(data.toolCallId, { toolName: data.toolName, path: args?.path || null, startLine, startMs: ts, cmd, isMain });
+      if (isMain && data.toolName === "task" && Number.isFinite(ts)) {
+        const prev = subagentBounds.get(data.toolCallId);
+        subagentBounds.set(data.toolCallId, { startMs: prev ? Math.min(prev.startMs, ts) : ts, endMs: prev?.endMs ?? null });
       }
-    } else if (type === "user.message" && !evt.agentId && !data.isAutopilotContinuation) {
+    } else if (type === "tool.execution_complete") {
+      const start = toolStarts.get(data.toolCallId);
+      if (!start) continue;
+      if (start.isMain && Number.isFinite(start.startMs) && Number.isFinite(ts) && ts >= start.startMs) {
+        const iv = [start.startMs, ts], dur = ts - start.startMs;
+        if (HUMAN_WAIT_TOOLS.has(start.toolName)) humanIvs.push(iv);
+        else if (start.toolName === "task") {
+          const prev = subagentBounds.get(data.toolCallId) || { startMs: start.startMs, endMs: null };
+          subagentBounds.set(data.toolCallId, { startMs: Math.min(prev.startMs, start.startMs), endMs: prev.endMs !== null ? Math.max(prev.endMs, ts) : ts });
+        } else {
+          toolClockIvs.push(iv); toolWorkMs += dur;
+          if (start.toolName === "read_agent") subagentIvs.push(iv);
+          else if (start.toolName === "bash" || start.toolName === "read_bash") {
+            if (!/\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|pr\s+checks|run\s+watch)\b/i.test(start.cmd) && BUILD_TEST_CMD_RE.test(start.cmd)) buildTestIvs.push(iv);
+            else if (POLL_CMD_RE.test(start.cmd)) pollIvs.push(iv);
+            else ioOtherIvs.push(iv);
+          } else ioOtherIvs.push(iv);
+        }
+      }
+      if (data.success && start.path) {
+        if (start.toolName === "edit" || start.toolName === "create") seenReadsByPath.delete(start.path);
+        else if (start.toolName === "view") {
+          const content = String(typeof data.result === "string" ? data.result : data.result?.content ?? "");
+          if (!content.length) continue;
+          totalReadChars += content.length;
+          const seenLines = seenReadsByPath.get(start.path) || new Set(), parts = content.split("\n");
+          const lineCount = content.endsWith("\n") ? parts.length - 1 : parts.length;
+          for (let i = 0; i < lineCount; i++) {
+            const lineNo = start.startLine + i, chars = parts[i].length + (i < parts.length - 1 ? 1 : 0);
+            if (seenLines.has(lineNo)) duplicateReadChars += chars;
+            else seenLines.add(lineNo);
+          }
+          seenReadsByPath.set(start.path, seenLines);
+        }
+      }
+    } else if (type === "user.message" && isMain && !data.isAutopilotContinuation) {
       const c = String(data.content ?? "");
       if (!c.trim() || c.includes("<skill-context") || c.includes("<system_notification")) continue;
       if (!seenKickoff) { seenKickoff = true; continue; }
@@ -263,7 +322,21 @@ export function parseSessionEvents(eventsPath) {
       if (REPEAT_RULE_RE.test(c)) ownerRepeatMessages += 1;
     }
   }
-  return { lines, totalNanoAiu: latestNanoAiu, modelCalls, compactions, totalReadChars, duplicateReadChars, duplicateReadRate: totalReadChars > 0 ? duplicateReadChars / totalReadChars : null, ownerRepeatMessages };
+  for (const b of subagentBounds.values()) {
+    if (b.endMs !== null && b.endMs >= b.startMs) { const iv = [b.startMs, b.endMs]; subagentIvs.push(iv); toolClockIvs.push(iv); toolWorkMs += b.endMs - b.startMs; }
+  }
+  const allActiveIvs = [...modelIvs, ...buildTestIvs, ...pollIvs, ...subagentIvs, ...ioOtherIvs];
+  const hasTimed = allActiveIvs.length > 0 || humanIvs.length > 0;
+  const mergedToolSec = sumMergedSec(toolClockIvs);
+  const timeBuckets = allActiveIvs.length > 0 ? { modelSec: sumMergedSec(modelIvs), buildTestSec: sumMergedSec(buildTestIvs), pollSec: sumMergedSec(pollIvs), subagentSec: sumMergedSec(subagentIvs), ioOtherSec: sumMergedSec(ioOtherIvs) } : null;
+  return {
+    lines, totalNanoAiu: latestNanoAiu, modelCalls, compactions, totalReadChars, duplicateReadChars,
+    duplicateReadRate: totalReadChars > 0 ? duplicateReadChars / totalReadChars : null, ownerRepeatMessages,
+    activeSec: allActiveIvs.length > 0 ? sumMergedSec(allActiveIvs) : null,
+    humanWaitSec: hasTimed ? sumMergedSec(humanIvs) : null,
+    parallelismFactor: mergedToolSec > 0 ? (toolWorkMs / 1000) / mergedToolSec : null,
+    timeBuckets,
+  };
 }
 
 export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNumbers = null } = {}) {
