@@ -817,3 +817,130 @@ test("T10: Copilot review regressions — mixed commit_missing cohort, missing r
     rmSync(sessionsDir, { recursive: true, force: true });
   }
 });
+
+test("T11: Copilot review round-2 regressions — underscore test paths, truncated size medians, repo plan task count, validated-only ledger kind, overlapping view_range lines, and per-line URL session matching", () => {
+  const dir = initGitRepo();
+  const sessionsDir = makeTempDir("sessions-r11");
+  try {
+    // 1. Underscore test suffixes excluded from production paths
+    assert.equal(isProductionPath("src/parser_test.go"), false);
+    assert.equal(isProductionPath("src/parser_test.py"), false);
+    assert.equal(isProductionPath("src/parser_spec.rb"), false);
+
+    // 2. Plan file in checkoutDir with 4 tasks classifies a 30-line PR as multi-task even when PR body omits ### Task headings
+    mkdirSync(join(dir, "docs/superpowers/plans"), { recursive: true });
+    writeFileSync(
+      join(dir, "docs/superpowers/plans/2026-11-12-sync.md"),
+      "# Plan\n### Task 1: A\n### Task 2: B\n### Task 3: C\n### Task 4: D\n",
+    );
+    writeFileSync(join(dir, "src/sync.js"), Array.from({ length: 10 }, (_, i) => `export const s${i} = ${i};`).join("\n") + "\n");
+    git(dir, ["add", "."]);
+    git(dir, ["commit", "-m", "feat: sync (#60)"]);
+    const sha60 = git(dir, ["rev-parse", "HEAD"]);
+
+    assert.equal(
+      classifyRoute(
+        {
+          body: "Copied acceptance record only.",
+          headRefOid: sha60,
+          mergeCommit: { oid: sha60 },
+          files: [
+            { path: "docs/superpowers/plans/2026-11-12-sync.md", additions: 5, deletions: 0 },
+            { path: "src/sync.js", additions: 10, deletions: 0 },
+          ],
+        },
+        { checkoutDir: dir },
+      ),
+      "multi-task",
+    );
+
+    // 3. `device_tested` alone without `validated` or passing `validations` does NOT verify head
+    const deviceOnly = verifyPrEvidence(
+      { number: 60, headRefOid: sha60, files: [{ path: "src/sync.js", additions: 10, deletions: 0 }] },
+      {
+        repo: "org/app",
+        checkoutDir: dir,
+        ledgerData: {
+          units: { "org/app#60": { repo: "org/app", pr: 60, evidence: [{ kind: "device_tested", sha: sha60, text: "adb pass" }] } },
+          validations: [],
+        },
+      },
+    );
+    assert.equal(deviceOnly.verified, false);
+
+    // 4. Overlapping view_range ([1, 4] then [2, 3], and [1, 2] then full) + per-JSONL-line URL matching
+    const sSpam = join(sessionsDir, "s-spam-one-line");
+    mkdirSync(sSpam, { recursive: true });
+    writeFileSync(join(sSpam, "workspace.yaml"), "id: s-spam-one-line\nrepository: org/app\ncreated_at: 2026-11-10T00:00:00Z\n");
+    writeFileSync(
+      join(sSpam, "events.jsonl"),
+      [
+        // Single JSONL line repeating the URL 5 times -> counts as 1 line, NOT 5!
+        JSON.stringify({ type: "assistant.message", data: { content: Array(5).fill("https://github.com/org/app/pull/60").join(" ") } }),
+        JSON.stringify({ type: "session.usage_checkpoint", data: { totalNanoAiu: 999999 } }),
+      ].join("\n") + "\n",
+    );
+
+    const sReal = join(sessionsDir, "s-real-three-lines");
+    mkdirSync(sReal, { recursive: true });
+    writeFileSync(join(sReal, "workspace.yaml"), "id: s-real-three-lines\nrepository: org/app\ncreated_at: 2026-11-10T00:00:00Z\n");
+    writeFileSync(
+      join(sReal, "events.jsonl"),
+      [
+        JSON.stringify({ type: "tool.execution_start", data: { toolCallId: "v1", toolName: "view", arguments: { path: "/w/src/sync.js", view_range: [1, 4] } } }),
+        JSON.stringify({ type: "tool.execution_complete", data: { toolCallId: "v1", success: true, result: { content: "aaaa\nbbbb\ncccc\ndddd" } } }), // 19 chars (lines 1..4)
+        JSON.stringify({ type: "tool.execution_start", data: { toolCallId: "v2", toolName: "view", arguments: { path: "/w/src/sync.js", view_range: [2, 3] } } }),
+        JSON.stringify({ type: "tool.execution_complete", data: { toolCallId: "v2", success: true, result: { content: "bbbb\ncccc" } } }), // 9 chars, 100% subset overlap of lines 2..3!
+        JSON.stringify({ type: "assistant.message", data: { content: "Opened https://github.com/org/app/pull/60" } }),
+        JSON.stringify({ type: "assistant.message", data: { content: "Checked https://github.com/org/app/pull/60" } }),
+        JSON.stringify({ type: "assistant.message", data: { content: "Ready https://github.com/org/app/pull/60" } }),
+        JSON.stringify({ type: "session.usage_checkpoint", data: { totalNanoAiu: 120000 } }),
+      ].join("\n") + "\n",
+    );
+
+    // 5. Truncated files on PR #61 must mark size medians null instead of contributing a partial 0-line sum
+    const rep = collectMetrics({
+      repo: "org/app",
+      prs: [
+        {
+          number: 60,
+          title: "feat: sync",
+          body: "Copied acceptance record only.",
+          url: "https://github.com/org/app/pull/60",
+          mergedAt: "2026-11-11T10:00:00Z",
+          headRefOid: sha60,
+          mergeCommit: { oid: sha60 },
+          files: [
+            { path: "docs/superpowers/plans/2026-11-12-sync.md", additions: 5, deletions: 0 },
+            { path: "src/sync.js", additions: 10, deletions: 0 },
+          ],
+        },
+        {
+          number: 61,
+          title: "feat: huge",
+          body: "",
+          url: "https://github.com/org/app/pull/61",
+          mergedAt: "2026-11-11T11:00:00Z",
+          headRefOid: sha60,
+          mergeCommit: { oid: sha60 },
+          filesTruncated: true,
+          files: [{ path: "README.md", additions: 2, deletions: 0 }],
+        },
+      ],
+      from: "2026-11-06T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+      checkoutDir: dir,
+      sessionsDir,
+      targetRef: sha60,
+    });
+
+    assert.equal(rep.medianProdLines, null, "filesTruncated PR must prevent misleading partial overall size median");
+    assert.equal(rep.routeBuckets["multi-task"].count, 2, "both PR #60 (4-task plan) and PR #61 (filesTruncated) route to multi-task");
+    assert.equal(rep.routeBuckets["multi-task"].medianProdLines, null, "filesTruncated PR in bucket marks bucket size median null");
+    assert.equal(rep.routeBuckets["multi-task"].medianNanoAiu, 120000, "3 matching JSONL lines beat 1 line with 5 URL repeats");
+    assert.equal(rep.routeBuckets["multi-task"].medianDuplicateReadRate, 9 / 28, "subset view_range [2,3] after [1,4] counts 9/28 duplicate chars");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(sessionsDir, { recursive: true, force: true });
+  }
+});

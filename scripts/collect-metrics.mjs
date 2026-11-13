@@ -19,19 +19,30 @@ export function isProductionPath(filePath) {
   if (!p || p.startsWith("docs/") || /\.(?:md|mdc|txt|rst|sha256|lock|png|jpg|jpeg|gif|webp|svg|ico|pdf)$/i.test(p)) return false;
   if (/(?:^|\/)(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|Podfile\.lock|gradle\.lockfile|lint-baseline[^/]*\.xml)$/i.test(p)) return false;
   if (/(?:^|\/)(?:schemas|generated|build|dist|__tests__|tests?|androidTest|fixtures)\//.test(p)) return false;
-  if (/\.(?:test|spec)\.[a-z0-9]+$/i.test(p) || /(?:Test|Tests|Spec)\.(?:kt|java|swift|py|go|rs|ts|tsx|js|mjs|cjs)$/.test(p)) return false;
+  if (/(?:\.|_)(?:test|spec)\.[a-z0-9]+$/i.test(p) || /(?:Test|Tests|Spec)\.(?:kt|java|swift|py|go|rs|ts|tsx|js|mjs|cjs)$/.test(p)) return false;
   return !/(?:^|\/)test_[^/]+\.(?:py|rb)$/i.test(p);
 }
 
 export function productionLinesChanged(pr) {
-  return (pr?.files || []).reduce((sum, f) => sum + (isProductionPath(f.path) ? Number(f.additions || 0) + Number(f.deletions || 0) : 0), 0);
+  if (pr?.filesTruncated || !Array.isArray(pr?.files)) return null;
+  return pr.files.reduce((sum, f) => sum + (isProductionPath(f.path) ? Number(f.additions || 0) + Number(f.deletions || 0) : 0), 0);
 }
 
-export function classifyRoute(pr) {
-  if (pr?.filesTruncated || !Array.isArray(pr?.files)) return "multi-task";
+const countPlanTasks = (text) => [...String(text || "").matchAll(/^###\s+(?:Task\s+\d+|\d+\.)\b/gm)].length;
+
+export function classifyRoute(pr, { checkoutDir = null } = {}) {
   const prodLines = productionLinesChanged(pr);
+  if (prodLines === null) return "multi-task";
   if (prodLines === 0) return "trivial";
-  const taskHeadings = [...String(pr?.body || "").matchAll(/^###\s+Task\s+\d+\b/gm)].length;
+  let taskHeadings = countPlanTasks(pr?.body);
+  const sha = pr?.mergeCommit?.oid || pr?.headRefOid;
+  if (taskHeadings < 4 && checkoutDir && existsSync(checkoutDir) && SHA_RE.test(String(sha || ""))) {
+    for (const f of pr?.files || []) {
+      if (!/^docs\/superpowers\/plans\/.+\.md$/.test(String(f.path || ""))) continue;
+      const show = runGit(checkoutDir, ["show", `${sha}:${f.path}`]);
+      if (show.ok) taskHeadings = Math.max(taskHeadings, countPlanTasks(show.stdout));
+    }
+  }
   return prodLines > 120 || taskHeadings >= 4 ? "multi-task" : "small";
 }
 
@@ -109,7 +120,7 @@ export function computeCodeSurvival(prs, { checkoutDir, targetRef = "HEAD" } = {
   return { status: hasMissing ? "commit_missing" : "ok", addedLines: totalAdded, survivingLines: totalSurviving, rate: !hasMissing && totalAdded > 0 ? totalSurviving / totalAdded : null, perPr };
 }
 
-const mayTouchProd = (pr) => Boolean(pr?.filesTruncated || !Array.isArray(pr?.files) || productionLinesChanged(pr) > 0);
+const mayTouchProd = (pr) => { const n = productionLinesChanged(pr); return n === null || n > 0; };
 
 export function detectFixups(prs, { repo = "", checkoutDir = null, windowDays = 14 } = {}) {
   const windowMs = windowDays * DAY_MS;
@@ -172,9 +183,7 @@ function collectLedgerValidatedShas(ledgerData, repo) {
   const shas = (ledgerData?.validations || []).filter((v) => v.exit === 0 && !v.dirty && v.sha).map((v) => v.sha);
   for (const unit of Object.values(ledgerData?.units || {})) {
     if (repo && unit.repo && String(unit.repo).toLowerCase() !== String(repo).toLowerCase()) continue;
-    for (const ev of unit.evidence || []) {
-      if ((ev.kind === "validated" || ev.kind === "device_tested") && ev.sha) shas.push(ev.sha);
-    }
+    for (const ev of unit.evidence || []) if (ev.kind === "validated" && ev.sha) shas.push(ev.sha);
   }
   return shas;
 }
@@ -213,10 +222,10 @@ function parseWorkspaceYaml(filePath) {
 }
 
 function parseSessionEvents(eventsPath) {
-  const raw = readFileSync(eventsPath, "utf8");
+  const lines = readFileSync(eventsPath, "utf8").split(/\r?\n/);
   let latestNanoAiu = null, modelCalls = 0, compactions = 0, totalReadChars = 0, duplicateReadChars = 0, ownerRepeatMessages = 0, seenKickoff = false;
   const toolStarts = new Map(), seenReadsByPath = new Map();
-  for (const line of raw.split(/\r?\n/)) {
+  for (const line of lines) {
     if (!line.trim()) continue;
     let evt;
     try { evt = JSON.parse(line); } catch { continue; }
@@ -227,18 +236,23 @@ function parseSessionEvents(eventsPath) {
     else if (type === "tool.execution_start" && data.toolCallId) {
       let args = data.arguments;
       if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = {}; } }
-      const rangeKey = Array.isArray(args?.view_range) ? `${args.view_range[0]}:${args.view_range[1]}` : "full";
-      toolStarts.set(data.toolCallId, { toolName: data.toolName, path: args?.path || null, rangeKey });
+      const startLine = Array.isArray(args?.view_range) && Number.isFinite(Number(args.view_range[0])) ? Math.max(1, Math.trunc(Number(args.view_range[0]))) : 1;
+      toolStarts.set(data.toolCallId, { toolName: data.toolName, path: args?.path || null, startLine });
     } else if (type === "tool.execution_complete" && data.success) {
       const start = toolStarts.get(data.toolCallId);
       if (!start?.path) continue;
       if (start.toolName === "edit" || start.toolName === "create") seenReadsByPath.delete(start.path);
       else if (start.toolName === "view") {
-        const len = String(typeof data.result === "string" ? data.result : data.result?.content ?? "").length;
-        totalReadChars += len;
-        const ranges = seenReadsByPath.get(start.path) || new Set();
-        if (ranges.has("full") || ranges.has(start.rangeKey)) duplicateReadChars += len;
-        else { ranges.add(start.rangeKey); seenReadsByPath.set(start.path, ranges); }
+        const content = String(typeof data.result === "string" ? data.result : data.result?.content ?? "");
+        if (!content.length) continue;
+        totalReadChars += content.length;
+        const seenLines = seenReadsByPath.get(start.path) || new Set(), parts = content.split("\n");
+        for (let i = 0; i < parts.length; i++) {
+          const lineNo = start.startLine + i, chars = parts[i].length + (i < parts.length - 1 ? 1 : 0);
+          if (seenLines.has(lineNo)) duplicateReadChars += chars;
+          else seenLines.add(lineNo);
+        }
+        seenReadsByPath.set(start.path, seenLines);
       }
     } else if (type === "user.message" && !evt.agentId && !data.isAutopilotContinuation) {
       const c = String(data.content ?? "");
@@ -248,7 +262,7 @@ function parseSessionEvents(eventsPath) {
       if (REPEAT_RULE_RE.test(c)) ownerRepeatMessages += 1;
     }
   }
-  return { raw, totalNanoAiu: latestNanoAiu, modelCalls, compactions, totalReadChars, duplicateReadChars, duplicateReadRate: totalReadChars > 0 ? duplicateReadChars / totalReadChars : null, ownerRepeatMessages };
+  return { lines, totalNanoAiu: latestNanoAiu, modelCalls, compactions, totalReadChars, duplicateReadChars, duplicateReadRate: totalReadChars > 0 ? duplicateReadChars / totalReadChars : null, ownerRepeatMessages };
 }
 
 export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNumbers = null } = {}) {
@@ -266,12 +280,13 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNu
   for (const pr of prs || []) {
     const prMergedMs = Date.parse(pr.mergedAt || "");
     const needle = pr.url || (repo ? `https://github.com/${repo}/pull/${pr.number}` : `/pull/${pr.number}`);
-    const needleRe = new RegExp(`${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![0-9])`, "g");
+    const needleRe = new RegExp(`${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![0-9])`);
     let best = null, bestHits = 0;
     for (const s of sessions) {
       const createdMs = Date.parse(s.createdAt || "");
       if (Number.isFinite(prMergedMs) && Number.isFinite(createdMs) && createdMs > prMergedMs) continue;
-      const hits = [...s.raw.matchAll(needleRe)].length;
+      let hits = 0;
+      for (const l of s.lines) if (needleRe.test(l)) hits += 1;
       if (hits > bestHits) { bestHits = hits; best = s; }
     }
     if (best) { chosenByPr.set(pr.number, best); prsBySession.set(best.id, [...(prsBySession.get(best.id) || []), pr.number]); }
@@ -287,7 +302,7 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNu
       sharedPrNumbers.push(pr.number);
       perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", totalNanoAiu: null, modelCalls: null, duplicateReadRate: null, ownerRepeatMessages: null };
     } else {
-      const { raw: _raw, createdAt: _c, id, ...metrics } = s;
+      const { lines: _lines, createdAt: _c, id, ...metrics } = s;
       perPr[pr.number] = { sessionId: id, sharedSession: false, attribution: "unique", ...metrics };
     }
   }
@@ -299,6 +314,7 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNu
   return { status: "ok", mappedCount, totalOwnerRepeatMessages, sharedPrNumbers: sharedPrNumbers.sort((a, b) => a - b), sharedSessions, perPr };
 }
 
+const exactMedian = (values) => (!values.length || values.some((v) => !Number.isFinite(v)) ? null : median(values));
 const readJsonSafe = (p) => { try { return p && existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null; } catch { return null; } };
 
 export function collectMetrics({ repo = "", prs = [], prsTruncated = false, from = null, to = null, maturityDays = 14, checkoutDir = null, ledgerDir = null, sessionsDir = null, targetRef = "HEAD" } = {}) {
@@ -318,7 +334,7 @@ export function collectMetrics({ repo = "", prs = [], prsTruncated = false, from
   let verifiedCount = 0, verifiableCount = 0, firstPushGreenCount = 0, commitInfoCount = 0, durablePassCount = 0, eligibleYieldCount = 0;
   const buckets = { trivial: [], small: [], "multi-task": [] };
   for (const pr of windowPrs) {
-    const route = classifyRoute(pr), prodLines = productionLinesChanged(pr), ev = verifyPrEvidence(pr, { repo, ledgerData, checkoutDir });
+    const route = classifyRoute(pr, { checkoutDir }), prodLines = productionLinesChanged(pr), ev = verifyPrEvidence(pr, { repo, ledgerData, checkoutDir });
     if (ev.verified !== null) { verifiableCount += 1; if (ev.verified) verifiedCount += 1; }
     let firstPushGreen = null;
     if (Array.isArray(pr.commits) && pr.createdAt) {
@@ -336,13 +352,13 @@ export function collectMetrics({ repo = "", prs = [], prsTruncated = false, from
   }
   const routeBuckets = Object.fromEntries(Object.entries(buckets).map(([route, items]) => {
     const u = truncated ? [] : items.filter((i) => i.session?.attribution === "unique");
-    return [route, { count: items.length, uniqueSessions: u.length, medianProdLines: truncated ? null : median(items.map((i) => i.prodLines)), medianNanoAiu: median(u.map((i) => i.session.totalNanoAiu)), meanModelCalls: mean(u.map((i) => i.session.modelCalls)), medianDuplicateReadRate: median(u.map((i) => i.session.duplicateReadRate)) }];
+    return [route, { count: items.length, uniqueSessions: u.length, medianProdLines: truncated ? null : exactMedian(items.map((i) => i.prodLines)), medianNanoAiu: median(u.map((i) => i.session.totalNanoAiu)), meanModelCalls: mean(u.map((i) => i.session.modelCalls)), medianDuplicateReadRate: median(u.map((i) => i.session.duplicateReadRate)) }];
   }));
   const allVerifiable = verifiableCount === windowPrs.length;
   const verificationStatus = truncated ? "prs_truncated" : windowPrs.length === 0 ? "no_prs" : ledgerData ? "ok" : allVerifiable ? "exempt_only" : "unavailable";
   const yieldStatus = truncated ? "prs_truncated" : windowPrs.length === 0 ? "no_prs" : !allVerifiable ? "ledger_unavailable" : fixupStatus !== "ok" ? fixupStatus : sessionAnalysis.status !== "ok" ? "sessions_unavailable" : eligibleYieldCount === 0 ? "no_attributed_sessions" : "ok";
   return {
-    repo, prsTruncated: truncated, window: { from, to, maturityDays }, mergedPrCount: windowPrs.length, medianProdLines: truncated ? null : median(windowPrs.map((p) => productionLinesChanged(p))),
+    repo, prsTruncated: truncated, window: { from, to, maturityDays }, mergedPrCount: windowPrs.length, medianProdLines: truncated ? null : exactMedian(windowPrs.map((p) => productionLinesChanged(p))),
     durability: { codeSurvival, fixupStatus, fixupPrCount: new Set(windowFixups.map((d) => d.fixupPr)).size, fixups: windowFixups },
     verification: { status: verificationStatus, verifiedCount, verifiableCount, rate: verificationStatus === "ok" || verificationStatus === "exempt_only" ? verifiedCount / windowPrs.length : null },
     autonomy: { status: truncated ? "prs_truncated" : sessionAnalysis.status, firstPushGreenCount, commitInfoCount, firstPushGreenRate: !truncated && commitInfoCount > 0 ? firstPushGreenCount / commitInfoCount : null, ownerRepeatMessages: truncated ? null : sessionAnalysis.totalOwnerRepeatMessages, sharedPrNumbers: truncated ? [] : sessionAnalysis.sharedPrNumbers, sharedSessions: truncated ? [] : sessionAnalysis.sharedSessions },
