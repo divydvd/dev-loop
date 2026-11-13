@@ -221,7 +221,7 @@ function parseWorkspaceYaml(filePath) {
   return out;
 }
 
-function parseSessionEvents(eventsPath) {
+export function parseSessionEvents(eventsPath) {
   const lines = readFileSync(eventsPath, "utf8").split(/\r?\n/);
   let latestNanoAiu = null, modelCalls = 0, compactions = 0, totalReadChars = 0, duplicateReadChars = 0, ownerRepeatMessages = 0, seenKickoff = false;
   const toolStarts = new Map(), seenReadsByPath = new Map();
