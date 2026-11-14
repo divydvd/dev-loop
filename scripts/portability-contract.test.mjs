@@ -561,3 +561,200 @@ test("T-M1-3: host capability contract, Copilot adapter, SKILL.md routing, PR te
   assert.ok(Buffer.byteLength(coreMdc, "utf8") <= 15_000, "core.mdc must fit within startup budget");
 });
 
+function cleanChildEnv() {
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("GIT_")) delete env[key];
+  }
+  return env;
+}
+
+test("T-M3-1: checkRepo enforces gemini-extension.json description parity and sync-host-core.mjs syncs/checks GEMINI.md without altering core.mdc", () => {
+  const syncScript = join(REPO_ROOT, "scripts/sync-host-core.mjs");
+  assert.equal(existsSync(syncScript), true, "missing scripts/sync-host-core.mjs");
+
+  withFixtureRepo((dir) => {
+    writeFileSync(
+      join(dir, "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "dev-loop",
+        description: "Canonical description.",
+        version: "0.5.13",
+      }),
+    );
+    writeFileSync(join(dir, "GEMINI.md"), CORE_BODY);
+    writeFileSync(
+      join(dir, "gemini-extension.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        version: "0.5.13",
+        description: "Drifted description.",
+        contextFileName: "GEMINI.md",
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("gemini-extension.json") && f.includes("description")),
+      "mismatched gemini-extension.json description must fail checkRepo",
+    );
+
+    writeFileSync(
+      join(dir, "gemini-extension.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        version: "0.5.13",
+        contextFileName: "GEMINI.md",
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("gemini-extension.json") && f.includes("description")),
+      "omitted gemini-extension.json description must fail checkRepo",
+    );
+
+    writeFileSync(
+      join(dir, "gemini-extension.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        version: "0.5.13",
+        description: "Canonical description.",
+        contextFileName: "GEMINI.md",
+      }),
+    );
+    assert.deepEqual(checkMod.checkRepo(dir), []);
+
+    // Orphan GEMINI.md without gemini-extension.json and escaping GEMINI.md symlink must fail checkRepo
+    unlinkSync(join(dir, "gemini-extension.json"));
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("gemini-extension.json") && f.includes("GEMINI.md")),
+      "orphan GEMINI.md without gemini-extension.json must fail checkRepo",
+    );
+    writeFileSync(
+      join(dir, "gemini-extension.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        version: "0.5.13",
+        description: "Canonical description.",
+        contextFileName: "GEMINI.md",
+      }),
+    );
+    unlinkSync(join(dir, "GEMINI.md"));
+    symlinkSync("/etc/hosts", join(dir, "GEMINI.md"));
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("GEMINI.md") && f.includes("escapes")),
+      "symlinked GEMINI.md escaping root must fail checkRepo containment",
+    );
+    unlinkSync(join(dir, "GEMINI.md"));
+
+    // sync-host-core.mjs creates missing GEMINI.md, rejects unknown flags, detects drift under --check, and restores parity without touching core.mdc
+    const badFlag = spawnSync(process.execPath, [syncScript, dir, "--unknown-flag"], {
+      env: cleanChildEnv(),
+      encoding: "utf8",
+    });
+    assert.equal(badFlag.status, 1, "unknown CLI flag must exit 1 without writing GEMINI.md");
+    assert.equal(existsSync(join(dir, "GEMINI.md")), false, "unknown CLI flag must not create GEMINI.md");
+
+    const createRun = spawnSync(process.execPath, [syncScript, dir], {
+      env: cleanChildEnv(),
+      encoding: "utf8",
+    });
+    assert.equal(createRun.status, 0, `initial sync-host-core.mjs create must exit 0: ${createRun.stderr}`);
+    assert.equal(readFileSync(join(dir, "GEMINI.md"), "utf8"), CORE_BODY);
+
+    writeFileSync(join(dir, "GEMINI.md"), "# Drifted\n");
+    const checkDrift = spawnSync(process.execPath, [syncScript, "--check", dir], {
+      env: cleanChildEnv(),
+      encoding: "utf8",
+    });
+    assert.equal(checkDrift.status, 1, "sync-host-core.mjs --check must exit 1 when GEMINI.md drifts");
+
+    const syncRun = spawnSync(process.execPath, [syncScript, dir], {
+      env: cleanChildEnv(),
+      encoding: "utf8",
+    });
+    assert.equal(syncRun.status, 0, `sync-host-core.mjs must exit 0: ${syncRun.stderr}`);
+    assert.equal(readFileSync(join(dir, "GEMINI.md"), "utf8"), CORE_BODY);
+    assert.equal(readFileSync(join(dir, "com.github.copilot/rules/core.mdc"), "utf8"), CORE_MDC);
+
+    const checkSynced = spawnSync(process.execPath, [syncScript, "--check", dir], {
+      env: cleanChildEnv(),
+      encoding: "utf8",
+    });
+    assert.equal(checkSynced.status, 0, "sync-host-core.mjs --check must exit 0 after sync");
+    assert.match(checkSynced.stdout, /GEMINI\.md: in sync/);
+  });
+});
+
+test("T-M3-2: repository ships gemini-extension.json and byte-identical GEMINI.md within 15 KB consumer and self-repo startup ceilings", async () => {
+  const syncMod = await import("./sync-host-core.mjs");
+  const plugin = JSON.parse(readFileSync(join(REPO_ROOT, "plugin.json"), "utf8"));
+  const marketplace = JSON.parse(readFileSync(join(REPO_ROOT, ".github/plugin/marketplace.json"), "utf8"));
+  const geminiExtPath = join(REPO_ROOT, "gemini-extension.json");
+  const geminiMdPath = join(REPO_ROOT, "GEMINI.md");
+  assert.equal(existsSync(geminiExtPath), true, "missing root gemini-extension.json");
+  assert.equal(existsSync(geminiMdPath), true, "missing root GEMINI.md");
+
+  const geminiExt = JSON.parse(readFileSync(geminiExtPath, "utf8"));
+  assert.equal(geminiExt.name, "dev-loop");
+  assert.equal(geminiExt.version, plugin.version);
+  assert.equal(geminiExt.version, marketplace.metadata.version);
+  assert.equal(geminiExt.description, plugin.description);
+  assert.equal(geminiExt.contextFileName, "GEMINI.md");
+
+  const coreRaw = readFileSync(join(REPO_ROOT, "com.github.copilot/rules/core.mdc"), "utf8");
+  const coreBody = checkMod.stripFrontmatter(coreRaw);
+  const geminiMd = readFileSync(geminiMdPath, "utf8");
+  assert.equal(geminiMd, coreBody, "GEMINI.md must match core.mdc body byte-for-byte");
+  assert.equal(syncMod.syncHostCore(REPO_ROOT, { check: true }).synced, true);
+
+  const agentsBytes = Buffer.byteLength(readFileSync(join(REPO_ROOT, "AGENTS.md"), "utf8"), "utf8");
+  const geminiBytes = Buffer.byteLength(geminiMd, "utf8");
+  const coreRawBytes = Buffer.byteLength(coreRaw, "utf8");
+  assert.ok(agentsBytes + geminiBytes <= 15_000, `AGENTS.md + GEMINI.md (${agentsBytes + geminiBytes} B) must stay <= 15,000 B`);
+  assert.ok(
+    agentsBytes + geminiBytes + coreRawBytes <= 15_000,
+    `self-repo Copilot startup bytes (${agentsBytes + geminiBytes + coreRawBytes} B) must stay <= 15,000 B`,
+  );
+  assert.ok(
+    agentsBytes + 2 * geminiBytes <= 15_000,
+    `self-repo Gemini startup bytes (${agentsBytes + 2 * geminiBytes} B) must stay <= 15,000 B`,
+  );
+
+  assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
+});
+
+test("T-M3-3: Gemini CLI host guide is linked from hosts/README.md and documents Gemini-specific deltas with valid links", () => {
+  const hostsReadmePath = join(REPO_ROOT, "skills/dev-loop/references/hosts/README.md");
+  const geminiHostPath = join(REPO_ROOT, "skills/dev-loop/references/hosts/gemini.md");
+  assert.equal(existsSync(geminiHostPath), true, "missing skills/dev-loop/references/hosts/gemini.md");
+
+  const hostsReadme = readFileSync(hostsReadmePath, "utf8");
+  assert.match(hostsReadme, /`references\/hosts\/gemini\.md`/, "hosts/README.md must link `references/hosts/gemini.md`");
+
+  const geminiHost = readFileSync(geminiHostPath, "utf8");
+  assert.match(geminiHost, /^## Abstract$/m);
+  assert.match(geminiHost, /^## Conclusion$/m);
+  assert.match(geminiHost, /gemini-extension\.json/);
+  assert.match(geminiHost, /contextFileName/);
+  assert.match(geminiHost, /GEMINI\.md/);
+  assert.match(geminiHost, /node <dev-loop-checkout>\/scripts\/sync-host-core\.mjs/);
+  assert.match(geminiHost, /15 KB|15,000/);
+  assert.match(geminiHost, /activate_skill/);
+  assert.match(geminiHost, /blocked/i);
+  assert.match(geminiHost, /invoke_agent/);
+  assert.match(geminiHost, /generalist/);
+  assert.match(geminiHost, /gemini-tools\.md/);
+  assert.match(geminiHost, /open, not ready: independent review unavailable/);
+  assert.match(geminiHost, /ask_user/);
+  assert.match(geminiHost, /file:\/\//);
+  assert.match(geminiHost, /github-pr-media/);
+  assert.match(geminiHost, /gh pr create --base/);
+  assert.match(geminiHost, /work_ledger_record/);
+  assert.match(geminiHost, /tools\/work-ledger/);
+  assert.match(geminiHost, /copilot-pull-request-reviewer/);
+
+  assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
+});
+
+
+

@@ -190,7 +190,12 @@ function checkManifest() {
     if (!host) continue;
     if (host.name !== plugin.name) fault(hostPath, `name "${host.name}" differs from plugin.json name "${plugin.name}"`);
     if (host.version !== plugin.version) fault(hostPath, `version ${host.version} differs from plugin.json version ${plugin.version}`);
-    if (relManifest === "gemini-extension.json" && host.contextFileName !== "GEMINI.md") fault(hostPath, 'contextFileName must be "GEMINI.md"');
+    if (relManifest === "gemini-extension.json") {
+      if (typeof plugin.description === "string" && host.description !== plugin.description) {
+        fault(hostPath, "description differs from plugin.json description");
+      }
+      if (host.contextFileName !== "GEMINI.md") fault(hostPath, 'contextFileName must be "GEMINI.md"');
+    }
   }
 
   const changelogPath = join(root, "CHANGELOG.md");
@@ -228,15 +233,21 @@ function checkRules(agentsBytes) {
 
   const geminiExtPath = join(root, "gemini-extension.json");
   const geminiMdPath = join(root, "GEMINI.md");
-  if (existsSync(geminiExtPath) || existsSync(geminiMdPath)) {
-    if (!existsSync(geminiMdPath)) fault(geminiMdPath, "file is missing while gemini-extension.json is present");
-    else if (existsSync(corePath) && readFileSync(geminiMdPath, "utf8") !== stripFrontmatter(readFileSync(corePath, "utf8"))) {
+  const hasGeminiExt = pathOrLinkExists(geminiExtPath);
+  const hasGeminiMd = pathOrLinkExists(geminiMdPath);
+  let validGeminiMdPath = null;
+  if (hasGeminiExt || hasGeminiMd) {
+    if (!hasGeminiExt) fault(geminiExtPath, "file is missing while GEMINI.md is present");
+    validGeminiMdPath = checkExistingFileInsideDir(root, "GEMINI.md");
+    if (!validGeminiMdPath) {
+      fault(geminiMdPath, "file is missing, is not a regular file, or escapes root");
+    } else if (existsSync(corePath) && readFileSync(validGeminiMdPath, "utf8") !== stripFrontmatter(readFileSync(corePath, "utf8"))) {
       fault(geminiMdPath, "content differs from com.github.copilot/rules/core.mdc body");
     }
   }
 
   checkStartupCeiling(rulesDir, agentsBytes + copilotRulesBytes);
-  if (existsSync(geminiMdPath)) checkStartupCeiling(geminiMdPath, agentsBytes + utf8Bytes(readFileSync(geminiMdPath, "utf8")));
+  if (validGeminiMdPath) checkStartupCeiling(geminiMdPath, agentsBytes + utf8Bytes(readFileSync(validGeminiMdPath, "utf8")));
 }
 
 function checkHooks(agentsBytes) {
