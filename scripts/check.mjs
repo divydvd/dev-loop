@@ -285,6 +285,11 @@ function checkHooks(agentsBytes) {
       if (!faults.some((f) => f.includes(relTarget) && f.includes("executable (+x)"))) fault(target, "hook script must be executable (+x)");
       return null;
     }
+    if (readFileSync(target, "utf8").includes("\r")) {
+      const relTarget = relative(root, target).replaceAll("\\", "/");
+      if (!faults.some((f) => f.includes(relTarget) && f.includes("LF line endings"))) fault(target, "hook script must use LF line endings");
+      return null;
+    }
     validatedExecPaths.add(target);
     return target;
   }

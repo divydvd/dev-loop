@@ -681,6 +681,27 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
       }),
     );
     assert.deepEqual(checkMod.checkRepo(dir), []);
+
+    mkdirSync(join(dir, "hooks"), { recursive: true });
+    writeFileSync(
+      join(dir, "hooks/hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            {
+              matcher: "startup|resume|clear|compact",
+              hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/session-start"', shell: "bash" }],
+            },
+          ],
+        },
+      }),
+    );
+    writeFileSync(join(dir, "hooks/session-start"), "#!/usr/bin/env bash\r\necho '{}'\r\n");
+    chmodSync(join(dir, "hooks/session-start"), 0o755);
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("hooks/session-start") && f.includes("LF line endings")),
+      "expected checkRepo to reject CRLF in executable hook script",
+    );
   });
 
   const rootPlugin = JSON.parse(readFileSync(join(REPO_ROOT, "plugin.json"), "utf8"));
@@ -709,6 +730,15 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
   assert.ok(existsSync(sessionStartPath), "missing hooks/session-start");
   assert.ok((statSync(runHookPath).mode & 0o111) !== 0, "hooks/run-hook.cmd must be executable (+x)");
   assert.ok((statSync(sessionStartPath).mode & 0o111) !== 0, "hooks/session-start must be executable (+x)");
+
+  const gitAttrs = spawnSync("git", ["check-attr", "eol", "hooks/run-hook.cmd", "hooks/session-start"], {
+    cwd: REPO_ROOT,
+    env: sanitizedEnv(),
+    encoding: "utf8",
+  });
+  assert.equal(gitAttrs.status, 0, gitAttrs.stderr);
+  assert.match(gitAttrs.stdout, /hooks\/run-hook\.cmd: eol: lf/);
+  assert.match(gitAttrs.stdout, /hooks\/session-start: eol: lf/);
 
   const hooksJson = JSON.parse(readFileSync(hooksJsonPath, "utf8"));
   const sessionStartGroups = hooksJson?.hooks?.SessionStart;
