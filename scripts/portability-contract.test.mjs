@@ -212,6 +212,82 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
     assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("custom-start.sh") && f.includes("COPILOT_CLI")), "custom SessionStart script must also obey COPILOT_CLI=1");
     unlinkSync(join(dir, "hooks/custom-start.sh"));
 
+    // Escaping symlink at hooks/session-start when hooks.json does not reference it
+    unlinkSync(join(dir, "hooks/session-start"));
+    symlinkSync("/bin/echo", join(dir, "hooks/session-start"));
+    writeFileSync(join(dir, "hooks/hooks.json"), JSON.stringify({ hooks: {} }));
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("hooks/session-start") && f.includes("escapes")),
+      "symlinked hooks/session-start escaping root must fail containment",
+    );
+    unlinkSync(join(dir, "hooks/session-start"));
+
+    // Non-Copilot SessionStart exit 1, non-object JSON, and oversized systemMessage
+    writeFileSync(
+      join(dir, "hooks/hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [{ matcher: "startup|clear|compact", hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/hooks/session-start" }] }],
+        },
+      }),
+    );
+    writeFileSync(
+      join(dir, "hooks/session-start"),
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nexit 1\n',
+    );
+    chmodSync(join(dir, "hooks/session-start"), 0o755);
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("hooks/session-start")),
+      "SessionStart exiting 1 when COPILOT_CLI is unset must fail",
+    );
+
+    writeFileSync(
+      join(dir, "hooks/session-start"),
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'["not-an-object"]\\n\'\n',
+    );
+    chmodSync(join(dir, "hooks/session-start"), 0o755);
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("hooks/session-start")),
+      "SessionStart emitting JSON array when COPILOT_CLI is unset must fail",
+    );
+
+    writeFileSync(
+      join(dir, "hooks/session-start"),
+      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"systemMessage":"${"s".repeat(15_001)}"}\\n'\n`,
+    );
+    chmodSync(join(dir, "hooks/session-start"), 0o755);
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("15000") || f.includes("15 KB")),
+      "SessionStart oversized systemMessage when COPILOT_CLI is unset must fail 15 KB budget",
+    );
+
+    // Polyglot wrapper command ("${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start)
+    writeFileSync(
+      join(dir, "hooks/run-hook.cmd"),
+      ': << \'CMDBLOCK\'\nexit /b 0\nCMDBLOCK\nSCRIPT_DIR="$(cd "${0%[/\\\\]*}" && pwd)"\nSCRIPT_NAME="$1"\nshift\nexec "${BASH:-bash}" "${SCRIPT_DIR}/${SCRIPT_NAME}" "$@"\n',
+    );
+    chmodSync(join(dir, "hooks/run-hook.cmd"), 0o755);
+    writeFileSync(
+      join(dir, "hooks/session-start"),
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"ok"}}\\n\'\n',
+    );
+    chmodSync(join(dir, "hooks/session-start"), 0o755);
+    writeFileSync(
+      join(dir, "hooks/hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            {
+              matcher: "startup|clear|compact",
+              hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start', shell: "bash" }],
+            },
+          ],
+        },
+      }),
+    );
+    assert.deepEqual(checkMod.checkRepo(dir), [], "guarded polyglot run-hook.cmd session-start must pass");
+    unlinkSync(join(dir, "hooks/run-hook.cmd"));
+
     // Orphan hooks/session-start without hooks/hooks.json
     unlinkSync(join(dir, "hooks/hooks.json"));
     assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("hooks/hooks.json")), "orphan hooks/session-start without hooks/hooks.json must fail");
