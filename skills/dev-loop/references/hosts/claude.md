@@ -33,7 +33,7 @@ Use `claude-code-tools.md` from the Superpowers `using-superpowers` skill to tra
 7. **GitHub PR checks and plugin CLI:** Repository `copilot-pull-request-reviewer` runs depend on GitHub repository settings, not on the local coding host.
    After opening or updating a PR, poll `gh api repos/{owner}/{repo}/commits/<sha>/check-runs` for `copilot-pull-request-reviewer` and check CI with `gh pr checks`.
    Validate a checkout with `claude plugin validate --strict .`, install locally with `claude plugin install --marketplace <source> dev-loop`, and inspect installed plugins with `claude plugin list`.
-   When testing `claude` from inside a GitHub Copilot terminal, run `env -u COPILOT_CLI claude ...` so an inherited `COPILOT_CLI=1` variable does not suppress `hooks/session-start`.
+   When testing `claude` from inside a GitHub Copilot or Claude Code terminal, run `env -u COPILOT_CLI -u CLAUDECODE claude ...` so inherited `COPILOT_CLI=1` or `CLAUDECODE=1` variables do not suppress `hooks/session-start` or trigger nested-session checks.
 
 ## Conclusion
 Follow these Claude Code procedures alongside `references/hosts/README.md` so every approval gate, test tier, and fresh-context `Agent` review matches the reference workflow.

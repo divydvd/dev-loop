@@ -17,8 +17,8 @@ function sanitizedEnv(overrides = {}) {
       k.startsWith("GIT_") ||
       k.startsWith("COPILOT_") ||
       k.startsWith("ANTHROPIC_") ||
-      k.startsWith("CLAUDE_CODE_") ||
-      k === "CLAUDE_CONFIG_DIR"
+      k === "CLAUDECODE" ||
+      k.startsWith("CLAUDE_")
     ) {
       continue;
     }
@@ -601,6 +601,21 @@ test("T-M1-3: host capability contract, Copilot adapter, SKILL.md routing, PR te
 });
 
 test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook single-source contract", () => {
+  const prevClaudeCode = process.env.CLAUDECODE;
+  const prevClaudePluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+  try {
+    process.env.CLAUDECODE = "1";
+    process.env.CLAUDE_PLUGIN_ROOT = "/tmp/stale-claude-plugin";
+    const clean = sanitizedEnv();
+    assert.equal(clean.CLAUDECODE, undefined, "sanitizedEnv must strip CLAUDECODE nested-session sentinel");
+    assert.equal(clean.CLAUDE_PLUGIN_ROOT, undefined, "sanitizedEnv must strip inherited CLAUDE_PLUGIN_ROOT");
+  } finally {
+    if (prevClaudeCode === undefined) delete process.env.CLAUDECODE;
+    else process.env.CLAUDECODE = prevClaudeCode;
+    if (prevClaudePluginRoot === undefined) delete process.env.CLAUDE_PLUGIN_ROOT;
+    else process.env.CLAUDE_PLUGIN_ROOT = prevClaudePluginRoot;
+  }
+
   withFixtureRepo((dir) => {
     mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
     writeFileSync(
