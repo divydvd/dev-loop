@@ -1,0 +1,2 @@
+hooks/run-hook.cmd text eol=lf
+hooks/session-start text eol=lf
