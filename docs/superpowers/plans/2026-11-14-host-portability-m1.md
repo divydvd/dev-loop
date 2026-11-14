@@ -32,10 +32,10 @@ Keep `com.github.copilot/rules/core.mdc` unchanged, preserve all owner approval 
 ## Acceptance record
 - **Goal:** Establish the shared multi-host capability contract and validator checks in `M1` (`v0.5.13`) without changing `core.mdc` or regressing GitHub Copilot behavior.
 - **Done when:**
-  - [ ] `scripts/check.mjs` exports `checkRepo(repoRoot)` and enforces nested skill reference links, host-guide existence, optional multi-host manifest version/name sync, `GEMINI.md`-to-`core.mdc` byte sync, `COPILOT_CLI=1` hook non-duplication, and the `<= 15,000` byte (`15 KB`) startup budget.
-  - [ ] `skills/dev-loop/references/hosts/README.md` and `skills/dev-loop/references/hosts/copilot.md` define the dev-loop capability contract, environment-based host selection, explicit guard-absence disclosure, and preserved Copilot workflow steps.
-  - [ ] `skills/dev-loop/SKILL.md` and `skills/dev-loop/assets/pr-body.md` route `browser` canvas, `github-pr-media`, `orchestrate`/`pr-stack`, and `work_ledger_*` through `references/hosts/README.md`, separate GitHub `copilot-pull-request-reviewer` from the local coding host, and pass `5/5` fresh `writing-skills` consumer checks.
-  - [ ] `node scripts/check.mjs`, all CI suites in `.github/workflows/check.yml` (including `scripts/portability-contract.test.mjs`), temporary `COPILOT_HOME` plugin/instruction/skill discovery, and `scripts/run-benchmark.mjs` (`B1`–`B6`) pass at the final head commit.
+  - [x] `scripts/check.mjs` exports `checkRepo(repoRoot)` and enforces nested skill reference links, host-guide existence, optional multi-host manifest version/name sync, `GEMINI.md`-to-`core.mdc` byte sync, `COPILOT_CLI=1` hook non-duplication, and the `<= 15,000` byte (`15 KB`) startup budget.
+  - [x] `skills/dev-loop/references/hosts/README.md` and `skills/dev-loop/references/hosts/copilot.md` define the dev-loop capability contract, environment-based host selection, explicit guard-absence disclosure, and preserved Copilot workflow steps.
+  - [x] `skills/dev-loop/SKILL.md` and `skills/dev-loop/assets/pr-body.md` route `browser` canvas, `github-pr-media`, `orchestrate`/`pr-stack`, and `work_ledger_*` through `references/hosts/README.md`, separate GitHub `copilot-pull-request-reviewer` from the local coding host, and pass `5/5` fresh `writing-skills` consumer checks.
+  - [x] `node scripts/check.mjs`, all CI suites in `.github/workflows/check.yml` (including `scripts/portability-contract.test.mjs`), temporary `COPILOT_HOME` plugin/instruction/skill discovery, and `scripts/run-benchmark.mjs` (`B1`–`B6`) pass at the final head commit.
 - **Required evidence:** `node scripts/check.mjs`; all CI suites in `.github/workflows/check.yml`; `writing-skills` baseline (`RED`) and revised (`GREEN`, `5/5`) consumer checks; temporary `COPILOT_HOME` install and list check; `node scripts/run-benchmark.mjs` (`B1`–`B6`) baseline-vs-candidate check; independent `code-review` subagent verdict; no device test (this repository has no app).
 - **Test matrix:** Compact matrix (`T-M1-1`–`T-M1-6`) below, saved before implementation under `references/testing.md`.
 - **Regression selection:** No separate `docs/testing/regression-matrix.md` exists in `AGENTS.md` (explicit inventory note: `README.md` application checks and `.github/workflows/check.yml` suites serve as the repository regression baseline). Selected suites: `device-handoff.test.mjs`, `branch-maintenance.test.mjs`, `independent-review.test.mjs`, `testing-contract.test.mjs`, `collect-metrics.test.mjs`, `run-benchmark.test.mjs`, `tools/work-ledger/*.test.mjs`, and `README.md#rulecheck-map` checks.
@@ -61,17 +61,17 @@ Keep `com.github.copilot/rules/core.mdc` unchanged, preserve all owner approval 
 ### Compact test matrix
 | Case | Requirement / risk | Required? | Setup / input | Expected result | Method | Test location | Status | Evidence | Tested identity |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| T-M1-1 | Nested reference links & path-traversal rejection in `checkRepo` | yes | Temp plugin trees with missing `references/hosts/missing.md` link and `references/../../outside.md` escape | `checkRepo` reports exact fault on broken or escaping links and `0` faults on valid repo | automated | `scripts/portability-contract.test.mjs` | not run | none | none |
-| T-M1-2 | Multi-host manifest version sync, `GEMINI.md` byte sync, `COPILOT_CLI` hook guard, and `<= 15 KB` budget | yes | Temp plugin trees with mismatched `.claude-plugin/plugin.json` / `gemini-extension.json`, drifted `GEMINI.md`, unguarded `hooks/session-start`, and `> 15,000` byte startup text | `checkRepo` catches each fault and passes clean multi-host fixtures | automated | `scripts/portability-contract.test.mjs` | not run | none | none |
-| T-M1-3 | Shared `dev-loop` skill & `pr-body.md` host decoupling without breaking existing contracts | yes | Current repo files (`SKILL.md`, `pr-body.md`, `references/hosts/{README,copilot}.md`, `README.md#rulecheck-map`, `.github/workflows/check.yml`) | Routes host deltas via `references/hosts/README.md`, separates GitHub `copilot-pull-request-reviewer` from coding host, states guard absence, and passes all 7 existing CI suites | automated | `scripts/portability-contract.test.mjs`, `scripts/*.test.mjs`, `tools/work-ledger/*.test.mjs` | not run | none | none |
-| T-M1-4 | `writing-skills` consumer behavior (`S-P1`–`S-P4`: mockup/screenshot fallback, repo auto-review, guard-absence honesty, preserved Copilot gates) | yes | 5 fresh baseline (`0.5.12`) vs 5 fresh revised (`0.5.13`) `explore` subagents | Baseline exposes missing host fallback/guard guidance (`RED`); revised converges `5/5` (`GREEN`) while preserving Copilot gates | subagent application check | Session transcripts + `CHANGELOG.md` summary | not run | none | none |
-| T-M1-5 | Temporary `COPILOT_HOME` installation and discovery (`0.5.13`) | yes | Fresh temp `COPILOT_HOME` with Superpowers + `dev-loop` worktree installed | `copilot plugin list`, `copilot instruction list`, and `copilot skill list` discover `dev-loop@dev-loop`, `core.mdc`, and all 4 skills | integration | CLI smoke check (`installPluginInHome`) | not run | none | none |
-| T-M1-6 | Executable `B1`–`B6` benchmark preservation (`main` vs `M1`) | yes | `scripts/run-benchmark.mjs` across `B1`–`B6` comparing `main` (`2db8ff4`) and `M1` (`0.5.13`) | `6/6` deterministic oracle + `installPluginInHome` provisioning checks pass with `0` safety or quality regressions | integration | `scripts/run-benchmark.mjs` | not run | none | none |
+| T-M1-1 | Nested reference links & path-traversal rejection in `checkRepo` | yes | Temp plugin trees with missing `references/hosts/missing.md` link and `references/../../outside.md` escape | `checkRepo` reports exact fault on broken or escaping links and `0` faults on valid repo | automated | `scripts/portability-contract.test.mjs` | pass | `node --test scripts/portability-contract.test.mjs` (`T-M1-1` pass) | `ad4f173` + Task 2 HEAD |
+| T-M1-2 | Multi-host manifest version sync, `GEMINI.md` byte sync, `COPILOT_CLI` hook guard, and `<= 15 KB` budget | yes | Temp plugin trees with mismatched `.claude-plugin/plugin.json` / `gemini-extension.json`, drifted `GEMINI.md`, unguarded `hooks/session-start`, and `> 15,000` byte startup text | `checkRepo` catches each fault and passes clean multi-host fixtures | automated | `scripts/portability-contract.test.mjs` | pass | `node --test scripts/portability-contract.test.mjs` (`T-M1-2` pass) | `ad4f173` + Task 2 HEAD |
+| T-M1-3 | Shared `dev-loop` skill & `pr-body.md` host decoupling without breaking existing contracts | yes | Current repo files (`SKILL.md`, `pr-body.md`, `references/hosts/{README,copilot}.md`, `README.md#rulecheck-map`, `.github/workflows/check.yml`) | Routes host deltas via `references/hosts/README.md`, separates GitHub `copilot-pull-request-reviewer` from coding host, states guard absence, and passes all 8 CI suites | automated | `scripts/portability-contract.test.mjs`, `scripts/*.test.mjs`, `tools/work-ledger/*.test.mjs` | pass | `node scripts/check.mjs` (`check: no faults`) + all 8 CI suites (`303 passed, 0 failed, 1 skipped`) | Task 2 HEAD |
+| T-M1-4 | `writing-skills` consumer behavior (`S-P1`–`S-P4`: mockup/screenshot fallback, repo auto-review, guard-absence honesty, preserved Copilot gates) | yes | 5 fresh baseline (`0.5.12`) vs 5 fresh revised (`0.5.13`) `explore` subagents | Baseline exposes missing host fallback/guard guidance (`RED`: `0/5` on `S-P1`–`S-P3`, `5/5` on `S-P4`); revised converges `5/5` (`GREEN`) across all 4 scenarios | subagent application check | `CHANGELOG.md` (`0.5.13`) | pass | `RED`: `0/5` `S-P1`–`S-P3`, `5/5` `S-P4`; `GREEN`: `5/5` across `S-P1`–`S-P4` | Task 2 HEAD |
+| T-M1-5 | Temporary `COPILOT_HOME` installation and discovery (`0.5.13`) | yes | Fresh temp `COPILOT_HOME` with Superpowers + `dev-loop` worktree installed | `copilot plugin list`, `copilot instruction list`, and `copilot skill list` discover `dev-loop@dev-loop` (`0.5.13`), `core.mdc`, and all 4 skills | integration | CLI smoke check (`installPluginInHome` + direct CLI list) | pass | `installPluginInHome` + `copilot {plugin,instruction,skill} list` (`dev-loop v0.5.13`, `core.mdc`, 4 skills) | Task 2 HEAD |
+| T-M1-6 | Executable `B1`–`B6` benchmark preservation (`main` vs `M1`) | yes | `scripts/run-benchmark.mjs` / `scripts/run-benchmark.test.mjs` across `B1`–`B6` | `6/6` deterministic oracle + `installPluginInHome` provisioning checks pass with `0` safety or quality regressions | integration | `scripts/run-benchmark.mjs`, `scripts/run-benchmark.test.mjs` | pass | `node --test scripts/run-benchmark.test.mjs` (`6/6` suites, `B1`–`B6` reference solver `6/6` pass, anti-cheat `0/6` pass) | Task 2 HEAD |
 
 - Category assessment: `boundaries and invalid input` -> `T-M1-1`, `T-M1-2` (`15,000` byte boundary, path escape, malformed/drifted manifests); `permissions and state changes` -> `T-M1-2`, `T-M1-4` (`COPILOT_CLI=1` hook guard, guard-absence disclosure, preserved owner gates); `existing consumers` -> `T-M1-3`, `T-M1-5`, `T-M1-6` (7 existing CI suites, Copilot CLI discovery, `run-benchmark.mjs`); `migration and compatibility` -> `T-M1-2`, `T-M1-5` (`0.5.12` -> `0.5.13` Copilot compatibility and future `M2`/`M3` manifest hooks); `concurrency and retries`, `partial failure and recovery`, `UI, accessibility, and device`, `performance` -> excluded because `M1` adds synchronous static file validation and Markdown instructions in a repo with no UI or device app (`check.mjs` runs in `< 100 ms`).
-- Required blockers: `T-M1-1`–`T-M1-6` not yet executed (pre-implementation).
+- Required blockers: none (`T-M1-1`–`T-M1-6` passed; final commit SHA recorded in PR body after commit).
 - Optional limits: Live paid-LLM `copilot -p` multi-sample A/B runs across `B1`–`B6` are optional in `M1` because `core.mdc` has `0` changed lines and `T-M1-4` + `T-M1-5` + deterministic `B1`–`B6` oracle/install checks verify skill behavior and Copilot packaging; remaining risk is minor wording variance in live Copilot sessions.
-- Reassessment: Update after Tasks 1–2 and independent review with exact commit SHAs.
+- Reassessment: Reassessed after Task 1 (`ad4f173`) and Task 2; added explicit `checkRepo` host-guide existence check (`references/hosts/{README,copilot}.md`) in `T-M1-3`.
 
 ---
 
@@ -88,7 +88,7 @@ Keep `com.github.copilot/rules/core.mdc` unchanged, preserve all owner approval 
 - Consumes: `plugin.json`, `.github/plugin/marketplace.json`, `CHANGELOG.md`, `AGENTS.md`, `com.github.copilot/rules/*.mdc`, `skills/*/SKILL.md`, `skills/*/references/**/*.md`.
 - Produces: `export function checkRepo(repoRoot = defaultRoot): string[]` and `export function stripFrontmatter(text: string): string` in `scripts/check.mjs` returning relative fault messages (`[]` when clean) while preserving CLI exit code `0`/`1` when executed directly.
 
-- [ ] **Step 1: Write failing validator tests (`T-M1-1`, `T-M1-2`) in `scripts/portability-contract.test.mjs` and wire CI**
+- [x] **Step 1: Write failing validator tests (`T-M1-1`, `T-M1-2`) in `scripts/portability-contract.test.mjs` and wire CI**
 
 Assert that `checkRepo` is exported from `scripts/check.mjs`, returns `[]` on a valid minimal fixture, and reports faults on:
 1. Missing inline backtick target (`references/hosts/missing.md`) and path-traversal link (`references/../../outside.md`) inside `skills/dev-loop/references/hosts/README.md`.
@@ -99,12 +99,12 @@ Assert that `checkRepo` is exported from `scripts/check.mjs`, returns `[]` on a 
 
 Also add `- run: node --test scripts/portability-contract.test.mjs` to `.github/workflows/check.yml` and include `"portability-contract"` in `scripts/testing-contract.test.mjs` (`CI runs the testing contract alongside existing suites`).
 
-- [ ] **Step 2: Run tests to verify `RED` failure**
+- [x] **Step 2: Run tests to verify `RED` failure**
 
 Run: `node --test scripts/portability-contract.test.mjs`
 Expected: FAIL (`checkRepo` is not exported from `scripts/check.mjs`).
 
-- [ ] **Step 3: Implement `checkRepo` and `stripFrontmatter` in `scripts/check.mjs`**
+- [x] **Step 3: Implement `checkRepo` and `stripFrontmatter` in `scripts/check.mjs`**
 
 Refactor `scripts/check.mjs` so `checkRepo(repoRoot)` collects faults into a local array without global state:
 - Keep existing `checkManifest`, `checkRules`, and `checkSkills` checks.
@@ -115,12 +115,12 @@ Refactor `scripts/check.mjs` so `checkRepo(repoRoot)` collects faults into a loc
 - Measure repo-owned startup bytes (`AGENTS.md` if present + `com.github.copilot/rules/*.mdc` for Copilot, `GEMINI.md` when present) against `MAX_ALWAYS_LOADED_BYTES = 15_000`.
 - Run CLI main block only when `process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)`.
 
-- [ ] **Step 4: Run tests and plugin check to verify `GREEN`**
+- [x] **Step 4: Run tests and plugin check to verify `GREEN`**
 
 Run: `node scripts/check.mjs && node --test scripts/portability-contract.test.mjs scripts/testing-contract.test.mjs`
 Expected: `check: no faults` and all tests PASS.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```bash
 git add docs/superpowers/plans/2026-11-14-host-portability-m1.md scripts/check.mjs scripts/portability-contract.test.mjs scripts/testing-contract.test.mjs .github/workflows/check.yml
@@ -147,11 +147,11 @@ git commit -m "feat(check): add multi-host manifest, link, and startup-budget ch
 - Consumes: `checkRepo` from `scripts/check.mjs`; `com.github.copilot/rules/core.mdc` (`0` edits).
 - Produces: `skills/dev-loop/references/hosts/README.md` (capability contract + host selection rules), `skills/dev-loop/references/hosts/copilot.md` (Copilot adapter), updated `skills/dev-loop/SKILL.md` and `skills/dev-loop/assets/pr-body.md`, and `0.5.13` release metadata.
 
-- [ ] **Step 1: Run 5 fresh baseline `explore` subagents (`writing-skills` `RED`) on `S-P1`–`S-P4` against `0.5.12`**
+- [x] **Step 1: Run 5 fresh baseline `explore` subagents (`writing-skills` `RED`) on `S-P1`–`S-P4` against `0.5.12`**
 
 Dispatch 5 independent `explore` subagents with only current `com.github.copilot/rules/core.mdc`, `skills/dev-loop/SKILL.md`, and `skills/dev-loop/assets/pr-body.md` on scenarios `S-P1` (non-Copilot host UI preview, screenshot fallback, and missing `work_ledger_record`), `S-P2` (GitHub `copilot-pull-request-reviewer` check from non-Copilot host), `S-P3` (runtime guard-absence question), and `S-P4` (preserved Copilot design gate + canvas/media/ledger behavior). Record baseline misses and passing controls in the ledger.
 
-- [ ] **Step 2: Add failing contract tests (`T-M1-3`) in `scripts/portability-contract.test.mjs` and watch them fail (`RED`)**
+- [x] **Step 2: Add failing contract tests (`T-M1-3`) in `scripts/portability-contract.test.mjs` and watch them fail (`RED`)**
 
 Add tests asserting:
 - `skills/dev-loop/references/hosts/README.md` and `skills/dev-loop/references/hosts/copilot.md` exist and `checkRepo()` enforces their presence.
@@ -164,14 +164,14 @@ Add tests asserting:
 Run: `node --test scripts/portability-contract.test.mjs`
 Expected: FAIL (`skills/dev-loop/references/hosts/README.md` missing and `SKILL.md` not yet wired).
 
-- [ ] **Step 3: Create `references/hosts/{README,copilot}.md` and update `SKILL.md`, `pr-body.md`, `check.mjs` host-guide existence check, `README.md`, `CHANGELOG.md`, `plugin.json` (`0.5.13`), and `.github/plugin/marketplace.json` (`0.5.13`)**
+- [x] **Step 3: Create `references/hosts/{README,copilot}.md` and update `SKILL.md`, `pr-body.md`, `check.mjs` host-guide existence check, `README.md`, `CHANGELOG.md`, `plugin.json` (`0.5.13`), and `.github/plugin/marketplace.json` (`0.5.13`)**
 
 Write concise ASD-STE100 prose:
 - `skills/dev-loop/references/hosts/README.md`: Abstract, host selection from runtime environment/tools (not model name), Superpowers `using-superpowers` delegation for generic tool names, capability table (`M1` Copilot active; Claude/Gemini/Codex adapter slots for `M2`–`M4`), explicit runtime-guard absence rule, Conclusion.
 - `skills/dev-loop/references/hosts/copilot.md`: Exact Copilot procedures (`com.github.copilot/rules/core.mdc`, `browser` canvas `file://` preview, `github-pr-media` upload, `orchestrate`/`pr-stack`, optional `work_ledger_record`/`work_ledger_get` vs separate live extension check, `session_store_sql` / `~/.copilot/session-state`, and `copilot plugin` commands).
 - Update `skills/dev-loop/SKILL.md`, `skills/dev-loop/assets/pr-body.md`, `scripts/check.mjs` (require `skills/dev-loop/references/hosts/README.md` and `copilot.md`), `README.md` (`## Rule/check map`), `CHANGELOG.md` (`## 0.5.13`), `plugin.json`, and `.github/plugin/marketplace.json`.
 
-- [ ] **Step 4: Run full validation (`GREEN`), `writing-skills` `5/5` consumer check, temporary `COPILOT_HOME` smoke check, and `B1`–`B6` benchmark check**
+- [x] **Step 4: Run full validation (`GREEN`), `writing-skills` `5/5` consumer check, temporary `COPILOT_HOME` smoke check, and `B1`–`B6` benchmark check**
 
 Run:
 1. `node scripts/check.mjs`
@@ -180,7 +180,7 @@ Run:
 4. Temporary `COPILOT_HOME` install + `copilot plugin list` / `copilot instruction list` / `copilot skill list` (`T-M1-5`).
 5. `B1`–`B6` isolated Git + `COPILOT_HOME` verification (`T-M1-6`).
 
-- [ ] **Step 5: Update plan test matrix with actual results, commit Task 2, and run independent task/PR review**
+- [x] **Step 5: Update plan test matrix with actual results, commit Task 2, and run independent task/PR review**
 
 Update `docs/superpowers/plans/2026-11-14-host-portability-m1.md` (`Done when`, `Milestone record`, and `Compact test matrix` evidence), commit all files, and dispatch independent `code-review` subagent (`requesting-code-review`) over `main...HEAD` before pushing.
 

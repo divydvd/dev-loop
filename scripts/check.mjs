@@ -232,6 +232,12 @@ export function checkRepo(root = defaultRoot) {
       for (const refFile of walkMarkdownFiles(join(skillDir, "references"))) {
         checkSkillLinks(skillDir, refFile, readFileSync(refFile, "utf8"));
       }
+      if (name === "dev-loop") {
+        for (const reqRel of ["references/hosts/README.md", "references/hosts/copilot.md"]) {
+          const reqPath = join(skillDir, reqRel);
+          if (!existsSync(reqPath)) fault(reqPath, `required host reference ${reqRel} is missing`);
+        }
+      }
     }
   }
 

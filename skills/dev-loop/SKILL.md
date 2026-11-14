@@ -11,6 +11,7 @@ Do not skip a step because a change looks small. Each route below says which ste
 
 ## Before you start
 - Read `AGENTS.md`. Find its dev-loop profile: commands, test tiers, heavy builds, the device test, risky areas, and the review checklist. If the profile is missing, tell the owner, and propose one from `assets/project-profile.md`.
+- Read `references/hosts/README.md` to match host-specific steps (UI mockup preview, screenshot upload, child sessions, and `work_ledger_record`) to your runtime environment and available tools, never to the model name. Read `references/hosts/copilot.md` in GitHub Copilot. Outside an active `work-ledger` runtime guard extension, core rules are instruction-only and do not block `git push --force` or `gh pr merge` at runtime.
 - If the repo has `docs/flows/INDEX.md`, read it and the flow docs for the area. Use the `flow-docs` skill. If the profile says that the repo has no flow docs, skip the flow-doc work in each step.
 - To resume a task, find its plan in `docs/superpowers/plans/`. Read the plan, its ledger (`.superpowers/sdd/<plan>/progress.md`) if it has one, and `git log`. Do not do the done tasks again.
 - For each substantive change, read `references/testing.md` before implementation.
@@ -60,7 +61,7 @@ For non-UI tasks, skip that reference and the profile's UI reuse pointers.
 ## 1. Route
 - **Feature or behavior change, also a small one:** use `brainstorming`. Put the facts from the profile, and from the flow docs if the repo has them, into your questions. Do not write code before the owner approves the design.
   - Before requesting design approval, apply the optional design-review selection below.
-  - For a UI change, make a mockup before you ask for the design approval. Do not wait for the owner to ask for it, and do not offer it first. Do not use the brainstorming visual companion. Make one self-contained HTML file (inline CSS and JavaScript, no network) in the session files folder. Show each changed screen, before and after, in the light and dark themes. Use the app's real texts, colors, and sizes from the code. Open the file in the browser canvas with a `file://` URL, and put its path in the plan and the PR body.
+  - For a UI change, make a mockup before you ask for the design approval. Do not wait for the owner to ask for it, and do not offer it first. Do not use the brainstorming visual companion. Make one self-contained HTML file (inline CSS and JavaScript, no network) in the session files folder, or in a local folder outside the repo when the host has no session files folder. Show each changed screen, before and after, in the light and dark themes. Use the app's real texts, colors, and sizes from the code. Open the file in the browser canvas with a `file://` URL when `browser` canvas is available; otherwise follow `references/hosts/README.md` and give the owner the exact local path and `file://` URL. Put its path in the plan and the PR body.
   - For a small feature (one area, 3 tasks or fewer), show a design of 2–5 lines and ask one question, with your recommended choice first. After the approval, save the acceptance record (`assets/acceptance-record.md`) as the plan, in `docs/superpowers/plans/<YYYY-MM-DD>-<topic>.md`. Then build it with `test-driven-development`. Do not use `writing-plans`. Copy the record into the PR body.
   - For a bigger feature, write a plan (step 2) after the approval.
 - **Bug:** use `systematic-debugging`. Reproduce the bug, find the root cause, and write a test that fails because of the bug.
@@ -70,7 +71,7 @@ For non-UI tasks, skip that reference and the profile's UI reuse pointers.
 - **Question:** for an explicit design-review request, use `design-review` as review-only work. Otherwise, answer with evidence (paths, commands, and results). Do not change code.
 - **Large work:** read `references/milestones.md` before choosing delivery boundaries, including work likely to need more than about 3 PRs.
   Assess useful, safe milestones first. Prefer independent PR bases; use stacks only for real dependencies.
-  For work needing child sessions, use `orchestrate`; use `pr-stack` only for dependent PRs. Review each child PR before reporting.
+  For work needing child sessions, use `orchestrate` when available; use `pr-stack` only for dependent PRs. When those host skills are unavailable, follow `references/hosts/README.md` (run independent milestones sequentially or in owner-approved `git worktree` checkouts, and open dependent PRs with `gh pr create --base <parent-branch>`). Review each child PR before reporting.
 
 ### Design review (optional)
 Automatic design review requires the project's `Design review (optional)` profile section, `Enabled: yes`, and concrete matching `Applies when` criteria.
@@ -157,14 +158,14 @@ Commit all changes first. Do this step after the last commit to the branch, so t
   - Look at each screenshot. Do not upload a screenshot that shows personal data or a secret. If you cannot look at it, or you are not sure, do not upload it.
   - Personal data is a name, an email address, a phone number, an account photo, or private text. A secret is a password, a token, a key, or a one-time code.
   - In the section, name each screenshot that you did not upload, and the reason. Do not write the data.
-  - Upload the other screenshots with the `github-pr-media` skill. The upload needs only the repository id, not a PR. Do not add the Markdown image lines of that skill. Put each URL in the table.
-  - If an upload fails, write the reason in the section. Do not stop for this.
+  - Upload the other screenshots with the `github-pr-media` skill when available. The upload needs only the repository id, not a PR. Do not add the Markdown image lines of that skill. Put each URL in the table.
+  - If `github-pr-media` is unavailable on your coding host or an upload fails, follow `references/hosts/README.md`: delete any empty `<img>` row and record each unuploaded screenshot and the exact reason in `## Screenshots`. Do not stop for this.
   - Do not commit the screenshots.
 - Each push starts CI and a Copilot review, and both cost Actions minutes. Do not push the branch before this step. Push once to open the PR, and then once for each review round.
 - Push the branch, and open a PR with a body from `assets/pr-body.md`. Fill in the evidence, the Test tool feedback, and the Dev-loop feedback.
-- After the PR opens, if `work_ledger_record` is available, record each result from step 6 with the PR number and its exact commit SHA (kind `validated` or `device_tested`). Record new results after each review fix.
+- After the PR opens, if `work_ledger_record` is available, record each result from step 6 with the PR number and its exact commit SHA (kind `validated` or `device_tested`). Record new results after each review fix. When `work_ledger_record` is unavailable, `## Evidence` in the PR body and the committed plan or execution ledger hold the canonical step-6 evidence (`references/hosts/README.md`).
 - Keep independent review evidence separate from automatic review evidence. A `review_clean` entry does not by itself prove independent review. Record the reviewer and coverage in a `note` when the work ledger is available.
-- After each push, wait for the checks and for the automatic review of the head commit. `gh pr checks` does not show Copilot code review. Find its check run, `copilot-pull-request-reviewer`, in `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`. The review starts 1 minute or less after the push, and it can take 5 minutes. If no review starts in 2 minutes, the repo has no automatic review.
+- After each push, wait for the checks and for the repository's automatic review of the head commit, regardless of your local coding host. `gh pr checks` does not show Copilot code review. Find its check run, `copilot-pull-request-reviewer`, in `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`. This review is configured on the GitHub repository, not by your local coding CLI. The review starts 1 minute or less after the push, and it can take 5 minutes. If no review starts in 2 minutes, the repo has no automatic review; record `none configured on repository` in `### GitHub Copilot review`.
 - A failed check is a new finding that you must fix. Fix it in the push of the round. If the round limit stops you, report the failed check to the owner.
 - Do review rounds. Read each new finding, in the review threads and in the review text. Check it as in step 5. When a finding asks only for evidence, get the evidence, and do not change code for it. Reply in its thread with your change or your reason, and resolve the thread.
 - Put all the fixes of a round in one push. Before the push, do steps 4 to 6 for the fixes. Then update the PR body. If a fix changes a validated screen, fill in the "Screenshots" section again.
