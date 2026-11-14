@@ -639,11 +639,43 @@ test("T-M3-1: checkRepo enforces gemini-extension.json description parity and sy
         contextFileName: "GEMINI.md",
       }),
     );
-    unlinkSync(join(dir, "GEMINI.md"));
-    symlinkSync("/etc/hosts", join(dir, "GEMINI.md"));
+    const extOutside = mkdtempSync(join(tmpdir(), "dev-loop-ext-symlink-"));
+    try {
+      const outsideGemini = join(extOutside, "outside-GEMINI.md");
+      writeFileSync(outsideGemini, CORE_BODY);
+      unlinkSync(join(dir, "GEMINI.md"));
+      symlinkSync(outsideGemini, join(dir, "GEMINI.md"));
+      assert.ok(
+        checkMod.checkRepo(dir).some((f) => f.includes("GEMINI.md") && f.includes("escapes")),
+        "symlinked GEMINI.md escaping root must fail checkRepo containment",
+      );
+      const symlinkSyncCheck = spawnSync(process.execPath, [syncScript, "--check", dir], {
+        env: cleanChildEnv(),
+        encoding: "utf8",
+      });
+      assert.notEqual(symlinkSyncCheck.status, 0, "sync-host-core.mjs must reject symlinked GEMINI.md even when bytes match");
+      unlinkSync(join(dir, "GEMINI.md"));
+    } finally {
+      rmSync(extOutside, { recursive: true, force: true });
+    }
+
+    // Broken or escaping symlink on gemini-extension.json must also fail checkRepo
+    writeFileSync(join(dir, "GEMINI.md"), CORE_BODY);
+    unlinkSync(join(dir, "gemini-extension.json"));
+    symlinkSync(join(dir, "missing-manifest.json"), join(dir, "gemini-extension.json"));
     assert.ok(
-      checkMod.checkRepo(dir).some((f) => f.includes("GEMINI.md") && f.includes("escapes")),
-      "symlinked GEMINI.md escaping root must fail checkRepo containment",
+      checkMod.checkRepo(dir).some((f) => f.includes("gemini-extension.json")),
+      "broken gemini-extension.json symlink must fail checkRepo",
+    );
+    unlinkSync(join(dir, "gemini-extension.json"));
+    writeFileSync(
+      join(dir, "gemini-extension.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        version: "0.5.13",
+        description: "Canonical description.",
+        contextFileName: "GEMINI.md",
+      }),
     );
     unlinkSync(join(dir, "GEMINI.md"));
 

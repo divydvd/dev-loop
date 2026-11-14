@@ -185,8 +185,13 @@ function checkManifest() {
 
   for (const relManifest of [".claude-plugin/plugin.json", ".codex-plugin/plugin.json", "gemini-extension.json"]) {
     const hostPath = join(root, relManifest);
-    if (!existsSync(hostPath)) continue;
-    const host = readJson(hostPath);
+    if (!pathOrLinkExists(hostPath)) continue;
+    const safeHostPath = checkExistingFileInsideDir(root, relManifest);
+    if (!safeHostPath) {
+      fault(hostPath, "file is missing, is not a regular file, or escapes root");
+      continue;
+    }
+    const host = readJson(safeHostPath);
     if (!host) continue;
     if (host.name !== plugin.name) fault(hostPath, `name "${host.name}" differs from plugin.json name "${plugin.name}"`);
     if (host.version !== plugin.version) fault(hostPath, `version ${host.version} differs from plugin.json version ${plugin.version}`);

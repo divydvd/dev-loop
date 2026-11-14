@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stripFrontmatter } from "./check.mjs";
@@ -9,8 +9,15 @@ const DEFAULT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export function syncHostCore(repoRoot = DEFAULT_ROOT, { check = false } = {}) {
   const corePath = join(repoRoot, "com.github.copilot/rules/core.mdc");
   const targetPath = join(repoRoot, "GEMINI.md");
+  let targetStat = null;
+  try {
+    targetStat = lstatSync(targetPath);
+  } catch {}
+  if (targetStat && (!targetStat.isFile() || targetStat.isSymbolicLink())) {
+    throw new Error(`GEMINI.md must be a regular file, not a symlink or directory: ${targetPath}`);
+  }
   const expected = stripFrontmatter(readFileSync(corePath, "utf8"));
-  const current = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : null;
+  const current = targetStat ? readFileSync(targetPath, "utf8") : null;
   if (current === expected) return { synced: true, changed: false, targetPath };
   if (check) return { synced: false, changed: false, targetPath };
   writeFileSync(targetPath, expected, "utf8");
