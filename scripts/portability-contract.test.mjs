@@ -310,6 +310,23 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
       checkMod.checkRepo(dir).some((f) => f.includes("hooks/hooks.json") && f.includes("unsupported")),
       "compound shell operators in SessionStart command must fail validation",
     );
+    writeFileSync(
+      join(dir, "hooks/hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            {
+              matcher: "startup",
+              hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/safe.sh"\n./hooks/dup.sh' }],
+            },
+          ],
+        },
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("hooks/hooks.json") && f.includes("unsupported")),
+      "newline command separator in SessionStart command must fail validation",
+    );
     unlinkSync(join(dir, "hooks/safe.sh"));
     unlinkSync(join(dir, "hooks/dup.sh"));
 
@@ -352,6 +369,36 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
     assert.ok(
       checkMod.checkRepo(dir).some((f) => f.includes("15000") || f.includes("15 KB")),
       "overlapping startup matchers exceeding 15 KB together must fail",
+    );
+    writeFileSync(
+      join(dir, "hooks/hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            { matcher: "^(foo|bar)$", hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/hooks/startup-only.sh" }] },
+            { matcher: "^(foo|baz)$", hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/hooks/compact-only.sh" }] },
+          ],
+        },
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("15000") || f.includes("15 KB")),
+      "overlapping grouped custom matchers exceeding 15 KB together must fail",
+    );
+    writeFileSync(
+      join(dir, "hooks/hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            { matcher: "cust[12]", hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/hooks/startup-only.sh" }] },
+            { matcher: "cust[13]", hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/hooks/compact-only.sh" }] },
+          ],
+        },
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("15000") || f.includes("15 KB")),
+      "non-literal regex matchers exceeding 15 KB together must fail conservatively",
     );
     unlinkSync(join(dir, "hooks/startup-only.sh"));
     unlinkSync(join(dir, "hooks/compact-only.sh"));

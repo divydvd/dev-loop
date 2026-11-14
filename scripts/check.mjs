@@ -13,7 +13,7 @@ const PLUGIN_NAME = /^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SKILL_LINK_RE = /`((?:assets|scripts|references)\/[^`\s]+)`/g;
 const PLUGIN_ROOT_RE = /(?:"\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"|'\$\{CLAUDE_PLUGIN_ROOT\}\/([^']+)'|\$\{CLAUDE_PLUGIN_ROOT\}\/([^\s"']+))/g;
-const SESSION_CMD_RE = /^\s*(?:"\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"|'\$\{CLAUDE_PLUGIN_ROOT\}\/([^']+)'|\$\{CLAUDE_PLUGIN_ROOT\}\/([^\s"']+))(?:\s+(.*))?$/;
+const SESSION_CMD_RE = /^[ \t]*(?:"\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"|'\$\{CLAUDE_PLUGIN_ROOT\}\/([^']+)'|\$\{CLAUDE_PLUGIN_ROOT\}\/([^\s"']+))(?:[ \t]+(.*))?$/;
 
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let root = defaultRoot;
@@ -98,12 +98,14 @@ function collectPluginRootRefs(value, out = []) {
 }
 
 function parseHookCommand(rawCmd) {
+  if (/[\r\n]/.test(rawCmd)) return { unsupportedSyntax: rawCmd };
   const match = rawCmd.match(SESSION_CMD_RE);
   if (!match) return { invalidCommand: rawCmd };
   const relPath = match[1] ?? match[2] ?? match[3];
+  if (!/^[A-Za-z0-9._/-]+$/.test(relPath)) return { unsupportedSyntax: rawCmd };
   const tail = (match[4] ?? "").trim();
   if (!tail) return { relPath, args: [] };
-  const tokens = tail.split(/\s+/).filter(Boolean);
+  const tokens = tail.split(/[ \t]+/).filter(Boolean);
   const args = [];
   for (const tok of tokens) {
     const unquoted = tok.replace(/^"([^"]*)"$|^'([^']*)'$/, "$1$2");
@@ -337,6 +339,7 @@ function checkHooks(agentsBytes) {
   if (invocations.length > 0) {
     const events = new Set(["startup", "resume", "clear", "compact"]);
     for (const inv of invocations) {
+      inv.hasNonLiteral = false;
       if (!inv.matcher || inv.matcher === "*") inv.matcherRe = null;
       else {
         try {
@@ -345,16 +348,20 @@ function checkHooks(agentsBytes) {
           fault(hooksJsonPath, `invalid SessionStart matcher regex "${inv.matcher}"`);
           inv.matcherRe = null;
         }
-      }
-      for (const alt of (inv.matcher || "").split("|")) {
-        const clean = alt.replace(/^\^|\$$/g, "").trim();
-        if (/^[A-Za-z0-9_-]+$/.test(clean)) events.add(clean);
+        const inner = inv.matcher.trim().replace(/^\^?\((?:\?:)?([^()]+)\)\$?$/, "$1");
+        for (const alt of inner.split("|")) {
+          const clean = alt.replace(/^\^|\$$/g, "").trim();
+          if (/^[A-Za-z0-9_-]+$/.test(clean)) events.add(clean);
+          else inv.hasNonLiteral = true;
+        }
       }
     }
-    const unconditionalBytes = invocations.filter((inv) => !inv.matcherRe).reduce((s, inv) => s + inv.bytes, 0);
+    const anchoredLitRe = /^\^(?:[A-Za-z0-9_-]+|\((?:\?:)?[A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)*\))\$$/;
+    const nonLiteralBound = invocations.some((inv) => inv.hasNonLiteral)
+      ? invocations.filter((inv) => !inv.matcherRe || inv.hasNonLiteral || !anchoredLitRe.test(inv.matcher.trim())).reduce((s, inv) => s + inv.bytes, 0)
+      : 0;
     const maxInjected = Math.max(
-      unconditionalBytes,
-      ...invocations.map((inv) => (inv.matcherRe ? unconditionalBytes + inv.bytes : inv.bytes)),
+      nonLiteralBound,
       ...[...events].map((ev) => invocations.filter((inv) => !inv.matcherRe || inv.matcherRe.test(ev)).reduce((s, inv) => s + inv.bytes, 0)),
     );
     const claudeMdPath = join(root, "CLAUDE.md");
