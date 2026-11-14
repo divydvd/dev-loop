@@ -28,6 +28,13 @@ function sanitizedEnv(overrides = {}) {
   return { ...env, ...overrides };
 }
 
+function claudeCliEnv(configDir, overrides = {}) {
+  if (typeof configDir !== "string" || !configDir.trim()) {
+    throw new Error("claudeCliEnv requires a non-empty temporary CLAUDE_CONFIG_DIR");
+  }
+  return sanitizedEnv({ ...overrides, CLAUDE_CONFIG_DIR: configDir });
+}
+
 function spawnAsync(cmd, args, options = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(cmd, args, { ...options, stdio: ["ignore", "pipe", "pipe"] });
@@ -613,6 +620,14 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
     assert.equal(clean.CLAUDECODE, undefined, "sanitizedEnv must strip CLAUDECODE nested-session sentinel");
     assert.equal(clean.CLAUDE_PLUGIN_ROOT, undefined, "sanitizedEnv must strip inherited CLAUDE_PLUGIN_ROOT");
     assert.equal(clean.GEMINI_PROJECT_DIR, undefined, "sanitizedEnv must strip inherited GEMINI_PROJECT_DIR");
+    assert.throws(() => claudeCliEnv(""), /CLAUDE_CONFIG_DIR/);
+    assert.equal(claudeCliEnv("/tmp/isolated-claude").CLAUDE_CONFIG_DIR, "/tmp/isolated-claude");
+    const selfSource = readFileSync(fileURLToPath(import.meta.url), "utf8");
+    assert.doesNotMatch(
+      selfSource,
+      /spawn(?:Async|Sync)\(\s*"claude"[\s\S]{0,220}?env:\s*sanitizedEnv\(\)/,
+      "every claude CLI invocation must supply an isolated CLAUDE_CONFIG_DIR",
+    );
   } finally {
     if (prevClaudeCode === undefined) delete process.env.CLAUDECODE;
     else process.env.CLAUDECODE = prevClaudeCode;
@@ -916,42 +931,46 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
 });
 
 test("T-M2-2: Claude Code CLI validates, installs, injects core.mdc once on startup and resume, and uninstalls cleanly", async (t) => {
-  const versionProbe = spawnSync("claude", ["--version"], {
-    env: sanitizedEnv(),
-    encoding: "utf8",
-  });
-  if (versionProbe.error?.code === "ENOENT") {
-    t.skip("claude CLI not installed on this runner");
-    return;
-  }
-  assert.equal(versionProbe.status, 0, versionProbe.stderr);
-
-  // 1. Validate repo marketplace and plugin manifest with claude plugin validate --strict --json
-  for (const target of [".", ".claude-plugin/plugin.json"]) {
-    const val = spawnSync("claude", ["plugin", "validate", "--strict", "--json", target], {
-      cwd: REPO_ROOT,
-      env: sanitizedEnv(),
-      encoding: "utf8",
-    });
-    assert.equal(val.status, 0, `claude plugin validate ${target} failed: ${val.stdout}\n${val.stderr}`);
-    const parsedVal = JSON.parse(val.stdout);
-    assert.equal(parsedVal.success, true, `validate ${target} did not succeed: ${val.stdout}`);
-    assert.ok(parsedVal.manifest, `expected non-null manifest for ${target}: ${val.stdout}`);
-    assert.deepEqual(parsedVal.manifest.errors, []);
-    assert.deepEqual(parsedVal.manifest.warnings, []);
-    for (const item of parsedVal.contents ?? []) {
-      assert.deepEqual(item.errors, [], `errors in ${item.file}`);
-      assert.deepEqual(item.warnings, [], `warnings in ${item.file}`);
-    }
-  }
-
-  // 2. Isolated CLAUDE_CONFIG_DIR install, list, disable, and uninstall lifecycle on REPO_ROOT
-  const rootPlugin = JSON.parse(readFileSync(join(REPO_ROOT, "plugin.json"), "utf8"));
   const tmpRoot = mkdtempSync(join(tmpdir(), "dev-loop-claude-cli-"));
   try {
+    const probeConfigDir = join(tmpRoot, "probe-claude-home");
+    mkdirSync(probeConfigDir, { recursive: true });
+    const probeEnv = claudeCliEnv(probeConfigDir);
+
+    const versionProbe = spawnSync("claude", ["--version"], {
+      env: probeEnv,
+      encoding: "utf8",
+    });
+    if (versionProbe.error?.code === "ENOENT") {
+      t.skip("claude CLI not installed on this runner");
+      return;
+    }
+    assert.equal(versionProbe.status, 0, versionProbe.stderr);
+
+    // 1. Validate repo marketplace and plugin manifest with claude plugin validate --strict --json
+    for (const target of [".", ".claude-plugin/plugin.json"]) {
+      const val = spawnSync("claude", ["plugin", "validate", "--strict", "--json", target], {
+        cwd: REPO_ROOT,
+        env: probeEnv,
+        encoding: "utf8",
+      });
+      assert.equal(val.status, 0, `claude plugin validate ${target} failed: ${val.stdout}\n${val.stderr}`);
+      const parsedVal = JSON.parse(val.stdout);
+      assert.equal(parsedVal.success, true, `validate ${target} did not succeed: ${val.stdout}`);
+      assert.ok(parsedVal.manifest, `expected non-null manifest for ${target}: ${val.stdout}`);
+      assert.deepEqual(parsedVal.manifest.errors, []);
+      assert.deepEqual(parsedVal.manifest.warnings, []);
+      for (const item of parsedVal.contents ?? []) {
+        assert.deepEqual(item.errors, [], `errors in ${item.file}`);
+        assert.deepEqual(item.warnings, [], `warnings in ${item.file}`);
+      }
+    }
+
+    // 2. Isolated CLAUDE_CONFIG_DIR install, list, disable, and uninstall lifecycle on REPO_ROOT
+    const rootPlugin = JSON.parse(readFileSync(join(REPO_ROOT, "plugin.json"), "utf8"));
     const configDir = join(tmpRoot, "claude-home");
     mkdirSync(configDir, { recursive: true });
-    const cliEnv = sanitizedEnv({ CLAUDE_CONFIG_DIR: configDir });
+    const cliEnv = claudeCliEnv(configDir);
 
     const installRes = spawnSync(
       "claude",
@@ -1012,7 +1031,7 @@ test("T-M2-2: Claude Code CLI validates, installs, injects core.mdc once on star
     const wireInstall = spawnSync(
       "claude",
       ["plugin", "install", "--marketplace", pluginCopy, "dev-loop"],
-      { cwd: projectDir, env: sanitizedEnv({ CLAUDE_CONFIG_DIR: wireConfigDir }), encoding: "utf8" },
+      { cwd: projectDir, env: claudeCliEnv(wireConfigDir), encoding: "utf8" },
     );
     assert.equal(wireInstall.status, 0, `${wireInstall.stdout}\n${wireInstall.stderr}`);
 
@@ -1046,8 +1065,7 @@ test("T-M2-2: Claude Code CLI validates, installs, injects core.mdc once on star
     await new Promise((r) => server.listen(0, "127.0.0.1", r));
     try {
       const { port } = server.address();
-      const runEnv = sanitizedEnv({
-        CLAUDE_CONFIG_DIR: wireConfigDir,
+      const runEnv = claudeCliEnv(wireConfigDir, {
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
       });
       const sessionId = randomUUID();
