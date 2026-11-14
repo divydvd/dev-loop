@@ -671,4 +671,38 @@ test("T-M3-2: repository ships gemini-extension.json and byte-identical GEMINI.m
   assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
 });
 
+test("T-M3-3: Gemini CLI host guide is linked from hosts/README.md and documents Gemini-specific deltas with valid links", () => {
+  const hostsReadmePath = join(REPO_ROOT, "skills/dev-loop/references/hosts/README.md");
+  const geminiHostPath = join(REPO_ROOT, "skills/dev-loop/references/hosts/gemini.md");
+  assert.equal(existsSync(geminiHostPath), true, "missing skills/dev-loop/references/hosts/gemini.md");
+
+  const hostsReadme = readFileSync(hostsReadmePath, "utf8");
+  assert.match(hostsReadme, /`references\/hosts\/gemini\.md`/, "hosts/README.md must link `references/hosts/gemini.md`");
+
+  const geminiHost = readFileSync(geminiHostPath, "utf8");
+  assert.match(geminiHost, /^## Abstract$/m);
+  assert.match(geminiHost, /^## Conclusion$/m);
+  assert.match(geminiHost, /gemini-extension\.json/);
+  assert.match(geminiHost, /contextFileName/);
+  assert.match(geminiHost, /GEMINI\.md/);
+  assert.match(geminiHost, /node <dev-loop-checkout>\/scripts\/sync-host-core\.mjs/);
+  assert.match(geminiHost, /15 KB|15,000/);
+  assert.match(geminiHost, /activate_skill/);
+  assert.match(geminiHost, /blocked/i);
+  assert.match(geminiHost, /invoke_agent/);
+  assert.match(geminiHost, /generalist/);
+  assert.match(geminiHost, /gemini-tools\.md/);
+  assert.match(geminiHost, /open, not ready: independent review unavailable/);
+  assert.match(geminiHost, /ask_user/);
+  assert.match(geminiHost, /file:\/\//);
+  assert.match(geminiHost, /github-pr-media/);
+  assert.match(geminiHost, /gh pr create --base/);
+  assert.match(geminiHost, /work_ledger_record/);
+  assert.match(geminiHost, /tools\/work-ledger/);
+  assert.match(geminiHost, /copilot-pull-request-reviewer/);
+
+  assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
+});
+
+
 
