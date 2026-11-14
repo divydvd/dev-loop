@@ -37,7 +37,7 @@ For a harmless spelling or formatting change, write "not applicable: harmless ed
 After merge, post the refresh result as a PR comment and in the owner-facing report. Leave this pre-merge evidence intact.
 
 ## Screenshots
-<For a UI change: one cell for each validated screen, with 4 cells in each row. Use this HTML table, because Markdown images in a table show at full size. Name each screenshot that you did not upload, and the reason. For other changes, or when the device test validated no screen, delete the table. Then write "none: <reason>".>
+<For a UI change: one cell for each validated screen, with 4 cells in each row. Use this HTML table, because Markdown images in a table show at full size. Name each screenshot that you did not upload, and the reason (including when the `github-pr-media` upload skill is unavailable on your coding host; if no screenshot was uploaded, delete the empty table and list each validated screen and reason). For other changes, or when the device test validated no screen, delete the table. Then write "none: <reason>".>
 <table>
 <tr>
 <td align="center" valign="top"><img src="<URL from github-pr-media>" width="180" alt="<scenario>: <what the screen shows>"><br><sub><b><scenario></b> <caption></sub></td>
@@ -64,7 +64,7 @@ Record elapsed review time and host-provided usage, or "unavailable". This does 
 | Exemption | <none; or harmless spelling/formatting edits and why they cannot affect behavior, safety, or validation> |
 
 ### GitHub Copilot review
-<Head commit, result, and any availability limitation. This does not replace independent agent review.>
+<Head commit, result, and any availability limitation (for example "none configured on repository: no copilot-pull-request-reviewer check-run within 2 minutes"). Check the repository's automatic review on GitHub regardless of your local coding host. This does not replace independent agent review.>
 
 - Fixed findings: <list, or "none">
 - Findings that are not fixed: <each with the reason, or "none">
