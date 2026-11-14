@@ -561,3 +561,114 @@ test("T-M1-3: host capability contract, Copilot adapter, SKILL.md routing, PR te
   assert.ok(Buffer.byteLength(coreMdc, "utf8") <= 15_000, "core.mdc must fit within startup budget");
 });
 
+function cleanChildEnv() {
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("GIT_")) delete env[key];
+  }
+  return env;
+}
+
+test("T-M3-1: checkRepo enforces gemini-extension.json description parity and sync-host-core.mjs syncs/checks GEMINI.md without altering core.mdc", () => {
+  const syncScript = join(REPO_ROOT, "scripts/sync-host-core.mjs");
+  assert.equal(existsSync(syncScript), true, "missing scripts/sync-host-core.mjs");
+
+  withFixtureRepo((dir) => {
+    writeFileSync(
+      join(dir, "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "dev-loop",
+        description: "Canonical description.",
+        version: "0.5.13",
+      }),
+    );
+    writeFileSync(join(dir, "GEMINI.md"), CORE_BODY);
+    writeFileSync(
+      join(dir, "gemini-extension.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        version: "0.5.13",
+        description: "Drifted description.",
+        contextFileName: "GEMINI.md",
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("gemini-extension.json") && f.includes("description")),
+      "mismatched gemini-extension.json description must fail checkRepo",
+    );
+
+    writeFileSync(
+      join(dir, "gemini-extension.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        version: "0.5.13",
+        description: "Canonical description.",
+        contextFileName: "GEMINI.md",
+      }),
+    );
+    assert.deepEqual(checkMod.checkRepo(dir), []);
+
+    // Drift GEMINI.md and verify sync-host-core.mjs --check fails, then sync restores byte parity without touching core.mdc
+    writeFileSync(join(dir, "GEMINI.md"), "# Drifted\n");
+    const checkDrift = spawnSync(process.execPath, [syncScript, "--check", dir], {
+      env: cleanChildEnv(),
+      encoding: "utf8",
+    });
+    assert.equal(checkDrift.status, 1, "sync-host-core.mjs --check must exit 1 when GEMINI.md drifts");
+
+    const syncRun = spawnSync(process.execPath, [syncScript, dir], {
+      env: cleanChildEnv(),
+      encoding: "utf8",
+    });
+    assert.equal(syncRun.status, 0, `sync-host-core.mjs must exit 0: ${syncRun.stderr}`);
+    assert.equal(readFileSync(join(dir, "GEMINI.md"), "utf8"), CORE_BODY);
+    assert.equal(readFileSync(join(dir, "com.github.copilot/rules/core.mdc"), "utf8"), CORE_MDC);
+
+    const checkSynced = spawnSync(process.execPath, [syncScript, "--check", dir], {
+      env: cleanChildEnv(),
+      encoding: "utf8",
+    });
+    assert.equal(checkSynced.status, 0, "sync-host-core.mjs --check must exit 0 after sync");
+  });
+});
+
+test("T-M3-2: repository ships gemini-extension.json and byte-identical GEMINI.md within 15 KB startup ceiling while core.mdc stays unchanged", () => {
+  const plugin = JSON.parse(readFileSync(join(REPO_ROOT, "plugin.json"), "utf8"));
+  const marketplace = JSON.parse(readFileSync(join(REPO_ROOT, ".github/plugin/marketplace.json"), "utf8"));
+  const geminiExtPath = join(REPO_ROOT, "gemini-extension.json");
+  const geminiMdPath = join(REPO_ROOT, "GEMINI.md");
+  assert.equal(existsSync(geminiExtPath), true, "missing root gemini-extension.json");
+  assert.equal(existsSync(geminiMdPath), true, "missing root GEMINI.md");
+
+  const geminiExt = JSON.parse(readFileSync(geminiExtPath, "utf8"));
+  assert.equal(geminiExt.name, "dev-loop");
+  assert.equal(geminiExt.version, plugin.version);
+  assert.equal(geminiExt.version, marketplace.metadata.version);
+  assert.equal(geminiExt.description, plugin.description);
+  assert.equal(geminiExt.contextFileName, "GEMINI.md");
+
+  const coreRaw = readFileSync(join(REPO_ROOT, "com.github.copilot/rules/core.mdc"), "utf8");
+  const coreBody = checkMod.stripFrontmatter(coreRaw);
+  const geminiMd = readFileSync(geminiMdPath, "utf8");
+  assert.equal(geminiMd, coreBody, "GEMINI.md must match core.mdc body byte-for-byte");
+
+  const agentsBytes = Buffer.byteLength(readFileSync(join(REPO_ROOT, "AGENTS.md"), "utf8"), "utf8");
+  const geminiBytes = Buffer.byteLength(geminiMd, "utf8");
+  assert.ok(agentsBytes + geminiBytes <= 15_000, `AGENTS.md + GEMINI.md (${agentsBytes + geminiBytes} B) must stay <= 15,000 B`);
+
+  const hasMain = spawnSync("git", ["rev-parse", "--verify", "main"], { cwd: REPO_ROOT, env: cleanChildEnv(), encoding: "utf8" });
+  const diffRef = hasMain.status === 0 ? "main" : "HEAD";
+  const coreDiff = spawnSync("git", ["--no-pager", "diff", diffRef, "--", "com.github.copilot/rules/core.mdc"], {
+    cwd: REPO_ROOT,
+    env: cleanChildEnv(),
+    encoding: "utf8",
+  });
+  assert.equal(coreDiff.status, 0);
+  assert.equal(coreDiff.stdout, "", `com.github.copilot/rules/core.mdc must have 0 diff lines against ${diffRef}`);
+
+  assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
+});
+
+

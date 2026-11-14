@@ -2,6 +2,13 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.14 (2026-11-14)
+- **Add Gemini CLI `0.32.1` extension adapter, byte-synced `GEMINI.md`, and Gemini host guide (Milestone M3).**
+  - **What:** Add root `gemini-extension.json` (`contextFileName: "GEMINI.md"`), root `GEMINI.md` synced byte-for-byte from the body of `com.github.copilot/rules/core.mdc` via `scripts/sync-host-core.mjs`, `description` parity validation for `gemini-extension.json` in `scripts/check.mjs`, and `skills/dev-loop/references/hosts/gemini.md` linked from `skills/dev-loop/references/hosts/README.md`.
+    Leave `com.github.copilot/rules/core.mdc` unchanged (`0` diff lines).
+  - **Why:** Gemini CLI `0.32.1` discovers extensions through `gemini-extension.json`, auto-loads `GEMINI.md` at session startup, gates `activate_skill` behind interactive `ask_user` consent in default approval mode, and dispatches fresh subagents via `invoke_agent` (`generalist`) without `browser` canvas, `github-pr-media`, `orchestrate`/`pr-stack`, or `work-ledger` runtime command guards.
+  - **Check:** Suites `T-M3-1`–`T-M3-3` in `scripts/portability-contract.test.mjs`, `node scripts/sync-host-core.mjs --check`, and `node scripts/check.mjs` verify zero manifest/rule drift alongside isolated temporary `GEMINI_CLI_HOME` and `COPILOT_HOME` checks.
+
 ## 0.5.13 (2026-11-14)
 - **Add shared host capability contract, Copilot host guide, and multi-host sync checks (Milestone M1).**
   - **What:** Export `checkRepo` and `stripFrontmatter` from `scripts/check.mjs` with symlink-safe CLI entry detection, validate inline links across nested `skills/*/references/**/*.md` and `skills/*/assets/**/*.md` files with regular-file and `realpathSync` containment checks, require `com.github.copilot/rules/core.mdc` plus `skills/dev-loop/references/hosts/README.md` and `skills/dev-loop/references/hosts/copilot.md`, enforce JSON-object and version/name parity across optional host manifests (`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and `gemini-extension.json`), verify `GEMINI.md` byte parity with `com.github.copilot/rules/core.mdc`, reject compound shell syntax in `SessionStart` hook commands while guarding executable `SessionStart` hooks against top-level or nested `additionalContext`/`systemMessage` emission under `COPILOT_CLI=1`, and enforce a per-event `15,000`-byte (`15 KB`) startup context ceiling across Copilot, Gemini, and Claude `SessionStart` hook matchers.

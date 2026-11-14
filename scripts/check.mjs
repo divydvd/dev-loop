@@ -190,7 +190,12 @@ function checkManifest() {
     if (!host) continue;
     if (host.name !== plugin.name) fault(hostPath, `name "${host.name}" differs from plugin.json name "${plugin.name}"`);
     if (host.version !== plugin.version) fault(hostPath, `version ${host.version} differs from plugin.json version ${plugin.version}`);
-    if (relManifest === "gemini-extension.json" && host.contextFileName !== "GEMINI.md") fault(hostPath, 'contextFileName must be "GEMINI.md"');
+    if (relManifest === "gemini-extension.json") {
+      if (typeof plugin.description === "string" && host.description !== plugin.description) {
+        fault(hostPath, "description differs from plugin.json description");
+      }
+      if (host.contextFileName !== "GEMINI.md") fault(hostPath, 'contextFileName must be "GEMINI.md"');
+    }
   }
 
   const changelogPath = join(root, "CHANGELOG.md");
