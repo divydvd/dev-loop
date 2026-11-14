@@ -1,11 +1,49 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import * as checkMod from "./check.mjs";
+
+function sanitizedEnv(overrides = {}) {
+  const env = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (
+      k === "NODE_TEST_CONTEXT" ||
+      k.startsWith("GIT_") ||
+      k.startsWith("COPILOT_") ||
+      k.startsWith("ANTHROPIC_") ||
+      k.startsWith("CLAUDE_CODE_") ||
+      k === "CLAUDE_CONFIG_DIR"
+    ) {
+      continue;
+    }
+    env[k] = v;
+  }
+  return { ...env, ...overrides };
+}
+
+function spawnAsync(cmd, args, options = {}) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(cmd, args, { ...options, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", rejectPromise);
+    child.on("close", (status) => resolvePromise({ status, stdout, stderr }));
+  });
+}
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_BODY = "# Dev-loop core rules\n\n1. Read `AGENTS.md`.\n";
@@ -559,5 +597,348 @@ test("T-M1-3: host capability contract, Copilot adapter, SKILL.md routing, PR te
   assert.ok(coreMdc.trimEnd().split(/\r?\n/).length <= 60, "core.mdc must remain <= 60 lines");
   assert.match(coreMdc, /^---\r?\n[\s\S]*?alwaysApply:\s*true[\s\S]*?\r?\n---\r?\n/);
   assert.ok(Buffer.byteLength(coreMdc, "utf8") <= 15_000, "core.mdc must fit within startup budget");
+});
+
+test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook single-source contract", () => {
+  withFixtureRepo((dir) => {
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    writeFileSync(
+      join(dir, ".claude-plugin/plugin.json"),
+      JSON.stringify({ name: "dev-loop", version: "0.5.13" }),
+    );
+    writeFileSync(
+      join(dir, ".claude-plugin/marketplace.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        metadata: { version: "0.5.13" },
+        plugins: [{ name: "wrong-name", source: "./", version: "0.5.13" }],
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes(".claude-plugin/marketplace.json") && f.includes('no plugin entry named "dev-loop"')),
+      "expected checkRepo to reject missing dev-loop entry in .claude-plugin/marketplace.json",
+    );
+
+    writeFileSync(
+      join(dir, ".claude-plugin/marketplace.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        metadata: { version: "0.5.13" },
+        plugins: [{ name: "dev-loop", source: "./", version: "0.0.1" }],
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes(".claude-plugin/marketplace.json") && f.includes("differs from plugin.json")),
+      "expected checkRepo to reject divergent plugin version in .claude-plugin/marketplace.json",
+    );
+
+    writeFileSync(
+      join(dir, ".claude-plugin/marketplace.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        metadata: { version: "0.0.1" },
+        plugins: [{ name: "dev-loop", source: "./", version: "0.5.13" }],
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes(".claude-plugin/marketplace.json") && f.includes("metadata.version")),
+      "expected checkRepo to reject divergent metadata.version in .claude-plugin/marketplace.json",
+    );
+
+    writeFileSync(
+      join(dir, ".claude-plugin/marketplace.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        metadata: { version: "0.5.13" },
+        plugins: [{ name: "dev-loop", source: "./", version: "0.5.13" }],
+      }),
+    );
+    assert.deepEqual(checkMod.checkRepo(dir), []);
+  });
+
+  const rootPlugin = JSON.parse(readFileSync(join(REPO_ROOT, "plugin.json"), "utf8"));
+  assert.notEqual(rootPlugin.version, "0.5.13", "M2 must bump plugin.json version past 0.5.13");
+
+  const claudePluginPath = join(REPO_ROOT, ".claude-plugin/plugin.json");
+  const claudeMarketPath = join(REPO_ROOT, ".claude-plugin/marketplace.json");
+  assert.ok(existsSync(claudePluginPath), "missing .claude-plugin/plugin.json");
+  assert.ok(existsSync(claudeMarketPath), "missing .claude-plugin/marketplace.json");
+
+  const claudePlugin = JSON.parse(readFileSync(claudePluginPath, "utf8"));
+  const claudeMarket = JSON.parse(readFileSync(claudeMarketPath, "utf8"));
+  assert.equal(claudePlugin.name, rootPlugin.name);
+  assert.equal(claudePlugin.version, rootPlugin.version);
+  assert.equal(claudeMarket.metadata?.version, rootPlugin.version);
+  const marketEntry = (claudeMarket.plugins ?? []).find((p) => p.name === rootPlugin.name);
+  assert.ok(marketEntry, "missing dev-loop entry in .claude-plugin/marketplace.json");
+  assert.equal(marketEntry.version, rootPlugin.version);
+  assert.equal(marketEntry.source, "./");
+
+  const hooksJsonPath = join(REPO_ROOT, "hooks/hooks.json");
+  const runHookPath = join(REPO_ROOT, "hooks/run-hook.cmd");
+  const sessionStartPath = join(REPO_ROOT, "hooks/session-start");
+  assert.ok(existsSync(hooksJsonPath), "missing hooks/hooks.json");
+  assert.ok(existsSync(runHookPath), "missing hooks/run-hook.cmd");
+  assert.ok(existsSync(sessionStartPath), "missing hooks/session-start");
+  assert.ok((statSync(runHookPath).mode & 0o111) !== 0, "hooks/run-hook.cmd must be executable (+x)");
+  assert.ok((statSync(sessionStartPath).mode & 0o111) !== 0, "hooks/session-start must be executable (+x)");
+
+  const hooksJson = JSON.parse(readFileSync(hooksJsonPath, "utf8"));
+  const sessionStartGroups = hooksJson?.hooks?.SessionStart;
+  assert.ok(Array.isArray(sessionStartGroups) && sessionStartGroups.length === 1, "expected 1 SessionStart hook group");
+  assert.equal(sessionStartGroups[0].matcher, "startup|resume|clear|compact");
+  assert.equal(
+    sessionStartGroups[0].hooks?.[0]?.command,
+    '"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start',
+  );
+  assert.equal(sessionStartGroups[0].hooks?.[0]?.async, false);
+
+  const expectedCoreBody = checkMod.stripFrontmatter(
+    readFileSync(join(REPO_ROOT, "com.github.copilot/rules/core.mdc"), "utf8"),
+  );
+
+  // Guard: COPILOT_CLI=1 must emit "{}\n" so GitHub Copilot CLI never double-loads core.mdc
+  const copilotRun = spawnSync("/bin/bash", [runHookPath, "session-start"], {
+    cwd: REPO_ROOT,
+    env: sanitizedEnv({ COPILOT_CLI: "1" }),
+    encoding: "utf8",
+  });
+  assert.equal(copilotRun.status, 0, copilotRun.stderr);
+  assert.equal(copilotRun.stderr, "");
+  assert.equal(copilotRun.stdout, "{}\n");
+  assert.deepEqual(JSON.parse(copilotRun.stdout), {});
+
+  // Claude Code execution (including empty PATH per anthropics/claude-code#43127)
+  for (const pathEnv of [process.env.PATH ?? "/usr/bin:/bin", ""]) {
+    const claudeRun = spawnSync("/bin/bash", [runHookPath, "session-start"], {
+      cwd: REPO_ROOT,
+      env: sanitizedEnv({ PATH: pathEnv }),
+      encoding: "utf8",
+    });
+    assert.equal(claudeRun.status, 0, `failed with PATH="${pathEnv}": ${claudeRun.stderr}`);
+    assert.equal(claudeRun.stderr, "");
+    const parsed = JSON.parse(claudeRun.stdout);
+    assert.deepEqual(parsed, {
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: expectedCoreBody,
+      },
+    });
+  }
+
+  // CRLF frontmatter tolerance on a temporary plugin copy
+  const crlfDir = mkdtempSync(join(tmpdir(), "dev-loop-crlf-hook-"));
+  try {
+    mkdirSync(join(crlfDir, "com.github.copilot/rules"), { recursive: true });
+    mkdirSync(join(crlfDir, "hooks"), { recursive: true });
+    copyFileSync(runHookPath, join(crlfDir, "hooks/run-hook.cmd"));
+    copyFileSync(sessionStartPath, join(crlfDir, "hooks/session-start"));
+    chmodSync(join(crlfDir, "hooks/run-hook.cmd"), 0o755);
+    chmodSync(join(crlfDir, "hooks/session-start"), 0o755);
+    const crlfMdc = `---\r\ndescription: CRLF test\r\nalwaysApply: true\r\n---\r\n${expectedCoreBody}`;
+    writeFileSync(join(crlfDir, "com.github.copilot/rules/core.mdc"), crlfMdc);
+    const crlfRun = spawnSync("/bin/bash", [join(crlfDir, "hooks/run-hook.cmd"), "session-start"], {
+      cwd: crlfDir,
+      env: sanitizedEnv({ PATH: "" }),
+      encoding: "utf8",
+    });
+    assert.equal(crlfRun.status, 0, crlfRun.stderr);
+    assert.equal(JSON.parse(crlfRun.stdout).hookSpecificOutput.additionalContext, expectedCoreBody);
+  } finally {
+    rmSync(crlfDir, { recursive: true, force: true });
+  }
+
+  const agentsBytes = Buffer.byteLength(readFileSync(join(REPO_ROOT, "AGENTS.md"), "utf8"), "utf8");
+  const coreBytes = Buffer.byteLength(expectedCoreBody, "utf8");
+  assert.ok(
+    coreBytes + agentsBytes <= 15_000,
+    `Claude startup context (${coreBytes + agentsBytes} bytes) exceeds 15,000-byte budget`,
+  );
+  assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
+});
+
+test("T-M2-2: Claude Code CLI validates, installs, injects core.mdc once on startup and resume, and uninstalls cleanly", async (t) => {
+  const versionProbe = spawnSync("claude", ["--version"], {
+    env: sanitizedEnv(),
+    encoding: "utf8",
+  });
+  if (versionProbe.error?.code === "ENOENT") {
+    t.skip("claude CLI not installed on this runner");
+    return;
+  }
+  assert.equal(versionProbe.status, 0, versionProbe.stderr);
+
+  // 1. Validate repo marketplace and plugin manifest with claude plugin validate --strict --json
+  for (const target of [".", ".claude-plugin/plugin.json"]) {
+    const val = spawnSync("claude", ["plugin", "validate", "--strict", "--json", target], {
+      cwd: REPO_ROOT,
+      env: sanitizedEnv(),
+      encoding: "utf8",
+    });
+    assert.equal(val.status, 0, `claude plugin validate ${target} failed: ${val.stdout}\n${val.stderr}`);
+    const parsedVal = JSON.parse(val.stdout);
+    assert.equal(parsedVal.success, true, `validate ${target} did not succeed: ${val.stdout}`);
+    assert.ok(parsedVal.manifest, `expected non-null manifest for ${target}: ${val.stdout}`);
+    assert.deepEqual(parsedVal.manifest.errors, []);
+    assert.deepEqual(parsedVal.manifest.warnings, []);
+    for (const item of parsedVal.contents ?? []) {
+      assert.deepEqual(item.errors, [], `errors in ${item.file}`);
+      assert.deepEqual(item.warnings, [], `warnings in ${item.file}`);
+    }
+  }
+
+  // 2. Isolated CLAUDE_CONFIG_DIR install, list, disable, and uninstall lifecycle on REPO_ROOT
+  const rootPlugin = JSON.parse(readFileSync(join(REPO_ROOT, "plugin.json"), "utf8"));
+  const tmpRoot = mkdtempSync(join(tmpdir(), "dev-loop-claude-cli-"));
+  try {
+    const configDir = join(tmpRoot, "claude-home");
+    mkdirSync(configDir, { recursive: true });
+    const cliEnv = sanitizedEnv({ CLAUDE_CONFIG_DIR: configDir });
+
+    const installRes = spawnSync(
+      "claude",
+      ["plugin", "install", "--marketplace", REPO_ROOT, "dev-loop"],
+      { cwd: tmpRoot, env: cliEnv, encoding: "utf8" },
+    );
+    assert.equal(installRes.status, 0, `install failed: ${installRes.stdout}\n${installRes.stderr}`);
+
+    const listRes = spawnSync("claude", ["plugin", "list", "--json"], {
+      cwd: tmpRoot,
+      env: cliEnv,
+      encoding: "utf8",
+    });
+    assert.equal(listRes.status, 0, listRes.stderr);
+    const installed = JSON.parse(listRes.stdout);
+    const entry = installed.find((p) => p.id === "dev-loop@dev-loop");
+    assert.ok(entry, `expected dev-loop@dev-loop in ${listRes.stdout}`);
+    assert.equal(entry.version, rootPlugin.version);
+    assert.equal(entry.enabled, true);
+
+    const disableRes = spawnSync("claude", ["plugin", "disable", "dev-loop@dev-loop"], {
+      cwd: tmpRoot,
+      env: cliEnv,
+      encoding: "utf8",
+    });
+    assert.equal(disableRes.status, 0, disableRes.stderr);
+
+    const uninstallRes = spawnSync("claude", ["plugin", "uninstall", "dev-loop@dev-loop"], {
+      cwd: tmpRoot,
+      env: cliEnv,
+      encoding: "utf8",
+    });
+    assert.equal(uninstallRes.status, 0, uninstallRes.stderr);
+    const afterUninstall = JSON.parse(
+      spawnSync("claude", ["plugin", "list", "--json"], { cwd: tmpRoot, env: cliEnv, encoding: "utf8" }).stdout,
+    );
+    assert.deepEqual(afterUninstall, []);
+
+    // 3. Wire-capture verification (P01 & P10 only — proves binary hook execution, prompt assembly,
+    // skill catalog discovery, and single-load parity on startup + resume; never substitutes for LLM reasoning P02-P09).
+    const marker = `DEV_LOOP_CLAUDE_WIRE_${randomUUID()}`;
+    const pluginCopy = join(tmpRoot, "plugin-copy");
+    cpSync(REPO_ROOT, pluginCopy, {
+      recursive: true,
+      filter: (src) => !src.includes("/.git") && !src.includes("/node_modules") && !src.includes("/.superpowers"),
+    });
+    const coreCopyPath = join(pluginCopy, "com.github.copilot/rules/core.mdc");
+    writeFileSync(coreCopyPath, `${readFileSync(coreCopyPath, "utf8")}\n<!-- ${marker} -->\n`);
+
+    const wireConfigDir = join(tmpRoot, "wire-claude-home");
+    const projectDir = join(tmpRoot, "sample-project");
+    mkdirSync(wireConfigDir, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    const agentsMarker = `PROJECT_PROFILE_MARKER_${randomUUID()}`;
+    writeFileSync(join(projectDir, "AGENTS.md"), `# Sample Project Profile\n\nMarker: ${agentsMarker}\n`);
+    spawnSync("git", ["init", "-q"], { cwd: projectDir, env: sanitizedEnv() });
+
+    const wireInstall = spawnSync(
+      "claude",
+      ["plugin", "install", "--marketplace", pluginCopy, "dev-loop"],
+      { cwd: projectDir, env: sanitizedEnv({ CLAUDE_CONFIG_DIR: wireConfigDir }), encoding: "utf8" },
+    );
+    assert.equal(wireInstall.status, 0, `${wireInstall.stdout}\n${wireInstall.stderr}`);
+
+    const capturedBodies = [];
+    const server = createServer((req, res) => {
+      let body = "";
+      req.setEncoding("utf8");
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        if (req.url?.startsWith("/v1/messages")) {
+          capturedBodies.push(body);
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            id: `msg_${capturedBodies.length}`,
+            type: "message",
+            role: "assistant",
+            model: "claude-sonnet-4-6",
+            content: [{ type: "text", text: "wire-captured" }],
+            stop_reason: "end_turn",
+            stop_sequence: null,
+            usage: { input_tokens: 10, output_tokens: 2 },
+          }),
+        );
+      });
+    });
+
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    try {
+      const { port } = server.address();
+      const runEnv = sanitizedEnv({
+        CLAUDE_CONFIG_DIR: wireConfigDir,
+        ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
+      });
+      const sessionId = randomUUID();
+      const settingsJson = JSON.stringify({ apiKeyHelper: "printf sk-ant-wire-probe" });
+
+      const startupRun = await spawnAsync(
+        "claude",
+        ["-p", "--session-id", sessionId, "--output-format", "json", "--settings", settingsJson, "startup wire probe"],
+        { cwd: projectDir, env: runEnv },
+      );
+      assert.equal(startupRun.status, 0, `${startupRun.stdout}\n${startupRun.stderr}`);
+      assert.ok(capturedBodies.length >= 1, "expected at least 1 outbound /v1/messages request on startup");
+
+      const startupPayload = capturedBodies[0];
+      assert.equal(
+        startupPayload.split(marker).length - 1,
+        1,
+        "expected unique core.mdc marker exactly once in startup /v1/messages payload",
+      );
+      assert.ok(startupPayload.includes(agentsMarker), "expected project AGENTS.md in startup /v1/messages payload");
+      for (const skillName of [
+        "dev-loop:dev-loop",
+        "dev-loop:design-review",
+        "dev-loop:flow-docs",
+        "dev-loop:infra-review",
+      ]) {
+        assert.ok(startupPayload.includes(skillName), `expected skill ${skillName} in Claude tool catalog`);
+      }
+
+      const beforeResumeCount = capturedBodies.length;
+      const resumeRun = await spawnAsync(
+        "claude",
+        ["-p", "--resume", sessionId, "--output-format", "json", "--settings", settingsJson, "resume wire probe"],
+        { cwd: projectDir, env: runEnv },
+      );
+      assert.equal(resumeRun.status, 0, `${resumeRun.stdout}\n${resumeRun.stderr}`);
+      assert.ok(capturedBodies.length > beforeResumeCount, "expected outbound /v1/messages request on resume");
+
+      const resumePayload = capturedBodies[capturedBodies.length - 1];
+      assert.equal(
+        resumePayload.split(marker).length - 1,
+        1,
+        "expected unique core.mdc marker exactly once on --resume (0 duplicate injection)",
+      );
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
 });
 

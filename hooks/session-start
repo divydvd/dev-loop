@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# SessionStart hook for dev-loop in Claude Code.
+# Injects the single-source core rules from com.github.copilot/rules/core.mdc
+# and returns {} under COPILOT_CLI so GitHub Copilot CLI never double-loads them.
+
+set -euo pipefail
+
+emit_json() {
+  if command -v cat >/dev/null 2>&1; then
+    printf "$@" | cat
+  else
+    printf "$@"
+  fi
+}
+
+if [ -n "${COPILOT_CLI:-}" ]; then
+  emit_json '{}\n'
+  exit 0
+fi
+
+case "$0" in
+  */*|*\\*) SCRIPT_DIR="$(cd "${0%[/\\]*}" && pwd)" ;;
+  *) SCRIPT_DIR="$(pwd)" ;;
+esac
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CORE_MDC="${PLUGIN_ROOT}/com.github.copilot/rules/core.mdc"
+
+if [ ! -r "$CORE_MDC" ]; then
+  printf 'hooks/session-start: cannot read %s\n' "$CORE_MDC" >&2
+  exit 1
+fi
+
+core_raw=""
+IFS= read -r -d '' core_raw < "$CORE_MDC" || true
+
+core_body="$core_raw"
+if [[ "$core_raw" == $'---\n'* || "$core_raw" == $'---\r\n'* ]]; then
+  rest="${core_raw#---}"
+  rest="${rest#$'\r'}"
+  rest="${rest#$'\n'}"
+  found_end=0
+  while [[ "$rest" == *$'\n'* || -n "$rest" ]]; do
+    if [[ "$rest" == *$'\n'* ]]; then
+      line="${rest%%$'\n'*}"
+      after="${rest#*$'\n'}"
+    else
+      line="$rest"
+      after=""
+    fi
+    if [[ "$line" == "---" || "$line" == $'---\r' ]]; then
+      core_body="$after"
+      found_end=1
+      break
+    fi
+    if [[ "$rest" != *$'\n'* ]]; then
+      break
+    fi
+    rest="$after"
+  done
+  if [[ "$found_end" -eq 0 ]]; then
+    core_body="$core_raw"
+  fi
+fi
+
+escape_for_json() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+escaped_body="$(escape_for_json "$core_body")"
+emit_json '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$escaped_body"
+exit 0

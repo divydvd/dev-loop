@@ -193,6 +193,21 @@ function checkManifest() {
     if (relManifest === "gemini-extension.json" && host.contextFileName !== "GEMINI.md") fault(hostPath, 'contextFileName must be "GEMINI.md"');
   }
 
+  const claudeMarketPath = join(root, ".claude-plugin/marketplace.json");
+  if (existsSync(claudeMarketPath)) {
+    const claudeMarket = readJson(claudeMarketPath);
+    if (claudeMarket) {
+      const claudeEntry = (claudeMarket.plugins ?? []).find((p) => p?.name === plugin.name);
+      if (!claudeEntry) fault(claudeMarketPath, `no plugin entry named "${plugin.name}"`);
+      else if (claudeEntry.version !== plugin.version) {
+        fault(claudeMarketPath, `version ${claudeEntry.version} differs from plugin.json version ${plugin.version}`);
+      }
+      if (claudeMarket.metadata?.version !== undefined && claudeMarket.metadata.version !== plugin.version) {
+        fault(claudeMarketPath, `metadata.version ${claudeMarket.metadata.version} differs from plugin.json version ${plugin.version}`);
+      }
+    }
+  }
+
   const changelogPath = join(root, "CHANGELOG.md");
   if (!existsSync(changelogPath)) fault(changelogPath, "file is missing");
   else if (version && !new RegExp(`^## ${version.replace(/\./g, "\\.")}\\b`, "m").test(readFileSync(changelogPath, "utf8"))) {
