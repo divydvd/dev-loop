@@ -25,11 +25,26 @@ const isCli = Boolean(
 
 if (isCli) {
   const args = process.argv.slice(2);
-  const check = args.includes("--check");
-  const rootArg = args.find((arg) => arg !== "--check");
-  const result = syncHostCore(rootArg ? resolve(rootArg) : DEFAULT_ROOT, { check });
+  let check = false;
+  const positional = [];
+  for (const arg of args) {
+    if (arg === "--check") {
+      check = true;
+    } else if (arg.startsWith("-")) {
+      console.error(`Unknown flag: ${arg}`);
+      process.exit(1);
+    } else {
+      positional.push(arg);
+    }
+  }
+  if (positional.length > 1) {
+    console.error("Usage: node scripts/sync-host-core.mjs [--check] [repo-root]");
+    process.exit(1);
+  }
+  const result = syncHostCore(positional[0] ? resolve(positional[0]) : DEFAULT_ROOT, { check });
   if (!result.synced) {
     console.error("GEMINI.md differs from com.github.copilot/rules/core.mdc body; run node scripts/sync-host-core.mjs");
     process.exit(1);
   }
+  console.log(result.changed ? "GEMINI.md: synced" : "GEMINI.md: in sync");
 }
