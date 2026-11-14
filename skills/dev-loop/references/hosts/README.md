@@ -11,7 +11,7 @@ Agents preserve every approval gate, test requirement, and independent review ch
    For example, `claude-sonnet-5.5` or `gemini-4-carbon` inside GitHub Copilot still uses `references/hosts/copilot.md` when Copilot tools such as `open_canvas` (`browser` canvas), `github-pr-media`, or `work_ledger_record` are available.
 3. Reuse the Superpowers `using-superpowers` skill (`claude-code-tools.md`, `gemini-tools.md`, and `codex-tools.md`) to translate generic tool names (`view`, `edit`, `bash`, `task`, `ask_user`, and `skill`).
    Do not duplicate generic tool-name tables inside `dev-loop`.
-4. Read only the guide for your active host (`references/hosts/copilot.md` in GitHub Copilot; `claude.md`, `gemini.md`, and `codex.md` arrive in milestones `M2`–`M4`).
+4. Read only the guide for your active host (`references/hosts/copilot.md` in GitHub Copilot, `references/hosts/claude.md` in Claude Code; `gemini.md` and `codex.md` arrive in milestones `M3`–`M4`).
    When your host has no dedicated guide yet, or when an optional Copilot tool is absent, follow the fallback column below.
 
 ## Capability matrix
