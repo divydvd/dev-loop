@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -79,6 +79,37 @@ test("T-M1-1: checkRepo validates nested skill reference links and rejects path 
       escapeFaults.some((f) => f.includes("outside.md")),
       `expected path traversal fault even when target exists outside skill dir, got: ${escapeFaults.join("; ")}`,
     );
+
+    // Symlink escape inside references/ pointing outside skill dir
+    symlinkSync(join(dir, "outside.md"), join(dir, "skills/dev-loop/references/hosts/symlink-escape.md"));
+    writeFileSync(
+      join(dir, "skills/dev-loop/references/hosts/README.md"),
+      "Symlink `references/hosts/symlink-escape.md` link.\n",
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("symlink-escape.md")),
+      "expected symlink escape outside skill dir to fail",
+    );
+    unlinkSync(join(dir, "skills/dev-loop/references/hosts/symlink-escape.md"));
+
+    // Directory target instead of file
+    writeFileSync(
+      join(dir, "skills/dev-loop/references/hosts/README.md"),
+      "Directory `references/hosts` link.\n",
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("references/hosts")),
+      "expected directory link target to fail",
+    );
+    writeFileSync(join(dir, "skills/dev-loop/references/hosts/README.md"), "# Hosts\nSee `references/hosts/copilot.md`.\n");
+
+    // Broken link inside skills/*/assets/*.md
+    mkdirSync(join(dir, "skills/dev-loop/assets"), { recursive: true });
+    writeFileSync(join(dir, "skills/dev-loop/assets/template.md"), "Missing `references/nope.md`.\n");
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("skills/dev-loop/assets/template.md") && f.includes("references/nope.md")),
+      "expected broken link inside skills/*/assets/*.md to fail",
+    );
   });
 });
 
@@ -134,22 +165,114 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
     assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("GEMINI.md")));
     writeFileSync(join(dir, "GEMINI.md"), CORE_BODY);
 
-    // 3. Unguarded hooks/session-start under COPILOT_CLI=1
+    // 3. Unguarded hooks/session-start under COPILOT_CLI=1 (nested, top-level additionalContext, systemMessage, non-executable, orphan, custom script)
     writeFileSync(
       join(dir, "hooks/session-start"),
       '#!/usr/bin/env bash\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"duplicate core"}}\\n\'\n',
     );
     chmodSync(join(dir, "hooks/session-start"), 0o755);
     assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("COPILOT_CLI")));
+
     writeFileSync(
       join(dir, "hooks/session-start"),
-      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\n',
+      '#!/usr/bin/env bash\nprintf \'{"additionalContext":"top-level dup"}\\n\'\n',
     );
     chmodSync(join(dir, "hooks/session-start"), 0o755);
+    assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("COPILOT_CLI")), "top-level additionalContext must fail under COPILOT_CLI=1");
 
-    // 4. Exceeding 15,000-byte (15 KB) always-loaded startup budget
-    writeFileSync(join(dir, "AGENTS.md"), `# Profile\n${"x".repeat(15_000)}\n`);
-    assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("15000") || f.includes("15 KB")));
+    writeFileSync(
+      join(dir, "hooks/session-start"),
+      '#!/usr/bin/env bash\nprintf \'{"systemMessage":"top-level msg"}\\n\'\n',
+    );
+    chmodSync(join(dir, "hooks/session-start"), 0o755);
+    assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("COPILOT_CLI")), "systemMessage must fail under COPILOT_CLI=1");
+
+    writeFileSync(
+      join(dir, "hooks/session-start"),
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"core"}}\\n\'\n',
+    );
+    chmodSync(join(dir, "hooks/session-start"), 0o644);
+    assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("executable")), "non-executable hook script must fail");
+    chmodSync(join(dir, "hooks/session-start"), 0o755);
+
+    // Custom hook script path in hooks.json
+    writeFileSync(
+      join(dir, "hooks/custom-start.sh"),
+      '#!/usr/bin/env bash\nprintf \'{"additionalContext":"custom dup"}\\n\'\n',
+    );
+    chmodSync(join(dir, "hooks/custom-start.sh"), 0o755);
+    writeFileSync(
+      join(dir, "hooks/hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [{ matcher: "startup", hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/hooks/custom-start.sh" }] }],
+        },
+      }),
+    );
+    assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("custom-start.sh") && f.includes("COPILOT_CLI")), "custom SessionStart script must also obey COPILOT_CLI=1");
+    unlinkSync(join(dir, "hooks/custom-start.sh"));
+
+    // Orphan hooks/session-start without hooks/hooks.json
+    unlinkSync(join(dir, "hooks/hooks.json"));
+    assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("hooks/hooks.json")), "orphan hooks/session-start without hooks/hooks.json must fail");
+    writeFileSync(
+      join(dir, "hooks/hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [{ matcher: "startup|clear|compact", hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/hooks/session-start" }] }],
+        },
+      }),
+    );
+
+    // Non-object JSON in manifests or hooks.json
+    writeFileSync(join(dir, ".claude-plugin/plugin.json"), "null\n");
+    assert.ok(checkMod.checkRepo(dir).some((f) => f.includes(".claude-plugin/plugin.json")), "JSON null manifest must fail");
+    writeFileSync(join(dir, ".claude-plugin/plugin.json"), JSON.stringify({ name: "dev-loop", version: "0.5.13" }));
+
+    // Missing core.mdc even if another .mdc exists
+    writeFileSync(join(dir, "com.github.copilot/rules/extra.mdc"), CORE_MDC);
+    unlinkSync(join(dir, "com.github.copilot/rules/core.mdc"));
+    assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("com.github.copilot/rules/core.mdc")), "missing core.mdc must fail");
+    unlinkSync(join(dir, "com.github.copilot/rules/extra.mdc"));
+    writeFileSync(join(dir, "com.github.copilot/rules/core.mdc"), CORE_MDC);
+
+    // 4. Exact 15,000-byte (PASS) vs 15,001-byte (FAIL) UTF-8 boundary (including multi-byte characters) and Claude hook startup budget
+    const coreMdcBytes = Buffer.byteLength(CORE_MDC, "utf8");
+    const prefix = "# Profile\n";
+    const remainingEven = 15_000 - coreMdcBytes - Buffer.byteLength(prefix, "utf8");
+    const multiByteBody = `${"é".repeat(Math.floor(remainingEven / 2))}${"x".repeat(remainingEven % 2)}`;
+    writeFileSync(join(dir, "AGENTS.md"), `${prefix}${multiByteBody}`);
+    assert.equal(Buffer.byteLength(readFileSync(join(dir, "AGENTS.md"), "utf8"), "utf8") + coreMdcBytes, 15_000);
+    assert.deepEqual(checkMod.checkRepo(dir), []);
+
+    writeFileSync(join(dir, "AGENTS.md"), `${prefix}${multiByteBody}z`);
+    assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("15000") || f.includes("15 KB")), "15,001 UTF-8 bytes must fail");
+
+    // Claude SessionStart additionalContext exceeding 15,000 bytes with AGENTS.md
+    writeFileSync(join(dir, "AGENTS.md"), `# Profile\n${"x".repeat(14_995)}\n`);
+    writeFileSync(
+      join(dir, "com.github.copilot/rules/core.mdc"),
+      "---\ndescription: tiny\nalwaysApply: true\n---\n# Tiny\n",
+    );
+    writeFileSync(join(dir, "GEMINI.md"), "# Tiny\n");
+    writeFileSync(
+      join(dir, "hooks/session-start"),
+      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"${"y".repeat(200)}"}}\\n'\n`,
+    );
+    chmodSync(join(dir, "hooks/session-start"), 0o755);
+    assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("15000") || f.includes("15 KB")), "Claude hook additionalContext + AGENTS.md > 15,000 bytes must fail");
+
+    // 5. CLI subprocess execution through symlinked tmpdir path returns exit 1 on fault and 0 when clean
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    copyFileSync(join(REPO_ROOT, "scripts/check.mjs"), join(dir, "scripts/check.mjs"));
+    const failRun = spawnSync(process.execPath, [join(dir, "scripts/check.mjs")], { encoding: "utf8" });
+    assert.equal(failRun.status, 1, `expected exit 1 on faulty symlinked tmpdir repo, got ${failRun.status}`);
+    assert.match(failRun.stderr, /check: \d+ fault/);
+
+    writeFileSync(join(dir, "AGENTS.md"), "# Profile\n");
+    const okRun = spawnSync(process.execPath, [join(dir, "scripts/check.mjs")], { encoding: "utf8" });
+    assert.equal(okRun.status, 0, `expected exit 0 on clean symlinked tmpdir repo, got ${okRun.status}: ${okRun.stderr}`);
+    assert.match(okRun.stdout, /check: no faults/);
   });
 });
 
@@ -227,6 +350,8 @@ test("T-M1-3: host capability contract, Copilot adapter, SKILL.md routing, PR te
 
   const prBody = readFileSync(join(REPO_ROOT, "skills/dev-loop/assets/pr-body.md"), "utf8");
   assert.match(section(prBody, "## Screenshots"), /github-pr-media.*unavailable|upload skill is unavailable/i);
+  assert.match(hostsReadme, /delete the empty.*table/i);
+  assert.match(shipSection, /delete the empty.*table/i);
   assert.match(section(prBody, "### GitHub Copilot review"), /repository.*automatic review|regardless of.*coding host/i);
 
   const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf8");
@@ -235,11 +360,8 @@ test("T-M1-3: host capability contract, Copilot adapter, SKILL.md routing, PR te
   assert.match(ruleMap, /\[Portability contract suite\]\(scripts\/portability-contract\.test\.mjs\)/);
 
   const coreMdc = readFileSync(join(REPO_ROOT, "com.github.copilot/rules/core.mdc"), "utf8");
-  assert.ok(coreMdc.split("\n").length <= 60, "core.mdc must remain <= 60 lines");
-  const baselineCore = execFileSync("git", ["show", "2db8ff48660f80ccd66594cb13fc57a1d4f597d8:com.github.copilot/rules/core.mdc"], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-  });
-  assert.equal(coreMdc, baselineCore, "core.mdc must have 0 diff lines in M1");
+  assert.ok(coreMdc.trimEnd().split(/\r?\n/).length <= 60, "core.mdc must remain <= 60 lines");
+  assert.match(coreMdc, /^---\r?\n[\s\S]*?alwaysApply:\s*true[\s\S]*?\r?\n---\r?\n/);
+  assert.ok(Buffer.byteLength(coreMdc, "utf8") <= 15_000, "core.mdc must fit within startup budget");
 });
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Exact checks for the dev-loop plugin repo. Prints each fault and exits with code 1 if it finds one.
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,12 +19,37 @@ export function stripFrontmatter(text) {
   return String(text ?? "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
 }
 
-function walkMarkdownFiles(dir, out = []) {
+function isInsideRealDir(baseDir, targetPath) {
+  try {
+    const realBase = realpathSync(baseDir);
+    const realTarget = realpathSync(targetPath);
+    const rel = relative(realBase, realTarget);
+    return !rel.startsWith("..") && !isAbsolute(rel);
+  } catch {
+    return false;
+  }
+}
+
+function walkMarkdownFiles(baseDir, dir = baseDir, seenDirs = new Set(), out = []) {
   if (!existsSync(dir)) return out;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) walkMarkdownFiles(full, out);
-    else if (entry.isFile() && entry.name.endsWith(".md")) out.push(full);
+  let realDir;
+  try {
+    realDir = realpathSync(dir);
+  } catch {
+    return out;
+  }
+  if (seenDirs.has(realDir) || !isInsideRealDir(baseDir, dir)) return out;
+  seenDirs.add(realDir);
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    let st;
+    try {
+      st = statSync(full);
+    } catch {
+      continue;
+    }
+    if (st.isDirectory()) walkMarkdownFiles(baseDir, full, seenDirs, out);
+    else if (st.isFile() && entry.endsWith(".md") && isInsideRealDir(baseDir, full)) out.push(full);
   }
   return out;
 }
@@ -42,11 +67,16 @@ function collectPluginRootRefs(value, out = []) {
 
 export function checkRepo(root = defaultRoot) {
   const faults = [];
-  const fault = (path, message) => faults.push(`${relative(root, path) || "."}: ${message}`);
+  const fault = (path, message) => faults.push(`${(relative(root, path) || ".").replaceAll("\\", "/")}: ${message}`);
 
   function readJson(path) {
     try {
-      return JSON.parse(readFileSync(path, "utf8"));
+      const parsed = JSON.parse(readFileSync(path, "utf8"));
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        fault(path, "must contain a JSON object");
+        return null;
+      }
+      return parsed;
     } catch (error) {
       fault(path, `cannot read JSON (${error.message})`);
       return null;
@@ -65,10 +95,18 @@ export function checkRepo(root = defaultRoot) {
     return { text, fields };
   }
 
-  function checkInsideDir(baseDir, candidateRel) {
+  function checkExistingFileInsideDir(baseDir, candidateRel) {
     const resolved = resolve(baseDir, candidateRel);
     const rel = relative(baseDir, resolved);
-    return !rel.startsWith("..") && !isAbsolute(rel) ? resolved : null;
+    if (rel.startsWith("..") || isAbsolute(rel) || !existsSync(resolved)) return null;
+    let st;
+    try {
+      st = statSync(resolved);
+    } catch {
+      return null;
+    }
+    if (!st.isFile() || !isInsideRealDir(baseDir, resolved)) return null;
+    return resolved;
   }
 
   function checkManifest() {
@@ -113,9 +151,14 @@ export function checkRepo(root = defaultRoot) {
     }
   }
 
+  const agentsPath = join(root, "AGENTS.md");
+  const agentsBytes = existsSync(agentsPath) ? Buffer.byteLength(readFileSync(agentsPath, "utf8"), "utf8") : 0;
+
   function checkRulesAndStartupBudget() {
     const rulesDir = join(root, "com.github.copilot/rules");
     if (!existsSync(rulesDir)) return fault(rulesDir, "folder is missing");
+    const corePath = join(rulesDir, "core.mdc");
+    if (!existsSync(corePath)) fault(corePath, "file is missing");
     let copilotRulesBytes = 0;
     for (const file of readdirSync(rulesDir)) {
       const path = join(rulesDir, file);
@@ -137,7 +180,6 @@ export function checkRepo(root = defaultRoot) {
       if (lines > MAX_RULE_LINES) fault(path, `${lines} lines; the limit is ${MAX_RULE_LINES}`);
     }
 
-    const corePath = join(rulesDir, "core.mdc");
     const geminiExtPath = join(root, "gemini-extension.json");
     const geminiMdPath = join(root, "GEMINI.md");
     if (existsSync(geminiExtPath) || existsSync(geminiMdPath)) {
@@ -152,8 +194,6 @@ export function checkRepo(root = defaultRoot) {
       }
     }
 
-    const agentsPath = join(root, "AGENTS.md");
-    const agentsBytes = existsSync(agentsPath) ? Buffer.byteLength(readFileSync(agentsPath, "utf8"), "utf8") : 0;
     if (agentsBytes + copilotRulesBytes > MAX_ALWAYS_LOADED_BYTES) {
       fault(rulesDir, `always-loaded startup text is ${agentsBytes + copilotRulesBytes} bytes; the 15 KB limit is ${MAX_ALWAYS_LOADED_BYTES}`);
     }
@@ -167,33 +207,90 @@ export function checkRepo(root = defaultRoot) {
 
   function checkHooks() {
     const hooksJsonPath = join(root, "hooks/hooks.json");
-    if (!existsSync(hooksJsonPath)) return;
+    const defaultSessionStart = join(root, "hooks/session-start");
+    if (!existsSync(hooksJsonPath)) {
+      if (existsSync(defaultSessionStart)) fault(hooksJsonPath, "file is missing while hooks/session-start is present");
+      return;
+    }
     const hooksCfg = readJson(hooksJsonPath);
     if (!hooksCfg) return;
-    for (const relRef of collectPluginRootRefs(hooksCfg)) {
-      const target = checkInsideDir(root, relRef);
-      if (!target || !existsSync(target)) fault(hooksJsonPath, `referenced hook path ${relRef} is missing or escapes root`);
+    const allRefs = new Set(collectPluginRootRefs(hooksCfg));
+    const sessionStartScripts = new Set();
+    for (const relRef of collectPluginRootRefs(hooksCfg?.hooks?.SessionStart)) {
+      const target = checkExistingFileInsideDir(root, relRef);
+      if (target) sessionStartScripts.add(target);
     }
-    const sessionStartPath = join(root, "hooks/session-start");
-    if (existsSync(sessionStartPath)) {
-      const res = spawnSync("bash", [sessionStartPath], {
+    if (existsSync(defaultSessionStart)) sessionStartScripts.add(defaultSessionStart);
+
+    for (const relRef of allRefs) {
+      const target = checkExistingFileInsideDir(root, relRef);
+      if (!target) {
+        fault(hooksJsonPath, `referenced hook path ${relRef} is missing, is not a file, or escapes root`);
+        continue;
+      }
+      if (process.platform !== "win32" && (statSync(target).mode & 0o111) === 0) {
+        fault(target, "hook script must be executable (+x)");
+      }
+    }
+
+    for (const scriptPath of sessionStartScripts) {
+      if (process.platform !== "win32" && existsSync(scriptPath) && (statSync(scriptPath).mode & 0o111) === 0) {
+        if (!faults.some((f) => f.includes("executable (+x)") && f.includes(relative(root, scriptPath).replaceAll("\\", "/")))) {
+          fault(scriptPath, "hook script must be executable (+x)");
+        }
+        continue;
+      }
+      const copilotRes = spawnSync(scriptPath, [], {
         cwd: root,
         env: { ...process.env, CLAUDE_PLUGIN_ROOT: root, COPILOT_CLI: "1" },
         encoding: "utf8",
         timeout: 5_000,
       });
-      if (res.status !== 0 || res.error) {
-        fault(sessionStartPath, `COPILOT_CLI=1 guard check failed with status ${res.status ?? "error"}`);
+      if (copilotRes.status !== 0 || copilotRes.error) {
+        fault(scriptPath, `COPILOT_CLI=1 guard check failed with status ${copilotRes.status ?? copilotRes.error?.code ?? "error"}`);
       } else {
-        const trimmed = (res.stdout || "").trim();
+        const trimmed = (copilotRes.stdout || "").trim();
         if (trimmed) {
           try {
             const parsed = JSON.parse(trimmed);
-            if (parsed?.hookSpecificOutput?.additionalContext) {
-              fault(sessionStartPath, "must not emit additionalContext when COPILOT_CLI=1 (causes duplicate core loading)");
+            if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+              fault(scriptPath, "COPILOT_CLI=1 output must be empty or a JSON object");
+            } else if (
+              parsed.additionalContext ||
+              parsed.systemMessage ||
+              parsed?.hookSpecificOutput?.additionalContext ||
+              parsed?.hookSpecificOutput?.systemMessage
+            ) {
+              fault(scriptPath, "must not emit additionalContext or systemMessage when COPILOT_CLI=1 (causes duplicate core loading)");
             }
           } catch {
-            fault(sessionStartPath, "COPILOT_CLI=1 output must be empty or valid empty JSON");
+            fault(scriptPath, "COPILOT_CLI=1 output must be empty or valid empty JSON");
+          }
+        }
+      }
+
+      const claudeEnv = { ...process.env, CLAUDE_PLUGIN_ROOT: root };
+      delete claudeEnv.COPILOT_CLI;
+      const claudeRes = spawnSync(scriptPath, [], {
+        cwd: root,
+        env: claudeEnv,
+        encoding: "utf8",
+        timeout: 5_000,
+      });
+      if (claudeRes.status === 0 && !claudeRes.error) {
+        const trimmed = (claudeRes.stdout || "").trim();
+        if (trimmed) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            const injected = String(parsed?.hookSpecificOutput?.additionalContext ?? parsed?.additionalContext ?? "");
+            const claudeMdPath = join(root, "CLAUDE.md");
+            const claudeMdBytes = existsSync(claudeMdPath) ? Buffer.byteLength(readFileSync(claudeMdPath, "utf8"), "utf8") : 0;
+            const totalClaudeBytes = agentsBytes + claudeMdBytes + Buffer.byteLength(injected, "utf8");
+            if (totalClaudeBytes > MAX_ALWAYS_LOADED_BYTES) {
+              fault(scriptPath, `always-loaded startup text is ${totalClaudeBytes} bytes; the 15 KB limit is ${MAX_ALWAYS_LOADED_BYTES}`);
+            }
+          } catch {
+            fault(scriptPath, "SessionStart output must be valid JSON when non-empty");
           }
         }
       }
@@ -202,8 +299,8 @@ export function checkRepo(root = defaultRoot) {
 
   function checkSkillLinks(skillDir, mdPath, text) {
     for (const [, link] of text.matchAll(SKILL_LINK_RE)) {
-      const target = checkInsideDir(skillDir, link);
-      if (!target || !existsSync(target)) fault(mdPath, `linked file ${link} is missing or escapes skill folder`);
+      const target = checkExistingFileInsideDir(skillDir, link);
+      if (!target) fault(mdPath, `linked file ${link} is missing, is not a file, or escapes skill folder`);
     }
   }
 
@@ -229,13 +326,16 @@ export function checkRepo(root = defaultRoot) {
         fault(path, `description has ${fields.description.length} characters; the limit is ${MAX_DESCRIPTION}`);
       }
       checkSkillLinks(skillDir, path, text);
-      for (const refFile of walkMarkdownFiles(join(skillDir, "references"))) {
-        checkSkillLinks(skillDir, refFile, readFileSync(refFile, "utf8"));
+      for (const subdir of ["references", "assets"]) {
+        for (const mdFile of walkMarkdownFiles(skillDir, join(skillDir, subdir))) {
+          checkSkillLinks(skillDir, mdFile, readFileSync(mdFile, "utf8"));
+        }
       }
       if (name === "dev-loop") {
         for (const reqRel of ["references/hosts/README.md", "references/hosts/copilot.md"]) {
-          const reqPath = join(skillDir, reqRel);
-          if (!existsSync(reqPath)) fault(reqPath, `required host reference ${reqRel} is missing`);
+          if (!checkExistingFileInsideDir(skillDir, reqRel)) {
+            fault(join(skillDir, reqRel), `required host reference ${reqRel} is missing`);
+          }
         }
       }
     }
@@ -248,7 +348,16 @@ export function checkRepo(root = defaultRoot) {
   return faults;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  }
+}
+
+if (isMainModule()) {
   const faults = checkRepo(defaultRoot);
   if (faults.length > 0) {
     console.error(`check: ${faults.length} fault(s)`);

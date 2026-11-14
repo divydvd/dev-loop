@@ -159,7 +159,7 @@ Commit all changes first. Do this step after the last commit to the branch, so t
   - Personal data is a name, an email address, a phone number, an account photo, or private text. A secret is a password, a token, a key, or a one-time code.
   - In the section, name each screenshot that you did not upload, and the reason. Do not write the data.
   - Upload the other screenshots with the `github-pr-media` skill when available. The upload needs only the repository id, not a PR. Do not add the Markdown image lines of that skill. Put each URL in the table.
-  - If `github-pr-media` is unavailable on your coding host or an upload fails, follow `references/hosts/README.md`: delete any empty `<img>` row and record each unuploaded screenshot and the exact reason in `## Screenshots`. Do not stop for this.
+  - If `github-pr-media` is unavailable on your coding host or an upload fails, follow `references/hosts/README.md`: delete the empty HTML table when no screenshot is uploaded, and record each unuploaded screenshot and the exact reason in `## Screenshots`. Do not stop for this.
   - Do not commit the screenshots.
 - Each push starts CI and a Copilot review, and both cost Actions minutes. Do not push the branch before this step. Push once to open the PR, and then once for each review round.
 - Push the branch, and open a PR with a body from `assets/pr-body.md`. Fill in the evidence, the Test tool feedback, and the Dev-loop feedback.
