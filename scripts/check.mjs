@@ -174,10 +174,14 @@ function checkManifest() {
   const version = typeof plugin.version === "string" ? plugin.version : "";
   if (!version) fault(pluginPath, "version is missing or is not a string");
 
-  const entry = (market.plugins ?? []).find((p) => p.name === plugin.name);
-  if (!entry) fault(marketPath, `no plugin entry named "${plugin.name}"`);
-  else if (entry.version !== plugin.version) {
-    fault(marketPath, `version ${entry.version} differs from plugin.json version ${plugin.version}`);
+  if (!Array.isArray(market.plugins)) {
+    fault(marketPath, "plugins must be an array");
+  } else {
+    const entry = market.plugins.find((p) => p?.name === plugin.name);
+    if (!entry) fault(marketPath, `no plugin entry named "${plugin.name}"`);
+    else if (entry.version !== plugin.version) {
+      fault(marketPath, `version ${entry.version} differs from plugin.json version ${plugin.version}`);
+    }
   }
   if (market.metadata?.version !== plugin.version) {
     fault(marketPath, `metadata.version ${market.metadata?.version} differs from plugin.json version ${plugin.version}`);
@@ -191,6 +195,28 @@ function checkManifest() {
     if (host.name !== plugin.name) fault(hostPath, `name "${host.name}" differs from plugin.json name "${plugin.name}"`);
     if (host.version !== plugin.version) fault(hostPath, `version ${host.version} differs from plugin.json version ${plugin.version}`);
     if (relManifest === "gemini-extension.json" && host.contextFileName !== "GEMINI.md") fault(hostPath, 'contextFileName must be "GEMINI.md"');
+  }
+
+  const claudeMarketPath = join(root, ".claude-plugin/marketplace.json");
+  if (existsSync(claudeMarketPath)) {
+    const claudeMarket = readJson(claudeMarketPath);
+    if (claudeMarket) {
+      if (claudeMarket.name !== plugin.name) {
+        fault(claudeMarketPath, `name "${claudeMarket.name}" differs from plugin.json name "${plugin.name}"`);
+      }
+      if (!Array.isArray(claudeMarket.plugins)) {
+        fault(claudeMarketPath, "plugins must be an array");
+      } else {
+        const claudeEntry = claudeMarket.plugins.find((p) => p?.name === plugin.name);
+        if (!claudeEntry) fault(claudeMarketPath, `no plugin entry named "${plugin.name}"`);
+        else if (claudeEntry.version !== plugin.version) {
+          fault(claudeMarketPath, `version ${claudeEntry.version} differs from plugin.json version ${plugin.version}`);
+        }
+      }
+      if (claudeMarket.metadata?.version !== undefined && claudeMarket.metadata.version !== plugin.version) {
+        fault(claudeMarketPath, `metadata.version ${claudeMarket.metadata.version} differs from plugin.json version ${plugin.version}`);
+      }
+    }
   }
 
   const changelogPath = join(root, "CHANGELOG.md");
@@ -257,6 +283,11 @@ function checkHooks(agentsBytes) {
     if (process.platform !== "win32" && (statSync(target).mode & 0o111) === 0) {
       const relTarget = relative(root, target).replaceAll("\\", "/");
       if (!faults.some((f) => f.includes(relTarget) && f.includes("executable (+x)"))) fault(target, "hook script must be executable (+x)");
+      return null;
+    }
+    if (readFileSync(target, "utf8").includes("\r")) {
+      const relTarget = relative(root, target).replaceAll("\\", "/");
+      if (!faults.some((f) => f.includes(relTarget) && f.includes("LF line endings"))) fault(target, "hook script must use LF line endings");
       return null;
     }
     validatedExecPaths.add(target);
@@ -402,7 +433,7 @@ function checkSkills() {
       for (const mdFile of walkMarkdownFiles(skillDir, join(skillDir, subdir))) checkSkillLinks(skillDir, mdFile, readFileSync(mdFile, "utf8"));
     }
     if (name === "dev-loop") {
-      for (const reqRel of ["references/hosts/README.md", "references/hosts/copilot.md"]) {
+      for (const reqRel of ["references/hosts/README.md", "references/hosts/copilot.md", "references/hosts/claude.md"]) {
         if (!checkExistingFileInsideDir(skillDir, reqRel)) fault(join(skillDir, reqRel), `required host reference ${reqRel} is missing`);
       }
     }
