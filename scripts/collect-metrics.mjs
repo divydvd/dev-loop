@@ -221,41 +221,145 @@ function parseWorkspaceYaml(filePath) {
   return out;
 }
 
+const BUILD_TEST_CMD_RE = /(?:^|[;&|]\s*|\S*\/bin\/)verdict\s+(?:run|baseline|restore|verify|capture|diff|check|--help)\b|\b(?:gradlew|gradle\.lock|node\s+--test|npm\s+(?:test|run\s+(?:test|build|lint|check))|pnpm\s+(?:test|build|lint)|yarn\s+(?:test|build|lint)|pytest|cargo\s+(?:test|build|check|clippy)|go\s+test|mvn\s+(?:test|verify|package)|dotnet\s+(?:test|build)|rspec|jest|vitest|adb\b|scripts\/check\.mjs)\b/i;
+const POLL_GUARD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|reviewThreads|pr\s+checks|run\s+watch)\b/i;
+const POLL_CMD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|reviewThreads|pr\s+checks|run\s+watch|sleep\s+\d+(?:\.\d+)?[smh]?)\b/i;
+const HUMAN_WAIT_TOOLS = new Set(["ask_user", "relay_session_input"]);
+
+export function mergeIntervals(intervals = []) {
+  const valid = intervals.filter((iv) => Array.isArray(iv) && Number.isFinite(iv[0]) && Number.isFinite(iv[1]) && iv[1] >= iv[0]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const out = [];
+  for (const [s, e] of valid) {
+    if (!out.length || s > out[out.length - 1][1]) out.push([s, e]);
+    else if (e > out[out.length - 1][1]) out[out.length - 1][1] = e;
+  }
+  return out;
+}
+const sumMergedSec = (ivs) => mergeIntervals(ivs).reduce((acc, [s, e]) => acc + (e - s), 0) / 1000;
+const resolveTurnKey = (turnId, openTurns) => {
+  if (turnId !== undefined && turnId !== null && turnId !== "") return String(turnId);
+  if (openTurns.has("")) return "";
+  return openTurns.size === 1 ? [...openTurns.keys()][0] : null;
+};
+const isSyntheticAutoDispatchMsg = (d) =>
+  (d.turnId === undefined || d.turnId === null || d.turnId === "") &&
+  !d.model && !d.interactionId && !d.content && Array.isArray(d.toolRequests) && d.toolRequests.length > 0;
+function parseShellFooter(resText) {
+  const tag = resText.match(/<([^>\r\n]+)>\s*$/)?.[1] || "";
+  const runMatch = tag.match(/^command (?:started in (?:detached )?background )?with shellId:\s*([^\s]+)(?:\s+(?:is (?:still )?running\b|moved to background\b)|$)/i);
+  if (runMatch) return { shellId: runMatch[1], state: "running" };
+  const doneMatch = tag.match(/^(?:detached command with )?shellId:\s*([^\s]+)\s+(?:completed|stopped|terminated|killed)\b/i);
+  if (doneMatch) return { shellId: doneMatch[1], state: "done" };
+  return /shell continues in background/i.test(resText) ? { shellId: null, state: "running" } : { shellId: null, state: null };
+}
+
 export function parseSessionEvents(eventsPath) {
   const lines = readFileSync(eventsPath, "utf8").split(/\r?\n/);
-  let latestNanoAiu = null, modelCalls = 0, compactions = 0, totalReadChars = 0, duplicateReadChars = 0, ownerRepeatMessages = 0, seenKickoff = false;
-  const toolStarts = new Map(), seenReadsByPath = new Map();
+  let latestNanoAiu = null, modelCalls = 0, compactions = 0, totalReadChars = 0, duplicateReadChars = 0, ownerRepeatMessages = 0, seenKickoff = false, toolWorkMs = 0;
+  const toolStarts = new Map(), seenReadsByPath = new Map(), openTurns = new Map(), openCompactions = new Map(), latestShellById = new Map(), allShellRuns = [], subagentBounds = new Map(), callIdByAgentId = new Map();
+  const modelIvs = [], buildTestIvs = [], pollIvs = [], subagentIvs = [], ioOtherIvs = [], humanIvs = [], toolClockIvs = [];
   for (const line of lines) {
     if (!line.trim()) continue;
     let evt;
     try { evt = JSON.parse(line); } catch { continue; }
-    const { type, data = {} } = evt;
-    if (type === "assistant.turn_start") modelCalls += 1;
-    else if (type === "session.compaction_start") { modelCalls += 1; compactions += 1; }
-    else if ((type === "session.usage_checkpoint" || type === "session.shutdown") && data.totalNanoAiu !== null && data.totalNanoAiu !== "" && Number.isFinite(Number(data.totalNanoAiu))) latestNanoAiu = Number(data.totalNanoAiu);
-    else if (type === "tool.execution_start" && data.toolCallId) {
+    const { type, data = {} } = evt, ts = Date.parse(evt.timestamp || ""), isMain = !evt.agentId;
+    if (type === "assistant.turn_start") {
+      modelCalls += 1;
+      if (isMain && Number.isFinite(ts)) { openTurns.clear(); openTurns.set(String(data.turnId ?? ""), ts); }
+    } else if (type === "assistant.message") {
+      if (isMain && !isSyntheticAutoDispatchMsg(data)) {
+        const k = resolveTurnKey(data.turnId, openTurns), st = k !== null ? openTurns.get(k) : undefined;
+        if (Number.isFinite(st) && Number.isFinite(ts) && ts >= st) { modelIvs.push([st, ts]); openTurns.delete(k); }
+      }
+    } else if (type === "assistant.turn_end" && isMain) {
+      const k = resolveTurnKey(data.turnId, openTurns);
+      if (k !== null) openTurns.delete(k);
+    } else if ((type === "session.resume" || type === "abort") && isMain) {
+      openTurns.clear();
+    } else if (type === "session.compaction_start") {
+      modelCalls += 1; compactions += 1;
+      if (isMain && Number.isFinite(ts)) openCompactions.set(String(data.compactionAttemptId || "default"), ts);
+    } else if (type === "session.compaction_complete" && isMain) {
+      const k = String(data.compactionAttemptId || "default"), st = openCompactions.get(k);
+      if (Number.isFinite(st) && Number.isFinite(ts) && ts >= st) { modelIvs.push([st, ts]); openCompactions.delete(k); }
+    } else if (type === "subagent.started" && data.toolCallId && Number.isFinite(ts)) {
+      const tStart = toolStarts.get(data.toolCallId);
+      if (tStart ? tStart.isMain : !data.parentId) {
+        const entry = subagentBounds.get(data.toolCallId) || { subStartMs: null, ivs: [] };
+        entry.subStartMs = entry.subStartMs !== null ? Math.min(entry.subStartMs, ts) : ts;
+        subagentBounds.set(data.toolCallId, entry);
+        if (evt.agentId) callIdByAgentId.set(String(evt.agentId), data.toolCallId);
+      }
+    } else if ((type === "subagent.completed" || type === "subagent.failed") && data.toolCallId && Number.isFinite(ts)) {
+      const entry = subagentBounds.get(data.toolCallId);
+      if (entry && entry.subStartMs !== null && ts >= entry.subStartMs) { entry.ivs.push([entry.subStartMs, ts]); entry.subStartMs = null; }
+    } else if ((type === "session.usage_checkpoint" || type === "session.shutdown") && data.totalNanoAiu !== null && data.totalNanoAiu !== "" && Number.isFinite(Number(data.totalNanoAiu))) {
+      latestNanoAiu = Number(data.totalNanoAiu);
+    } else if (type === "tool.execution_start" && data.toolCallId) {
       let args = data.arguments;
       if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = {}; } }
       const startLine = Array.isArray(args?.view_range) && Number.isFinite(Number(args.view_range[0])) ? Math.max(1, Math.trunc(Number(args.view_range[0]))) : 1;
-      toolStarts.set(data.toolCallId, { toolName: data.toolName, path: args?.path || null, startLine });
-    } else if (type === "tool.execution_complete" && data.success) {
-      const start = toolStarts.get(data.toolCallId);
-      if (!start?.path) continue;
-      if (start.toolName === "edit" || start.toolName === "create") seenReadsByPath.delete(start.path);
-      else if (start.toolName === "view") {
-        const content = String(typeof data.result === "string" ? data.result : data.result?.content ?? "");
-        if (!content.length) continue;
-        totalReadChars += content.length;
-        const seenLines = seenReadsByPath.get(start.path) || new Set(), parts = content.split("\n");
-        const lineCount = content.endsWith("\n") ? parts.length - 1 : parts.length;
-        for (let i = 0; i < lineCount; i++) {
-          const lineNo = start.startLine + i, chars = parts[i].length + (i < parts.length - 1 ? 1 : 0);
-          if (seenLines.has(lineNo)) duplicateReadChars += chars;
-          else seenLines.add(lineNo);
-        }
-        seenReadsByPath.set(start.path, seenLines);
+      const shellId = args?.shellId !== undefined && args?.shellId !== null ? String(args.shellId) : null;
+      const cmd = String(args?.command || (data.toolName === "read_bash" && shellId ? latestShellById.get(shellId)?.cmd || "" : ""));
+      toolStarts.set(data.toolCallId, { toolName: data.toolName, path: args?.path || null, startLine, startMs: ts, cmd, shellId, agentId: args?.agent_id ? String(args.agent_id) : null, isMain });
+      if (isMain && data.toolName === "task" && Number.isFinite(ts) && !subagentBounds.has(data.toolCallId)) {
+        subagentBounds.set(data.toolCallId, { subStartMs: null, ivs: [] });
       }
-    } else if (type === "user.message" && !evt.agentId && !data.isAutopilotContinuation) {
+    } else if (type === "tool.execution_complete") {
+      const start = toolStarts.get(data.toolCallId);
+      if (!start) continue;
+      const resText = String(typeof data.result === "string" ? data.result : data.result?.content ?? "");
+      if (start.isMain && Number.isFinite(start.startMs) && Number.isFinite(ts) && ts >= start.startMs) {
+        const iv = [start.startMs, ts], dur = ts - start.startMs;
+        if (HUMAN_WAIT_TOOLS.has(start.toolName)) humanIvs.push(iv);
+        else if (start.toolName === "task") {
+          const entry = subagentBounds.get(data.toolCallId) || { subStartMs: null, ivs: [] };
+          entry.ivs.push(iv); subagentBounds.set(data.toolCallId, entry);
+          const agMatch = resText.match(/\bagent_id:\s*([^\s.]+)/);
+          if (agMatch) callIdByAgentId.set(agMatch[1], data.toolCallId);
+        } else if (start.toolName === "read_agent" && start.agentId && callIdByAgentId.has(start.agentId) && subagentBounds.has(callIdByAgentId.get(start.agentId))) {
+          subagentBounds.get(callIdByAgentId.get(start.agentId)).ivs.push(iv);
+        } else if (start.toolName === "bash") {
+          const footer = parseShellFooter(resText), shId = footer.shellId || start.shellId;
+          const run = { cmd: start.cmd, runStartMs: footer.state === "running" ? start.startMs : null, ivs: [iv] };
+          allShellRuns.push(run);
+          if (shId) latestShellById.set(shId, run);
+        } else if (start.toolName === "read_bash") {
+          const run = start.shellId ? latestShellById.get(start.shellId) : null, footer = parseShellFooter(resText);
+          if (run) {
+            run.ivs.push(iv);
+            if (run.runStartMs !== null && (!footer.shellId || footer.shellId === start.shellId)) {
+              if (footer.state === "running") run.ivs.push([run.runStartMs, ts]);
+              else if (footer.state === "done") run.runStartMs = null;
+            }
+          } else allShellRuns.push({ cmd: start.cmd, runStartMs: null, ivs: [iv] });
+        } else if (start.toolName === "stop_bash") {
+          const run = start.shellId ? latestShellById.get(start.shellId) : null;
+          if (run && run.runStartMs !== null && data.success !== false) { run.ivs.push([run.runStartMs, ts]); run.runStartMs = null; }
+          else { ioOtherIvs.push(iv); toolClockIvs.push(iv); toolWorkMs += dur; }
+        } else {
+          toolClockIvs.push(iv); toolWorkMs += dur;
+          if (start.toolName === "read_agent") subagentIvs.push(iv);
+          else ioOtherIvs.push(iv);
+        }
+      }
+      if (data.success && start.path) {
+        if (start.toolName === "edit" || start.toolName === "create") seenReadsByPath.delete(start.path);
+        else if (start.toolName === "view") {
+          const content = String(typeof data.result === "string" ? data.result : data.result?.content ?? "");
+          if (!content.length) continue;
+          totalReadChars += content.length;
+          const seenLines = seenReadsByPath.get(start.path) || new Set(), parts = content.split("\n");
+          const lineCount = content.endsWith("\n") ? parts.length - 1 : parts.length;
+          for (let i = 0; i < lineCount; i++) {
+            const lineNo = start.startLine + i, chars = parts[i].length + (i < parts.length - 1 ? 1 : 0);
+            if (seenLines.has(lineNo)) duplicateReadChars += chars;
+            else seenLines.add(lineNo);
+          }
+          seenReadsByPath.set(start.path, seenLines);
+        }
+      }
+    } else if (type === "user.message" && isMain && !data.isAutopilotContinuation) {
       const c = String(data.content ?? "");
       if (!c.trim() || c.includes("<skill-context") || c.includes("<system_notification")) continue;
       if (!seenKickoff) { seenKickoff = true; continue; }
@@ -263,7 +367,26 @@ export function parseSessionEvents(eventsPath) {
       if (REPEAT_RULE_RE.test(c)) ownerRepeatMessages += 1;
     }
   }
-  return { lines, totalNanoAiu: latestNanoAiu, modelCalls, compactions, totalReadChars, duplicateReadChars, duplicateReadRate: totalReadChars > 0 ? duplicateReadChars / totalReadChars : null, ownerRepeatMessages };
+  for (const run of allShellRuns) {
+    const bucket = !POLL_GUARD_RE.test(run.cmd) && BUILD_TEST_CMD_RE.test(run.cmd) ? buildTestIvs : POLL_CMD_RE.test(run.cmd) ? pollIvs : ioOtherIvs;
+    for (const iv of mergeIntervals(run.ivs)) { bucket.push(iv); toolClockIvs.push(iv); toolWorkMs += iv[1] - iv[0]; }
+  }
+  for (const b of subagentBounds.values()) {
+    for (const iv of mergeIntervals(b.ivs)) { subagentIvs.push(iv); toolClockIvs.push(iv); toolWorkMs += iv[1] - iv[0]; }
+  }
+  const allActiveIvs = [...modelIvs, ...buildTestIvs, ...pollIvs, ...subagentIvs, ...ioOtherIvs];
+  const mergedActive = mergeIntervals(allActiveIvs), mergedTools = mergeIntervals(toolClockIvs);
+  const mergedToolSec = mergedTools.reduce((a, [s, e]) => a + (e - s), 0) / 1000;
+  const timeBuckets = mergedActive.length > 0 ? { modelSec: sumMergedSec(modelIvs), buildTestSec: sumMergedSec(buildTestIvs), pollSec: sumMergedSec(pollIvs), subagentSec: sumMergedSec(subagentIvs), ioOtherSec: sumMergedSec(ioOtherIvs) } : null;
+  return {
+    lines, activeIntervals: mergedActive, toolIntervals: mergedTools, toolWorkSec: toolWorkMs / 1000,
+    totalNanoAiu: latestNanoAiu, modelCalls, compactions, totalReadChars, duplicateReadChars,
+    duplicateReadRate: totalReadChars > 0 ? duplicateReadChars / totalReadChars : null, ownerRepeatMessages,
+    activeSec: mergedActive.length > 0 ? mergedActive.reduce((a, [s, e]) => a + (e - s), 0) / 1000 : null,
+    humanWaitSec: mergedActive.length > 0 || humanIvs.length > 0 ? sumMergedSec(humanIvs) : null,
+    parallelismFactor: mergedToolSec > 0 ? (toolWorkMs / 1000) / mergedToolSec : null,
+    timeBuckets,
+  };
 }
 
 export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNumbers = null } = {}) {
@@ -301,15 +424,15 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNu
     mappedCount += 1; distinctSessions.set(s.id, s);
     if ((prsBySession.get(s.id)?.length || 0) > 1) {
       sharedPrNumbers.push(pr.number);
-      perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", totalNanoAiu: null, modelCalls: null, duplicateReadRate: null, ownerRepeatMessages: null };
+      perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", totalNanoAiu: null, modelCalls: null, duplicateReadRate: null, ownerRepeatMessages: null, activeSec: null, humanWaitSec: null, parallelismFactor: null, timeBuckets: null };
     } else {
-      const { lines: _lines, createdAt: _c, id, ...metrics } = s;
+      const { lines: _lines, activeIntervals: _ai, toolIntervals: _ti, toolWorkSec: _tw, createdAt: _c, id, ...metrics } = s;
       perPr[pr.number] = { sessionId: id, sharedSession: false, attribution: "unique", ...metrics };
     }
   }
   for (const [id, s] of distinctSessions) {
     const allNums = (prsBySession.get(id) || []).sort((a, b) => a - b);
-    if (allNums.length > 1) sharedSessions.push({ sessionId: id, prNumbers: allNums, inWindowPrNumbers: allNums.filter((n) => !inWindow || inWindow.has(n)), totalNanoAiu: s.totalNanoAiu, modelCalls: s.modelCalls });
+    if (allNums.length > 1) sharedSessions.push({ sessionId: id, prNumbers: allNums, inWindowPrNumbers: allNums.filter((n) => !inWindow || inWindow.has(n)), totalNanoAiu: s.totalNanoAiu, modelCalls: s.modelCalls, activeSec: s.activeSec });
   }
   const totalOwnerRepeatMessages = [...distinctSessions.values()].reduce((acc, s) => acc + s.ownerRepeatMessages, 0);
   return { status: "ok", mappedCount, totalOwnerRepeatMessages, sharedPrNumbers: sharedPrNumbers.sort((a, b) => a - b), sharedSessions, perPr };
@@ -351,9 +474,27 @@ export function collectMetrics({ repo = "", prs = [], prsTruncated = false, from
     }
     buckets[route].push({ number: pr.number, prodLines, session: sess, evidence: ev, firstPushGreen });
   }
+  const BUCKET_KEYS = ["buildTestSec", "pollSec", "modelSec", "subagentSec", "ioOtherSec"];
   const routeBuckets = Object.fromEntries(Object.entries(buckets).map(([route, items]) => {
     const u = truncated ? [] : items.filter((i) => i.session?.attribution === "unique");
-    return [route, { count: items.length, uniqueSessions: u.length, medianProdLines: truncated ? null : exactMedian(items.map((i) => i.prodLines)), medianNanoAiu: median(u.map((i) => i.session.totalNanoAiu)), meanModelCalls: mean(u.map((i) => i.session.modelCalls)), medianDuplicateReadRate: median(u.map((i) => i.session.duplicateReadRate)) }];
+    const timed = u.filter((i) => i.session.timeBuckets && Number.isFinite(i.session.activeSec));
+    let dominantBottleneck = null, dominantBottleneckShare = null, bucketMediansSec = null;
+    if (timed.length > 0) {
+      const sums = Object.fromEntries(BUCKET_KEYS.map((k) => [k, timed.reduce((acc, i) => acc + (i.session.timeBuckets[k] || 0), 0)]));
+      const totalBucketSec = Object.values(sums).reduce((a, b) => a + b, 0);
+      bucketMediansSec = Object.fromEntries(BUCKET_KEYS.map((k) => [k, median(timed.map((i) => i.session.timeBuckets[k]))]));
+      if (totalBucketSec > 0) {
+        dominantBottleneck = BUCKET_KEYS.reduce((best, k) => (sums[k] > sums[best] ? k : best), BUCKET_KEYS[0]);
+        dominantBottleneckShare = sums[dominantBottleneck] / totalBucketSec;
+      }
+    }
+    return [route, {
+      count: items.length, uniqueSessions: u.length, medianProdLines: truncated ? null : exactMedian(items.map((i) => i.prodLines)),
+      medianNanoAiu: median(u.map((i) => i.session.totalNanoAiu)), meanModelCalls: mean(u.map((i) => i.session.modelCalls)),
+      medianDuplicateReadRate: median(u.map((i) => i.session.duplicateReadRate)),
+      medianActiveSec: median(u.map((i) => i.session.activeSec)), medianParallelism: median(u.map((i) => i.session.parallelismFactor)),
+      dominantBottleneck, dominantBottleneckShare, bucketMediansSec,
+    }];
   }));
   const allVerifiable = verifiableCount === windowPrs.length;
   const verificationStatus = truncated ? "prs_truncated" : windowPrs.length === 0 ? "no_prs" : ledgerData ? "ok" : allVerifiable ? "exempt_only" : "unavailable";
@@ -380,13 +521,15 @@ export function formatMarkdownReport(r) {
   const yieldCell = r.durableFirstPassYield.rate !== null ? fmtPct(r.durableFirstPassYield.passedCount, r.durableFirstPassYield.eligibleCount, r.durableFirstPassYield.rate) : `n/a (${r.durableFirstPassYield.status})`;
   const repeatCell = r.autonomy.ownerRepeatMessages ?? `n/a (${r.autonomy.status || "unavailable"})`;
   const sharedNote = r.prsTruncated ? "n/a (prs_truncated)" : r.autonomy.sharedSessions?.length
-    ? r.autonomy.sharedSessions.map((s) => `ambiguous on #${s.inWindowPrNumbers.join(", #")} (${s.totalNanoAiu !== null ? s.totalNanoAiu.toExponential(2) : "n/a"} nanoAIU, ${s.modelCalls} calls)`).join("; ")
+    ? r.autonomy.sharedSessions.map((s) => `ambiguous on #${s.inWindowPrNumbers.join(", #")} (${s.totalNanoAiu !== null ? s.totalNanoAiu.toExponential(2) : "n/a"} nanoAIU, ${s.modelCalls} calls, ${s.activeSec !== null && s.activeSec !== undefined ? `${s.activeSec.toFixed(1)}s active` : "n/a active"})`).join("; ")
     : "none";
   const routeRows = ["trivial", "small", "multi-task"].map((route) => {
     const b = r.routeBuckets[route];
-    return `| ${route} | ${b.count} | ${b.uniqueSessions} | ${fmtNum(b.medianProdLines, 0)} | ${b.medianNanoAiu !== null ? b.medianNanoAiu.toExponential(2) : "n/a"} | ${fmtNum(b.meanModelCalls, 1)} | ${b.medianDuplicateReadRate !== null ? `${(b.medianDuplicateReadRate * 100).toFixed(1)}%` : "n/a"} |`;
+    const domCell = b.dominantBottleneck ? `${b.dominantBottleneck} (${(b.dominantBottleneckShare * 100).toFixed(1)}%)` : "n/a";
+    const parCell = b.medianParallelism !== null && b.medianParallelism !== undefined ? `${b.medianParallelism.toFixed(2)}x` : "n/a";
+    return `| ${route} | ${b.count} | ${b.uniqueSessions} | ${fmtNum(b.medianProdLines, 0)} | ${b.medianNanoAiu !== null ? b.medianNanoAiu.toExponential(2) : "n/a"} | ${fmtNum(b.meanModelCalls, 1)} | ${b.medianDuplicateReadRate !== null ? `${(b.medianDuplicateReadRate * 100).toFixed(1)}%` : "n/a"} | ${fmtNum(b.medianActiveSec, 1)} | ${domCell} | ${parCell} |`;
   });
-  return [`### Shadow-mode objective telemetry (${r.repo || "repo"})`, "| Objective measure | Value | Target |", "| --- | --- | --- |", `| Durable first-pass yield | ${yieldCell} | 90.0% or higher |`, `| Code survival rate (${r.window.maturityDays}d) | ${survivalCell} | 95.0% or higher |`, `| Fix-up PRs (${r.window.maturityDays}d, ref + blame) | ${fixupCell} | 0 |`, `| Ledger + ancestry verified merges | ${verifyCell} | 100.0% |`, `| First-push green rate | ${greenCell} | 70.0% or higher |`, `| Owner repeat-rule messages (matched sessions) | ${repeatCell} | 0 |`, `| Shared-session PRs (excluded from per-PR cost) | ${sharedNote} | observe |`, "", "| Task route | PRs | Unique sessions | Median prod lines | Median `totalNanoAiu` | Mean model calls | Median duplicate read |", "| --- | --- | --- | --- | --- | --- | --- |", ...routeRows].join("\n");
+  return [`### Shadow-mode objective telemetry (${r.repo || "repo"})`, "| Objective measure | Value | Target |", "| --- | --- | --- |", `| Durable first-pass yield | ${yieldCell} | 90.0% or higher |`, `| Code survival rate (${r.window.maturityDays}d) | ${survivalCell} | 95.0% or higher |`, `| Fix-up PRs (${r.window.maturityDays}d, ref + blame) | ${fixupCell} | 0 |`, `| Ledger + ancestry verified merges | ${verifyCell} | 100.0% |`, `| First-push green rate | ${greenCell} | 70.0% or higher |`, `| Owner repeat-rule messages (matched sessions) | ${repeatCell} | 0 |`, `| Shared-session PRs (excluded from per-PR cost/speed) | ${sharedNote} | observe |`, "", "| Task route | PRs | Unique sessions | Median prod lines | Median `totalNanoAiu` | Mean model calls | Median duplicate read | Median active (s) | Dominant bottleneck | Median parallelism |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |", ...routeRows].join("\n");
 }
 
 const PR_GRAPHQL_QUERY = "query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(states:MERGED,first:50,after:$cursor,orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor} nodes{number title url body createdAt mergedAt updatedAt headRefOid mergeCommit{oid} files(first:100){pageInfo{hasNextPage} nodes{path additions deletions}} commits(last:50){totalCount nodes{commit{committedDate}}}}}}}";

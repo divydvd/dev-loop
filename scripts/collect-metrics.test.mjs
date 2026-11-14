@@ -14,6 +14,8 @@ import {
   fetchMergedPrs,
   formatMarkdownReport,
   isProductionPath,
+  mergeIntervals,
+  parseSessionEvents,
   verifyPrEvidence,
 } from "./collect-metrics.mjs";
 
@@ -980,5 +982,346 @@ test("T12: trailing newline in view_range output does not mark endLine + 1 as al
     assert.equal(out.perPr[70].duplicateReadRate, 2 / 6);
   } finally {
     rmSync(sessionsDir, { recursive: true, force: true });
+  }
+});
+
+test("S-T1: mergeIntervals merges unsorted, overlapping, and touching intervals while ignoring invalid pairs", () => {
+  assert.deepEqual(
+    mergeIntervals([
+      [5000, 8000],
+      [1000, 3000],
+      [2500, 4000],
+      [4000, 4500], // touching
+      [7000, 6000], // negative duration -> ignored
+      [NaN, 9000], // NaN -> ignored
+      null,
+    ]),
+    [
+      [1000, 4500],
+      [5000, 8000],
+    ],
+  );
+  assert.deepEqual(mergeIntervals([]), []);
+});
+
+test("S-T2: parseSessionEvents excludes ask_user human waits, reading pauses, and unclosed intervals from activeSec", () => {
+  const dir = makeTempDir("speed-t2");
+  try {
+    const evPath = join(dir, "events.jsonl");
+    writeFileSync(
+      evPath,
+      [
+        // Turn 0: 10s model thinking, then 2-hour (7200s) ask_user wait
+        JSON.stringify({ timestamp: "2026-11-14T10:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:10.000Z", type: "assistant.message", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:10.000Z", type: "tool.execution_start", data: { toolCallId: "ask1", toolName: "ask_user", arguments: {} } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:10.000Z", type: "tool.execution_complete", data: { toolCallId: "ask1", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:10.000Z", type: "assistant.turn_end", data: { turnId: "0" } }),
+        // 40-minute human reading pause before user replies at 12:40:10Z!
+        JSON.stringify({ timestamp: "2026-11-14T12:40:10.000Z", type: "user.message", data: { content: "Approved" } }),
+        // Turn 1: 5s model thinking + 2s view + unclosed bash call (must not poison activeSec)
+        JSON.stringify({ timestamp: "2026-11-14T12:40:10.000Z", type: "assistant.turn_start", data: { turnId: "1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:40:15.000Z", type: "assistant.message", data: { turnId: "1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:40:15.000Z", type: "tool.execution_start", data: { toolCallId: "v1", toolName: "view", arguments: { path: "/a.js" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:40:17.000Z", type: "tool.execution_complete", data: { toolCallId: "v1", success: true, result: "x" } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:40:17.000Z", type: "tool.execution_start", data: { toolCallId: "unclosed", toolName: "bash", arguments: { command: "sleep 999" } } }),
+      ].join("\n") + "\n",
+    );
+    const parsed = parseSessionEvents(evPath);
+    assert.equal(parsed.humanWaitSec, 7200);
+    assert.equal(parsed.activeSec, 17, "only 10s + 5s model + 2s view = 17s active, excluding 7200s ask_user and 40m reading pause");
+    assert.equal(parsed.timeBuckets.modelSec, 15);
+    assert.equal(parsed.timeBuckets.ioOtherSec, 2);
+
+    // Timestampless events.jsonl returns activeSec: null (not 0)
+    const noTsPath = join(dir, "no-ts.jsonl");
+    writeFileSync(noTsPath, JSON.stringify({ type: "assistant.turn_start", data: { turnId: "0" } }) + "\n");
+    const noTs = parseSessionEvents(noTsPath);
+    assert.equal(noTs.activeSec, null);
+    assert.equal(noTs.parallelismFactor, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("S-T3: parseSessionEvents deduplicates parallel subagents, ignores nested evt.agentId events, and classifies 5 boxes", () => {
+  const dir = makeTempDir("speed-t3");
+  try {
+    const evPath = join(dir, "events.jsonl");
+    writeFileSync(
+      evPath,
+      [
+        // 4s model turn dispatching 3 parallel 60s subagents (10:00:04 -> 10:01:04)
+        JSON.stringify({ timestamp: "2026-11-14T10:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:04.000Z", type: "assistant.message", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:04.000Z", type: "tool.execution_start", data: { toolCallId: "t1", toolName: "task", arguments: {} } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:04.000Z", type: "tool.execution_start", data: { toolCallId: "t2", toolName: "task", arguments: {} } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:04.000Z", type: "tool.execution_start", data: { toolCallId: "t3", toolName: "task", arguments: {} } }),
+        // Nested subagent events carrying agentId must NOT inflate modelSec or ioOtherSec!
+        JSON.stringify({ timestamp: "2026-11-14T10:00:05.000Z", agentId: "sub-1", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:35.000Z", agentId: "sub-1", type: "assistant.message", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:35.000Z", agentId: "sub-1", type: "tool.execution_start", data: { toolCallId: "sv1", toolName: "view", arguments: { path: "/x.js" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:40.000Z", agentId: "sub-1", type: "tool.execution_complete", data: { toolCallId: "sv1", success: true, result: "abc" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:04.000Z", type: "tool.execution_complete", data: { toolCallId: "t1", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:04.000Z", type: "tool.execution_complete", data: { toolCallId: "t2", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:04.000Z", type: "tool.execution_complete", data: { toolCallId: "t3", success: true } }),
+        // Compaction (6s) + Gradle test (20s) + GitHub check-runs poll (30s)
+        JSON.stringify({ timestamp: "2026-11-14T10:01:10.000Z", type: "session.compaction_start", data: {} }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:16.000Z", type: "session.compaction_complete", data: {} }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:20.000Z", type: "tool.execution_start", data: { toolCallId: "b1", toolName: "bash", arguments: { command: "./gradlew :app:testDebugUnitTest" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:40.000Z", type: "tool.execution_complete", data: { toolCallId: "b1", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:40.000Z", type: "tool.execution_start", data: { toolCallId: "p1", toolName: "bash", arguments: { command: "gh api repos/o/r/commits/abc/check-runs && sleep 10" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:02:10.000Z", type: "tool.execution_complete", data: { toolCallId: "p1", success: true } }),
+      ].join("\n") + "\n",
+    );
+    const p = parseSessionEvents(evPath);
+    assert.equal(p.timeBuckets.modelSec, 10, "4s turn + 6s compaction, ignoring nested sub-1 turn");
+    assert.equal(p.timeBuckets.subagentSec, 60, "3x60s parallel task calls merge to 60s");
+    assert.equal(p.timeBuckets.buildTestSec, 20);
+    assert.equal(p.timeBuckets.pollSec, 30);
+    assert.equal(p.timeBuckets.ioOtherSec, 0, "nested sub-1 view call must not leak into main ioOtherSec");
+    assert.equal(p.activeSec, 120);
+    // Tool work sum = 60+60+60 (tasks) + 20 (build) + 30 (poll) = 230s; merged tool clock = 60 + 20 + 30 = 110s
+    assert.equal(Number(p.parallelismFactor.toFixed(2)), Number((230 / 110).toFixed(2)));
+    assert.equal(p.totalReadChars, 3, "existing duplicate-read character accounting still includes subagent reads");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("S-T4: collectMetrics and formatMarkdownReport compute route medianActiveSec, dominantBottleneck, medianParallelism, and null shared sessions", () => {
+  const gitDir = initGitRepo();
+  const sessionsDir = makeTempDir("speed-t4-sess");
+  try {
+    writeFileSync(join(gitDir, "src/a.js"), "export const a = 1;\n");
+    git(gitDir, ["add", "."]);
+    git(gitDir, ["commit", "-m", "feat: a (#1)"]);
+    const sha1 = git(gitDir, ["rev-parse", "HEAD"]);
+    writeFileSync(join(gitDir, "src/b.js"), "export const b = 2;\n");
+    git(gitDir, ["add", "."]);
+    git(gitDir, ["commit", "-m", "feat: b (#2)"]);
+    const sha2 = git(gitDir, ["rev-parse", "HEAD"]);
+
+    // Unique session for PR #1 (small): 10s model + 40s poll = 50s active (pollSec = 80%)
+    const s1 = join(sessionsDir, "s-1");
+    mkdirSync(s1, { recursive: true });
+    writeFileSync(join(s1, "workspace.yaml"), "id: s-1\nrepository: org/app\ncreated_at: 2026-11-10T09:00:00Z\n");
+    writeFileSync(
+      join(s1, "events.jsonl"),
+      [
+        JSON.stringify({ timestamp: "2026-11-10T09:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-10T09:00:10.000Z", type: "assistant.message", data: { turnId: "0", content: "https://github.com/org/app/pull/1" } }),
+        JSON.stringify({ timestamp: "2026-11-10T09:00:10.000Z", type: "tool.execution_start", data: { toolCallId: "p1", toolName: "bash", arguments: { command: "gh api repos/org/app/commits/x/check-runs && sleep 10" } } }),
+        JSON.stringify({ timestamp: "2026-11-10T09:00:50.000Z", type: "tool.execution_complete", data: { toolCallId: "p1", success: true } }),
+      ].join("\n") + "\n",
+    );
+
+    // Shared session for PR #2 and PR #3: 300s active -> must be excluded (null) from per-PR route speed!
+    const sShared = join(sessionsDir, "s-shared");
+    mkdirSync(sShared, { recursive: true });
+    writeFileSync(join(sShared, "workspace.yaml"), "id: s-shared\nrepository: org/app\ncreated_at: 2026-11-10T09:00:00Z\n");
+    writeFileSync(
+      join(sShared, "events.jsonl"),
+      [
+        JSON.stringify({ timestamp: "2026-11-10T09:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-10T09:05:00.000Z", type: "assistant.message", data: { turnId: "0", content: "https://github.com/org/app/pull/2 and https://github.com/org/app/pull/3" } }),
+      ].join("\n") + "\n",
+    );
+
+    const prs = [
+      { number: 1, url: "https://github.com/org/app/pull/1", mergedAt: "2026-11-10T10:00:00Z", headRefOid: sha1, mergeCommit: { oid: sha1 }, files: [{ path: "src/a.js", additions: 1, deletions: 0 }] },
+      { number: 2, url: "https://github.com/org/app/pull/2", mergedAt: "2026-11-10T10:30:00Z", headRefOid: sha2, mergeCommit: { oid: sha2 }, files: [{ path: "src/b.js", additions: 1, deletions: 0 }] },
+      { number: 3, url: "https://github.com/org/app/pull/3", mergedAt: "2026-11-10T10:45:00Z", headRefOid: sha2, mergeCommit: { oid: sha2 }, files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+    ];
+    const sessOut = analyzeSessions(prs, { sessionsDir, repo: "org/app" });
+    assert.equal(sessOut.perPr[2].activeSec, null, "shared session per-PR activeSec must be null");
+    assert.equal(sessOut.perPr[2].parallelismFactor, null);
+    assert.equal(sessOut.perPr[2].timeBuckets, null);
+    assert.equal(sessOut.sharedSessions[0].activeSec, 300);
+
+    const rep = collectMetrics({
+      repo: "org/app",
+      prs,
+      from: "2026-11-08T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+      sessionsDir,
+      checkoutDir: gitDir,
+    });
+    assert.equal(rep.routeBuckets.small.medianActiveSec, 50);
+    assert.equal(rep.routeBuckets.small.dominantBottleneck, "pollSec");
+    assert.equal(rep.routeBuckets.small.dominantBottleneckShare, 0.8);
+    assert.equal(rep.routeBuckets.small.medianParallelism, 1);
+    assert.equal(rep.routeBuckets.trivial.medianActiveSec, null);
+    assert.equal(rep.routeBuckets.trivial.dominantBottleneck, null);
+
+    const md = formatMarkdownReport(rep);
+    assert.match(md, /Median active \(s\)/);
+    assert.match(md, /pollSec \(80\.0%\)/);
+    assert.match(md, /1\.00x/);
+    assert.match(md, /300\.0s active/);
+  } finally {
+    rmSync(gitDir, { recursive: true, force: true });
+    rmSync(sessionsDir, { recursive: true, force: true });
+  }
+});
+
+test("S-T6: review regressions — multi-digit sleep, verdict repo slug vs CLI, runtime shellId on read_bash, read_agent/sub-subagent/subagent.failed, and 0s sessions", () => {
+  const dir = makeTempDir("speed-t6");
+  try {
+    const evPath = join(dir, "events.jsonl");
+    writeFileSync(
+      evPath,
+      [
+        // 1. Multi-digit `sleep 30` and `divydvd/verdict` repo poll must go to pollSec (not ioOtherSec or buildTestSec!)
+        JSON.stringify({ timestamp: "2026-11-14T10:00:00.000Z", type: "tool.execution_start", data: { toolCallId: "p1", toolName: "bash", arguments: { command: "sleep 30" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:30.000Z", type: "tool.execution_complete", data: { toolCallId: "p1", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:30.000Z", type: "tool.execution_start", data: { toolCallId: "p2", toolName: "bash", arguments: { command: "gh api graphql -f query='{reviewThreads}' && gh pr view 9 -R divydvd/verdict && sleep 10s" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:40.000Z", type: "tool.execution_complete", data: { toolCallId: "p2", success: true } }),
+        // Plain git command in /copilot-worktrees/verdict/ path -> ioOtherSec; real `verdict run` CLI -> buildTestSec
+        JSON.stringify({ timestamp: "2026-11-14T10:00:40.000Z", type: "tool.execution_start", data: { toolCallId: "io1", toolName: "bash", arguments: { command: "git -C /tmp/copilot-worktrees/verdict/main status" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:42.000Z", type: "tool.execution_complete", data: { toolCallId: "io1", success: true } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:42.000Z", type: "tool.execution_start", data: { toolCallId: "vcli", toolName: "bash", arguments: { command: "verdict run login-flow" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:00:50.000Z", type: "tool.execution_complete", data: { toolCallId: "vcli", success: true } }),
+
+        // 2. bash without explicit args.shellId emits runtime `<command with shellId: 1374 ...>`, followed by read_bash({ shellId: "1374" }) -> both in buildTestSec!
+        JSON.stringify({ timestamp: "2026-11-14T10:01:00.000Z", type: "tool.execution_start", data: { toolCallId: "b1", toolName: "bash", arguments: { command: "./gradlew :app:testDebugUnitTest" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:30.000Z", type: "tool.execution_complete", data: { toolCallId: "b1", success: true, result: "<command with shellId: 1374 is still running after 30 seconds>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:01:30.000Z", type: "tool.execution_start", data: { toolCallId: "rb1", toolName: "read_bash", arguments: { shellId: "1374", delay: 120 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:03:30.000Z", type: "tool.execution_complete", data: { toolCallId: "rb1", success: true, result: "BUILD SUCCESSFUL\n<shellId: 1374 completed with exit code 0>" } }),
+
+        // 3. Single background task (10:04:00 -> 10:05:40 = 100s, ending in subagent.failed) with blocking read_agent(5s..100s) AND nested sub-subagent (10s..50s):
+        //    must count 100s subagentSec once with 1.00x serial parallelism!
+        JSON.stringify({ timestamp: "2026-11-14T10:04:00.000Z", type: "tool.execution_start", data: { toolCallId: "bg1", toolName: "task", arguments: { mode: "background" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:04:00.050Z", agentId: "ag-bg-1", parentId: "evt-1", type: "subagent.started", data: { toolCallId: "bg1", executionMode: "background" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:04:00.100Z", type: "tool.execution_complete", data: { toolCallId: "bg1", success: true, result: { content: "Agent started in background with agent_id: ag-bg-1." } } }),
+        // Nested sub-subagent inside ag-bg-1 (must be ignored by main subagentBounds!)
+        JSON.stringify({ timestamp: "2026-11-14T10:04:10.000Z", agentId: "ag-bg-1", type: "tool.execution_start", data: { toolCallId: "nested-t1", toolName: "task", arguments: {} } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:04:10.010Z", agentId: "ag-nested-1", type: "subagent.started", data: { toolCallId: "nested-t1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:04:50.000Z", agentId: "ag-nested-1", type: "subagent.completed", data: { toolCallId: "nested-t1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:04:50.010Z", agentId: "ag-bg-1", type: "tool.execution_complete", data: { toolCallId: "nested-t1", success: true } }),
+        // Blocking read_agent on ag-bg-1
+        JSON.stringify({ timestamp: "2026-11-14T10:04:05.000Z", type: "tool.execution_start", data: { toolCallId: "ra1", toolName: "read_agent", arguments: { agent_id: "ag-bg-1", wait: true } } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:05:40.000Z", agentId: "ag-bg-1", type: "subagent.failed", data: { toolCallId: "bg1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T10:05:40.000Z", type: "tool.execution_complete", data: { toolCallId: "ra1", success: true } }),
+        // Delayed read_agent(wait: false) 7 hours later (17:05:40 -> 17:05:41 = 1s) must NOT bridge the 7-hour idle gap!
+        JSON.stringify({ timestamp: "2026-11-14T17:05:40.000Z", type: "tool.execution_start", data: { toolCallId: "ra2", toolName: "read_agent", arguments: { agent_id: "ag-bg-1", wait: false } } }),
+        JSON.stringify({ timestamp: "2026-11-14T17:05:41.000Z", type: "tool.execution_complete", data: { toolCallId: "ra2", success: true } }),
+      ].join("\n") + "\n",
+    );
+
+    const p = parseSessionEvents(evPath);
+    assert.equal(p.timeBuckets.pollSec, 40, "30s sleep + 10s reviewThreads/divydvd/verdict poll = 40s");
+    assert.equal(p.timeBuckets.ioOtherSec, 2, "only git status in verdict worktree = 2s");
+    assert.equal(p.timeBuckets.buildTestSec, 158, "8s verdict CLI + 30s bash + 120s runtime-shellId read_bash = 158s");
+    assert.equal(p.timeBuckets.subagentSec, 101, "100s background task + 1s delayed read_agent without bridging 7h gap = 101s");
+    assert.equal(Number(p.parallelismFactor.toFixed(2)), 1.0, "strictly serial intervals (including read_agent wait and nested sub-subagent) = 1.00x");
+
+    // 4. Valid 0s (same-ms) session stays included in bucketMediansSec alongside 10s session (median = 5s)
+    const sessDir = join(dir, "sessions");
+    mkdirSync(join(sessDir, "s0"), { recursive: true });
+    mkdirSync(join(sessDir, "s10"), { recursive: true });
+    writeFileSync(join(sessDir, "s0", "workspace.yaml"), "id: s0\nrepository: org/app\ncreated_at: 2026-11-14T09:00:00Z\n");
+    writeFileSync(
+      join(sessDir, "s0", "events.jsonl"),
+      [
+        JSON.stringify({ timestamp: "2026-11-14T09:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T09:00:00.000Z", type: "assistant.message", data: { turnId: "0", content: "https://github.com/org/app/pull/1" } }),
+      ].join("\n") + "\n",
+    );
+    writeFileSync(join(sessDir, "s10", "workspace.yaml"), "id: s10\nrepository: org/app\ncreated_at: 2026-11-14T09:00:00Z\n");
+    writeFileSync(
+      join(sessDir, "s10", "events.jsonl"),
+      [
+        JSON.stringify({ timestamp: "2026-11-14T09:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }),
+        JSON.stringify({ timestamp: "2026-11-14T09:00:10.000Z", type: "assistant.message", data: { turnId: "0", content: "https://github.com/org/app/pull/2" } }),
+      ].join("\n") + "\n",
+    );
+    const zeroRep = collectMetrics({
+      repo: "org/app",
+      prs: [
+        { number: 1, url: "https://github.com/org/app/pull/1", mergedAt: "2026-11-14T10:00:00Z", files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+        { number: 2, url: "https://github.com/org/app/pull/2", mergedAt: "2026-11-14T10:05:00Z", files: [{ path: "README.md", additions: 1, deletions: 0 }] },
+      ],
+      sessionsDir: sessDir,
+    });
+    assert.equal(zeroRep.routeBuckets.trivial.medianActiveSec, 5);
+    assert.equal(zeroRep.routeBuckets.trivial.bucketMediansSec.modelSec, 5, "0s session must be retained in bucketMediansSec");
+
+    // 5. Copilot Round-1 regressions:
+    // (a) assistant.message omitting data.turnId still closes sole numbered open turn ("1")
+    // (b) async bash (0..1s) confirmed still running at read_bash (60..61s) with parallel view (10..20s), then completed at read_bash (120..121s)
+    const r1Path = join(dir, "r1-round1.jsonl");
+    writeFileSync(
+      r1Path,
+      [
+        JSON.stringify({ timestamp: "2026-11-14T11:00:00.000Z", type: "assistant.turn_start", data: { turnId: "1" } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:00:10.000Z", type: "assistant.message", data: { content: "No turnId field" } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:01:00.000Z", type: "tool.execution_start", data: { toolCallId: "ab1", toolName: "bash", arguments: { command: "./gradlew assembleDebug", mode: "async" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:01:01.000Z", type: "tool.execution_complete", data: { toolCallId: "ab1", success: true, result: "<command started in background with shellId: bg-99>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:01:10.000Z", type: "tool.execution_start", data: { toolCallId: "v99", toolName: "view", arguments: { path: "/a.kt" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:01:20.000Z", type: "tool.execution_complete", data: { toolCallId: "v99", success: true, result: "ok" } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:02:00.000Z", type: "tool.execution_start", data: { toolCallId: "rb99a", toolName: "read_bash", arguments: { shellId: "bg-99", delay: 1 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:02:01.000Z", type: "tool.execution_complete", data: { toolCallId: "rb99a", success: true, result: "compiling...\n<command with shellId: bg-99 is still running after 1 seconds.>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:03:00.000Z", type: "tool.execution_start", data: { toolCallId: "rb99b", toolName: "read_bash", arguments: { shellId: "bg-99", delay: 1 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T11:03:01.000Z", type: "tool.execution_complete", data: { toolCallId: "rb99b", success: true, result: "BUILD SUCCESSFUL\n<shellId: bg-99 completed with exit code 0>" } }),
+      ].join("\n") + "\n",
+    );
+    const r1 = parseSessionEvents(r1Path);
+    assert.equal(r1.timeBuckets.modelSec, 10, "assistant.message without turnId closes sole open turn");
+    assert.equal(r1.timeBuckets.buildTestSec, 62, "async shell [0..61s] confirmed running + [120..121s] final read = 62s without bridging [61..120s]");
+    assert.equal(r1.timeBuckets.ioOtherSec, 10);
+    assert.equal(r1.activeSec, 72, "10s model + 62s merged [0..61, 120..121] (covering 10..20s view) = 72s");
+    assert.equal(Number(r1.parallelismFactor.toFixed(2)), Number((72 / 62).toFixed(2)));
+
+    // 6. Synthetic mid-turn auto-dispatch assistant.message (empty content + toolRequests + no turnId/model) must NOT steal open turn "39";
+    //    stdout mentioning `shellId: bg-det` before `<shellId: 1861 completed with exit code 0>` must NOT clobber running detached shell `bg-det`;
+    //    "shell continues in background" confirms running, and failed stop_bash (`success: false`) does NOT bridge idle time!
+    const r1EdgePath = join(dir, "r1-edge.jsonl");
+    writeFileSync(
+      r1EdgePath,
+      [
+        // Stale unclosed turn "7" before session.resume must be cleared on resume/next turn_start
+        JSON.stringify({ timestamp: "2026-11-14T08:00:00.000Z", type: "assistant.turn_start", data: { turnId: "7" } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:00.000Z", type: "session.resume", data: {} }),
+        // Start detached build bg-det at 12:00:00..12:00:01
+        JSON.stringify({ timestamp: "2026-11-14T12:00:00.000Z", type: "tool.execution_start", data: { toolCallId: "d1", toolName: "bash", arguments: { command: "node --test", mode: "async", detach: true } } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:01.000Z", type: "tool.execution_complete", data: { toolCallId: "d1", success: true, result: "<command started in detached background with shellId: bg-det>" } }),
+        // Sync bash command at 12:00:05..12:00:06 prints `shellId: bg-det` in stdout before its own `<shellId: 1861 completed with exit code 0>` footer!
+        JSON.stringify({ timestamp: "2026-11-14T12:00:05.000Z", type: "tool.execution_start", data: { toolCallId: "sync1", toolName: "bash", arguments: { command: "echo checking shellId: bg-det" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:06.000Z", type: "tool.execution_complete", data: { toolCallId: "sync1", success: true, result: "checking shellId: bg-det\n<shellId: 1861 completed with exit code 0>" } }),
+        // Turn "39" starts at 12:00:10; synthetic auto-dispatch assistant.message at 12:00:11 omits turnId/model; real LLM assistant.message for "39" arrives at 12:00:35 (25s modelSec!)
+        JSON.stringify({ timestamp: "2026-11-14T12:00:10.000Z", type: "assistant.turn_start", data: { turnId: "39" } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:11.000Z", type: "assistant.message", data: { content: "", toolRequests: [{ toolCallId: "rb-auto" }] } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:35.000Z", type: "assistant.message", data: { turnId: "39", model: "gemini-4-carbon", content: "Done thinking" } }),
+        // Steering-interrupted read_bash at 12:00:50..12:00:51 confirms bg-det still running (0..51s = 51s!)
+        JSON.stringify({ timestamp: "2026-11-14T12:00:50.000Z", type: "tool.execution_start", data: { toolCallId: "rb-steer", toolName: "read_bash", arguments: { shellId: "bg-det", delay: 5 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:00:51.000Z", type: "tool.execution_complete", data: { toolCallId: "rb-steer", success: true, result: "Read interrupted by user steering; shell continues in background." } }),
+        // Detached completion read at 12:02:00..12:02:01 (+1s = 52s buildTestSec), followed 1 hour later by failed stop_bash (success: false -> must NOT bridge!)
+        JSON.stringify({ timestamp: "2026-11-14T12:02:00.000Z", type: "tool.execution_start", data: { toolCallId: "rb-done", toolName: "read_bash", arguments: { shellId: "bg-det", delay: 1 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T12:02:01.000Z", type: "tool.execution_complete", data: { toolCallId: "rb-done", success: true, result: "pass\n<detached command with shellId: bg-det completed with exit code 0>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T13:02:00.000Z", type: "tool.execution_start", data: { toolCallId: "sb-fail", toolName: "stop_bash", arguments: { shellId: "bg-det" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T13:02:01.000Z", type: "tool.execution_complete", data: { toolCallId: "sb-fail", success: false, result: "No active shell" } }),
+      ].join("\n") + "\n",
+    );
+    const r1Edge = parseSessionEvents(r1EdgePath);
+    assert.equal(r1Edge.timeBuckets.modelSec, 25, "turn 39 keeps full 25s modelSec despite mid-turn synthetic assistant.message and prior unclosed turn 7");
+    assert.equal(r1Edge.timeBuckets.buildTestSec, 52, "bg-det stays intact across stdout shellId collision: [0..51s] steering-confirmed + [120..121s] detached completion = 52s");
+
+    // 7. User-backgrounded shell footers (`moved to background by the user` and `is running in the background`)
+    const r1UserBgPath = join(dir, "r1-userbg.jsonl");
+    writeFileSync(
+      r1UserBgPath,
+      [
+        JSON.stringify({ timestamp: "2026-11-14T15:00:00.000Z", type: "tool.execution_start", data: { toolCallId: "ub1", toolName: "bash", arguments: { command: "./gradlew :app:testDebugUnitTest" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T15:00:05.000Z", type: "tool.execution_complete", data: { toolCallId: "ub1", success: true, result: "<command with shellId: 3562 moved to background by the user. You will be automatically notified when it completes.>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T15:01:00.000Z", type: "tool.execution_start", data: { toolCallId: "ub-r1", toolName: "read_bash", arguments: { shellId: "3562", delay: 2 } } }),
+        JSON.stringify({ timestamp: "2026-11-14T15:01:02.000Z", type: "tool.execution_complete", data: { toolCallId: "ub-r1", success: true, result: "running...\n<command with shellId: 3562 is running in the background after the user moved it off the main turn.>" } }),
+        JSON.stringify({ timestamp: "2026-11-14T15:01:20.000Z", type: "tool.execution_start", data: { toolCallId: "ub-stop", toolName: "stop_bash", arguments: { shellId: "3562" } } }),
+        JSON.stringify({ timestamp: "2026-11-14T15:01:21.000Z", type: "tool.execution_complete", data: { toolCallId: "ub-stop", success: true, result: "Stopped" } }),
+      ].join("\n") + "\n",
+    );
+    assert.equal(parseSessionEvents(r1UserBgPath).timeBuckets.buildTestSec, 81, "user-backgrounded shell [0..81s] up to successful stop_bash = 81s");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
