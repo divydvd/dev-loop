@@ -80,9 +80,10 @@ function withFixtureRepo(fn) {
     );
     writeFileSync(
       join(dir, "skills/dev-loop/references/hosts/README.md"),
-      "# Hosts\nSee `references/hosts/copilot.md`.\n",
+      "# Hosts\nSee `references/hosts/copilot.md` and `references/hosts/claude.md`.\n",
     );
     writeFileSync(join(dir, "skills/dev-loop/references/hosts/copilot.md"), "# Copilot\n");
+    writeFileSync(join(dir, "skills/dev-loop/references/hosts/claude.md"), "# Claude\n");
     return fn(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -939,6 +940,73 @@ test("T-M2-2: Claude Code CLI validates, installs, injects core.mdc once on star
     }
   } finally {
     rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("T-M2-3: Claude Code host guide is required by checkRepo, linked from hosts/README.md, and documents all M2 host deltas while core.mdc stays untouched", () => {
+  withFixtureRepo((dir) => {
+    unlinkSync(join(dir, "skills/dev-loop/references/hosts/claude.md"));
+    writeFileSync(
+      join(dir, "skills/dev-loop/references/hosts/README.md"),
+      "# Hosts\nSee `references/hosts/copilot.md`.\n",
+    );
+    const faults = checkMod.checkRepo(dir);
+    assert.ok(
+      faults.some((f) => f.includes("required host reference references/hosts/claude.md is missing")),
+      `expected missing claude.md fault, got: ${faults.join("; ")}`,
+    );
+  });
+
+  const hostsReadme = readFileSync(join(REPO_ROOT, "skills/dev-loop/references/hosts/README.md"), "utf8");
+  assert.match(hostsReadme, /`references\/hosts\/claude\.md`/);
+
+  const claudeHostPath = join(REPO_ROOT, "skills/dev-loop/references/hosts/claude.md");
+  assert.ok(existsSync(claudeHostPath), "missing skills/dev-loop/references/hosts/claude.md");
+  const claudeHost = readFileSync(claudeHostPath, "utf8");
+
+  assert.match(claudeHost, /^## Abstract$/m);
+  assert.match(claudeHost, /^## Conclusion$/m);
+  assert.match(claudeHost, /CLAUDE_PLUGIN_ROOT/);
+  assert.match(claudeHost, /COPILOT_CLI/);
+  assert.match(claudeHost, /hooks\/session-start/);
+  assert.match(claudeHost, /startup\|resume\|clear\|compact/);
+  assert.match(claudeHost, /hookSpecificOutput\.additionalContext/);
+  assert.match(claudeHost, /claude-code-tools\.md/);
+  assert.match(claudeHost, /\bAgent\b/);
+  assert.match(claudeHost, /ultrareview/i);
+  assert.match(claudeHost, /independent review unavailable/i);
+  assert.match(claudeHost, /EnterWorktree/);
+  assert.match(claudeHost, /file:\/\//);
+  assert.match(claudeHost, /github-pr-media/);
+  assert.match(claudeHost, /delete the empty.*table/i);
+  assert.match(claudeHost, /gh pr create --base/);
+  assert.match(claudeHost, /PreToolUse/);
+  assert.match(claudeHost, /work_ledger_record/);
+  assert.match(claudeHost, /git push --force/);
+  assert.match(claudeHost, /gh pr merge/);
+  assert.match(claudeHost, /copilot-pull-request-reviewer/);
+  assert.match(claudeHost, /claude plugin validate --strict/);
+  assert.match(claudeHost, /claude plugin install --marketplace/);
+
+  assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
+
+  const ruleDiff = spawnSync(
+    "git",
+    [
+      "--no-pager",
+      "diff",
+      "3351237cd769ea6b6ceae0eda47550e6b1471b27",
+      "--",
+      "com.github.copilot/rules/core.mdc",
+      "skills/dev-loop/SKILL.md",
+      "skills/design-review/SKILL.md",
+      "skills/flow-docs/SKILL.md",
+      "skills/infra-review/SKILL.md",
+    ],
+    { cwd: REPO_ROOT, env: sanitizedEnv(), encoding: "utf8" },
+  );
+  if (ruleDiff.status === 0) {
+    assert.equal(ruleDiff.stdout, "", "core.mdc and skills/*/SKILL.md must have 0 diff lines vs M1 base");
   }
 });
 

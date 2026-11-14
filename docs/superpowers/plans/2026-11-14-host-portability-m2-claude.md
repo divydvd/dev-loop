@@ -63,18 +63,31 @@ Verify plugin installation and outbound `/v1/messages` startup and resume inject
 ### Compact test matrix
 | Case | Requirement / risk | Required? | Setup / input | Expected result | Method | Test location | Status | Evidence | Tested identity |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| T-M2-1 | `.claude-plugin/{plugin,marketplace}.json` parity + `hooks/{hooks.json,run-hook.cmd,session-start}` exact `core.mdc` output, CRLF/LF frontmatter strip, empty-`PATH` safety, and `COPILOT_CLI=1` `{}` guard | yes | Temp fixture repos (drifted `.claude-plugin/marketplace.json`, CRLF `core.mdc`, `PATH=""`) and real repo `.claude-plugin/*` + `hooks/*` | `checkRepo` catches `.claude-plugin/marketplace.json` drift; real `hooks/run-hook.cmd session-start` emits `{}\n` under `COPILOT_CLI=1` and exact `stripFrontmatter(core.mdc)` under unset `COPILOT_CLI` (even with `PATH=""`); `core.mdc` has `0` diff lines | automated | `scripts/portability-contract.test.mjs` | not run | none | none |
-| T-M2-2 | Claude Code `2.1.299` strict validation, isolated `CLAUDE_CONFIG_DIR` install/disable/uninstall (`P10`), and real `claude -p` outbound `/v1/messages` unique-marker + `core.mdc` + `AGENTS.md` + 4-skill startup/resume proof (`P01`) | yes | Fresh temp `CLAUDE_CONFIG_DIR`, `claude plugin validate --strict --json`, `claude plugin install --marketplace`, local `127.0.0.1` wire capture on `startup` and `--resume` | `validate --strict` passes (`errors: []`, `warnings: []`); marketplace install discovers 4 skills + `SessionStart` hook; `startup` and `--resume` inject `core.mdc` body (`count === 1`), `AGENTS.md`, and all 4 `dev-loop:*` skills without manual file reads; disable/uninstall leaves user files untouched | automated integration | `scripts/portability-contract.test.mjs` + CLI smoke run | not run | none | none |
-| T-M2-3 | `skills/dev-loop/references/hosts/claude.md` contract, `hosts/README.md` link, `check.mjs` required-host-guide check, and `0.5.14` manifest/changelog sync | yes | Real repo files (`hosts/README.md`, `hosts/claude.md`, `plugin.json`, `.github/plugin/marketplace.json`, `.claude-plugin/*`, `CHANGELOG.md`) | `checkRepo` requires `references/hosts/claude.md`, verifies nested backticks, confirms `0.5.14` across all 4 manifests + `CHANGELOG.md`, and verifies `claude.md` covers `SessionStart`, `Agent`/`claude-code-tools.md`, offline `file://` mockups, missing `github-pr-media`, non-`orchestrate` milestones, `work-ledger` guard absence, and `gh` check-runs | automated | `scripts/portability-contract.test.mjs`, `scripts/check.mjs` | not run | none | none |
-| T-M2-4 | `writing-skills` fresh consumer routing (`S-M2-1`–`S-M2-4`: Claude `Agent` reviewer isolation + 2-failure stop, UI `file://` + screenshot table deletion, sequential/`--base` milestones without `orchestrate`/`pr-stack`, `SessionStart` + `work-ledger` guard-absence + `gh api` check-runs) | yes | 5 fresh baseline (`0.5.13`, before `claude.md`) vs 5 fresh revised (`0.5.14`, with `claude.md`) subagents | Baseline documents missing dedicated `references/hosts/claude.md` (`RED`); revised converges `5/5` (`GREEN`) across `S-M2-1`–`S-M2-4` | subagent application check | `CHANGELOG.md` (`0.5.14`) | not run | none | none |
-| T-M2-5 | Temporary `COPILOT_HOME` install, discovery, and non-duplication regression check (`0.5.14`, `P10`) | yes | Fresh temp `COPILOT_HOME` with Superpowers + `copilot plugin install "$PWD"` | `copilot plugin list`, `copilot instruction list`, and `copilot skill list` show `dev-loop (v0.5.14)`, `dev-loop: core`, and 4 skills; `COPILOT_CLI=1` emits `{}` (`0` duplicate bytes) | integration | CLI smoke check | not run | none | none |
-| T-M2-6 | Full 8-suite repository CI regression (`B1`–`B6` deterministic benchmark + contracts + `work-ledger`) | yes | `node scripts/check.mjs` and all 8 `node --test` suites in `.github/workflows/check.yml` | `0` check faults and `0` failed tests across all 8 suites | automated | `.github/workflows/check.yml` suites | not run | none | none |
-| T-M2-7 | Live authenticated Claude Code `2.1.299` LLM behavioral sessions (`P02`–`P09`, `P11`, `P12`, live `claude` `B1`–`B6`) | yes | Isolated `CLAUDE_CONFIG_DIR` + `claude auth status` + `claude -p` against behavioral fixtures | Runs and grades live Claude turns when authenticated; if `claude auth status` is `loggedIn: false` (`Not logged in · Please run /login`), records exact transcript and `blocked` (`environment blocker`) handoff preventing a `ready` claim | live CLI / blocker check | Plan ledger & PR body (`Failure handoff`) | not run | none | none |
+| T-M2-1 | `.claude-plugin/{plugin,marketplace}.json` parity + `hooks/{hooks.json,run-hook.cmd,session-start}` exact `core.mdc` output, CRLF/LF frontmatter strip, empty-`PATH` safety, and `COPILOT_CLI=1` `{}` guard | yes | Temp fixture repos (drifted `.claude-plugin/marketplace.json`, CRLF `core.mdc`, `PATH=""`) and real repo `.claude-plugin/*` + `hooks/*` | `checkRepo` catches `.claude-plugin/marketplace.json` drift; real `hooks/run-hook.cmd session-start` emits `{}\n` under `COPILOT_CLI=1` and exact `stripFrontmatter(core.mdc)` under unset `COPILOT_CLI` (even with `PATH=""`); `core.mdc` has `0` diff lines | automated | `scripts/portability-contract.test.mjs` | passed | none | none |
+| T-M2-2 | Claude Code `2.1.299` strict validation, isolated `CLAUDE_CONFIG_DIR` install/disable/uninstall (`P10`), and real `claude -p` outbound `/v1/messages` unique-marker + `core.mdc` + `AGENTS.md` + 4-skill startup/resume proof (`P01`) | yes | Fresh temp `CLAUDE_CONFIG_DIR`, `claude plugin validate --strict --json`, `claude plugin install --marketplace`, local `127.0.0.1` wire capture on `startup` and `--resume` | `validate --strict` passes (`errors: []`, `warnings: []`); marketplace install discovers 4 skills + `SessionStart` hook; `startup` and `--resume` inject `core.mdc` body (`count === 1`), `AGENTS.md`, and all 4 `dev-loop:*` skills without manual file reads; disable/uninstall leaves user files untouched | automated integration | `scripts/portability-contract.test.mjs` + CLI smoke run | passed | none | none |
+| T-M2-3 | `skills/dev-loop/references/hosts/claude.md` contract, `hosts/README.md` link, `check.mjs` required-host-guide check, and `0.5.14` manifest/changelog sync | yes | Real repo files (`hosts/README.md`, `hosts/claude.md`, `plugin.json`, `.github/plugin/marketplace.json`, `.claude-plugin/*`, `CHANGELOG.md`) | `checkRepo` requires `references/hosts/claude.md`, verifies nested backticks, confirms `0.5.14` across all 4 manifests + `CHANGELOG.md`, and verifies `claude.md` covers `SessionStart`, `Agent`/`claude-code-tools.md`, offline `file://` mockups, missing `github-pr-media`, non-`orchestrate` milestones, `work-ledger` guard absence, and `gh` check-runs | automated | `scripts/portability-contract.test.mjs`, `scripts/check.mjs` | passed | none | none |
+| T-M2-4 | `writing-skills` fresh consumer routing (`S-M2-1`–`S-M2-4`: Claude `Agent` reviewer isolation + 2-failure stop, UI `file://` + screenshot table deletion, sequential/`--base` milestones without `orchestrate`/`pr-stack`, `SessionStart` + `work-ledger` guard-absence + `gh api` check-runs) | yes | 5 fresh baseline (`0.5.13`, before `claude.md`) vs 5 fresh revised (`0.5.14`, with `claude.md`) subagents | Baseline documents missing dedicated `references/hosts/claude.md` (`0/5` on `S-M2-1`, `S-M2-2`, `S-M2-4`; `5/5` control on `S-M2-3`); revised converges `5/5` (`GREEN`) across `S-M2-1`–`S-M2-4` | subagent application check | `CHANGELOG.md` (`0.5.14`) | passed | none | none |
+| T-M2-5 | Temporary `COPILOT_HOME` install, discovery, and non-duplication regression check (`0.5.14`, `P10`) | yes | Fresh temp `COPILOT_HOME` + `copilot plugin install "$PWD"` | `copilot plugin list`, `copilot instruction list`, and `copilot skill list` show `dev-loop (v0.5.14)`, `dev-loop: core`, and 4 skills; `COPILOT_CLI=1` emits `{}` (`0` duplicate bytes) | integration | CLI smoke check | passed | none | none |
+| T-M2-6 | Full 8-suite repository CI regression (`B1`–`B6` deterministic benchmark + contracts + `work-ledger`) | yes | `node scripts/check.mjs` and all 8 `node --test` suites in `.github/workflows/check.yml` | `0` check faults and `0` failed tests across all 8 suites (`75/75` repo suites + `231/232` work-ledger with `0` failures) | automated | `.github/workflows/check.yml` suites | passed | none | none |
+| T-M2-7 | Live authenticated Claude Code `2.1.299` LLM behavioral sessions (`P02`–`P09`, `P11`, `P12`, live `claude` `B1`–`B6`) | yes | Isolated `CLAUDE_CONFIG_DIR` + `claude auth status` + `env -u COPILOT_CLI claude -p` against behavioral fixtures | Runs and grades live Claude turns when authenticated; local `claude auth status` returned `loggedIn: false` (`Not logged in · Please run /login`), recorded below as `blocked` (`environment blocker`) preventing a `ready` claim | live CLI / blocker check | Plan ledger (`Failure handoff`) & PR body | blocked | none | none |
 
 - Category assessment: `boundaries and invalid input` -> `T-M2-1` (CRLF frontmatter, empty `PATH=""`, trailing newlines, `15,000`-byte startup ceiling); `permissions and state changes` -> `T-M2-1`, `T-M2-2`, `T-M2-4`, `T-M2-7` (`COPILOT_CLI=1` suppression, `startup` vs `--resume` non-duplication, guard-absence honesty, unauthenticated CLI stop); `existing consumers` -> `T-M2-5`, `T-M2-6` (Copilot CLI `0.5.14` install and all 8 existing CI suites); `migration and compatibility` -> `T-M2-1`, `T-M2-2` (`run-hook.cmd` Windows/Unix polyglot + `.claude-plugin/{plugin,marketplace}.json` parity); `concurrency and retries` -> `T-M2-2` (`startup|resume|clear|compact` single-injection count `1`); `partial failure and recovery` -> `T-M2-4`, `T-M2-7` (2-failure independent-review stop and unauthenticated CLI failure handoff); `UI, accessibility, and device` and `performance` -> excluded because `dev-loop` has no UI/device app and `hooks/session-start` runs in `< 20 ms` with pure bash builtins.
-- Required blockers: `T-M2-7` is expected to hit local `claude auth status` (`loggedIn: false`, `authMethod: "none"`) on this Mac unless credentials become available; verify live during Step 6 and record honestly.
+- Required blockers: `T-M2-7` is `blocked` (`environment blocker`) because local `claude` `2.1.299` reports `"loggedIn": false` (`"authMethod": "none"`, `"Not logged in · Please run /login"`). Per `skills/dev-loop/SKILL.md` Steps 6–8, PR opens as `open, not ready: live authenticated Claude Code behavioral checks (T-M2-7: P02-P09, P11, P12, live claude B1-B6) blocked because local claude 2.1.299 is not logged in`.
 - Optional limits: Windows `cmd.exe` branch of `hooks/run-hook.cmd` is syntax-inspected from Superpowers `7.0.0` rather than executed natively on macOS; remaining risk is low because the batch block matches the upstream Superpowers wrapper verbatim aside from early `COPILOT_CLI` exit.
-- Reassessment: Initial matrix saved before editing production files.
+- Reassessment: During verification inside a GitHub Copilot CLI terminal, `COPILOT_CLI=1` was inherited in child shells; documented `env -u COPILOT_CLI claude ...` in `skills/dev-loop/references/hosts/claude.md` and confirmed live `claude` `2.1.299` `SessionStart:startup` `hook_response` injects exact `core.mdc` rules when `COPILOT_CLI` is unset (`T-M2-2`).
+
+### Failure handoff (`T-M2-7`)
+| Field | Record |
+| --- | --- |
+| Cause | Environment blocker: local `claude` (`2.1.299`) on this runner is unauthenticated (`claude auth status` exits `1` with `"loggedIn": false`, `"authMethod": "none"`, and `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` unset). |
+| Expected result | Authenticated `claude -p` behavioral runs execute LLM turns for `P02`–`P09`, `P11`, `P12`, and live `claude` `B1`–`B6` with exit status `0` and `is_error: false`. |
+| Actual result | `env -u COPILOT_CLI CLAUDE_CONFIG_DIR=<tmp> claude -p --output-format stream-json --verbose "Reply with OK"` fired `SessionStart:startup` (`exit_code: 0`, full `core.mdc` `hookSpecificOutput.additionalContext`), loaded `dev-loop` `0.5.14` and all 4 `dev-loop:*` skills in `system/init`, and stopped at the Anthropic API call with `"error": "authentication_failed"`, `"result": "Not logged in · Please run /login"`. |
+| Attempted change | Attempt 1 (read-only diagnostic in isolated `CLAUDE_CONFIG_DIR`): verified `claude auth status` (`loggedIn: false`) without touching `~/.claude`, and verified binary prompt assembly / hook execution via local `127.0.0.1` wire capture (`T-M2-2`: `P01` and `P10`) without faking LLM reasoning passes. |
+| New evidence | Confirmed `hooks/session-start`, `.claude-plugin/{plugin,marketplace}.json`, `AGENTS.md`, and all 4 `dev-loop:*` skills assemble into `claude` `2.1.299`'s real `/v1/messages` payload on both `--session-id` (`startup`) and `--resume` (`resume`); only Anthropic API credentials are absent. |
+| Coverage | Passed: `T-M2-1`, `T-M2-2` (`P01`, `P10`), `T-M2-3`, `T-M2-4` (`5/5` fresh consumer subagents), `T-M2-5` (`COPILOT_HOME` `0.5.14`), `T-M2-6` (all 8 CI suites including offline `B1`–`B6`). Blocked: `T-M2-7` (live authenticated Claude LLM turns `P02`–`P09`, `P11`, `P12`, live `claude` `B1`–`B6`). |
+| Recovery and access | Temporary `CLAUDE_CONFIG_DIR` and `COPILOT_HOME` directories removed; owner's `~/.claude` and `~/.copilot` untouched. Sign-in requires the owner (`claude auth login` or `ANTHROPIC_API_KEY`). |
+| Next action | Owner runs `claude auth login` (or exports `ANTHROPIC_API_KEY` for an isolated test shell) so `claude auth status` reports `"loggedIn": true` before running `T-M2-7`. |
+| Rerun scope | Once `claude auth status` reports `"loggedIn": true`, run `T-M2-7` (`P02`–`P09`, `P11`, `P12`, and live `claude` `B1`–`B6`) in an isolated `CLAUDE_CONFIG_DIR`; rerun `node scripts/check.mjs` and `scripts/portability-contract.test.mjs` only if any file changes. |
 
 ---
 
@@ -98,7 +111,7 @@ Verify plugin installation and outbound `/v1/messages` startup and resume inject
   - `hooks/hooks.json` (`SessionStart` matcher `"startup|resume|clear|compact"` running `"\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" session-start"` with `shell: "bash"`, `async: false`).
   - `hooks/run-hook.cmd` and `hooks/session-start` emitting `"{}\n"` when `COPILOT_CLI` is non-empty and `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"<exact stripFrontmatter(core.mdc)>"}}` otherwise.
 
-- [ ] **Step 1: Write failing tests `T-M2-1` and `T-M2-2` in `scripts/portability-contract.test.mjs`**
+- [x] **Step 1: Write failing tests `T-M2-1` and `T-M2-2` in `scripts/portability-contract.test.mjs`**
 
 Add:
 1. `T-M2-1`:
@@ -108,23 +121,23 @@ Add:
 2. `T-M2-2`:
    - When `claude` CLI is on `PATH`, run `claude plugin validate --strict --json` on `REPO_ROOT` and `.claude-plugin/plugin.json`, install `dev-loop` into a fresh `CLAUDE_CONFIG_DIR` via `claude plugin install --marketplace <REPO_ROOT> dev-loop`, check `claude plugin details dev-loop@dev-loop` discovers all 4 skills and `SessionStart`, verify real `claude -p` outbound `/v1/messages` wire requests on both `--session-id` (`startup`) and `--resume` (`resume`) contain exact `core.mdc` rules (`count === 1`), `AGENTS.md`, and all 4 `dev-loop:*` skills, and verify `claude plugin disable` + `claude plugin uninstall` exit `0`.
 
-- [ ] **Step 2: Run `node --test scripts/portability-contract.test.mjs` and verify `RED` failure**
+- [x] **Step 2: Run `node --test scripts/portability-contract.test.mjs` and verify `RED` failure**
 
 Run: `node --test scripts/portability-contract.test.mjs`
 Expected: FAIL on `T-M2-1` and `T-M2-2` (`.claude-plugin/marketplace.json` drift unguarded and `.claude-plugin/plugin.json` / `hooks/*` missing).
 
-- [ ] **Step 3: Implement `.claude-plugin/*`, `hooks/*`, `scripts/check.mjs` marketplace sync, and `0.5.14` version bump**
+- [x] **Step 3: Implement `.claude-plugin/*`, `hooks/*`, `scripts/check.mjs` marketplace sync, and `0.5.14` version bump**
 
 - Update `checkManifest()` in `scripts/check.mjs` to validate optional `.claude-plugin/marketplace.json` (`plugins` entry matching `plugin.name` and `plugin.version`, plus optional `metadata.version === plugin.version`).
 - Create `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` at `0.5.14`, bump `plugin.json` and `.github/plugin/marketplace.json` to `0.5.14`, and add the initial `## 0.5.14 (2026-11-14)` entry in `CHANGELOG.md`.
 - Create `hooks/hooks.json`, executable `hooks/run-hook.cmd` (`0o755`), and executable `hooks/session-start` (`0o755`) using pure bash file redirection (`$(<"$core_mdc"; printf x)`), pure bash YAML frontmatter stripping (LF and CRLF), `COPILOT_CLI` early `"{}\n"` exit, and `hookSpecificOutput.additionalContext` JSON output.
 
-- [ ] **Step 4: Run tests and `scripts/check.mjs` to verify `GREEN`**
+- [x] **Step 4: Run tests and `scripts/check.mjs` to verify `GREEN`**
 
 Run: `node scripts/check.mjs && node --test scripts/portability-contract.test.mjs`
 Expected: `check: no faults` and `T-M1-1`–`T-M2-2` PASS.
 
-- [ ] **Step 5: Commit Task 1 and run independent risky-task review (`core` rule 7)**
+- [x] **Step 5: Commit Task 1 and run independent risky-task review (`core` rule 7)**
 
 Commit Task 1, record completion in `.superpowers/sdd/.../progress.md`, and run an independent `code-review` subagent on Task 1's commit range (`3351237..HEAD`), fixing any confirmed Critical/Important finding before Task 2.
 
@@ -144,23 +157,23 @@ Commit Task 1, record completion in `.superpowers/sdd/.../progress.md`, and run 
 - Consumes: Task 1 `.claude-plugin/*` and `hooks/*`; `skills/dev-loop/references/hosts/README.md` capability contract.
 - Produces: `skills/dev-loop/references/hosts/claude.md` required by `checkSkills()` in `scripts/check.mjs` and linked from `skills/dev-loop/references/hosts/README.md`.
 
-- [ ] **Step 1: Run 5 fresh baseline `writing-skills` subagents (`RED`) and add failing `T-M2-3` tests**
+- [x] **Step 1: Run 5 fresh baseline `writing-skills` subagents (`RED`) and add failing `T-M2-3` tests**
 
 1. Before creating `skills/dev-loop/references/hosts/claude.md`, run 5 fresh `explore` subagents against the current `skills/dev-loop/` tree across four Claude Code scenarios (`S-M2-1`: host identification when `CLAUDE_PLUGIN_ROOT` / Claude tools `Agent`/`Task`+`Skill` are active vs `COPILOT_CLI=1`, and `Agent` fresh-context reviewer isolation + 2-failure `open, not ready: independent review unavailable`; `S-M2-2`: offline HTML mockup outside the repo with `file://` URL + screenshot privacy check + deleting the empty HTML table when `github-pr-media` is absent; `S-M2-3`: sequential / owner-approved `git worktree` + `gh pr create --base <parent-branch>` milestones without `orchestrate`/`pr-stack`; `S-M2-4`: `SessionStart` core bootstrap on `startup|resume|clear|compact`, explicit `work-ledger` runtime-guard absence for `git push --force` / `gh pr merge`, and `gh api .../check-runs` repository automatic review). Record verbatim baseline misses (`RED`).
 2. Add `T-M2-3` in `scripts/portability-contract.test.mjs` asserting `checkRepo` requires `references/hosts/claude.md`, `references/hosts/README.md` links `references/hosts/claude.md`, and `references/hosts/claude.md` covers all required Claude Code deltas without broken inline backticks.
 
-- [ ] **Step 2: Run `node --test scripts/portability-contract.test.mjs` and verify `T-M2-3` fails (`RED`)**
+- [x] **Step 2: Run `node --test scripts/portability-contract.test.mjs` and verify `T-M2-3` fails (`RED`)**
 
 Run: `node --test scripts/portability-contract.test.mjs`
 Expected: FAIL (`skills/dev-loop/references/hosts/claude.md` missing and not yet required by `checkSkills`).
 
-- [ ] **Step 3: Implement `skills/dev-loop/references/hosts/claude.md`, link in `hosts/README.md`, require in `scripts/check.mjs`, and record `CHANGELOG.md` evidence**
+- [x] **Step 3: Implement `skills/dev-loop/references/hosts/claude.md`, link in `hosts/README.md`, require in `scripts/check.mjs`, and record `CHANGELOG.md` evidence**
 
 - Require `"references/hosts/claude.md"` alongside `"references/hosts/README.md"` and `"references/hosts/copilot.md"` in `checkSkills()` (`scripts/check.mjs`).
 - Write concise ASD-STE100 `skills/dev-loop/references/hosts/claude.md` covering only dev-loop-specific Claude Code deltas (referencing Superpowers `claude-code-tools.md` rather than duplicating generic tool tables) and link `references/hosts/claude.md` in `skills/dev-loop/references/hosts/README.md`.
 - Run 5 fresh revised `explore` subagents (`GREEN`) across `S-M2-1`–`S-M2-4`, confirm `5/5` compliance, and record exact `RED` and `GREEN` counts in `CHANGELOG.md` (`## 0.5.14`).
 
-- [ ] **Step 4: Run full CI suites, Claude `2.1.299` & Copilot CLI smoke checks, and live-auth probe (`T-M2-1`–`T-M2-7`)**
+- [x] **Step 4: Run full CI suites, Claude `2.1.299` & Copilot CLI smoke checks, and live-auth probe (`T-M2-1`–`T-M2-7`)**
 
 Run:
 ```sh
@@ -171,7 +184,7 @@ claude plugin validate --strict --json .
 ```
 Plus temporary `COPILOT_HOME` install (`copilot plugin install "$PWD"`, `copilot instruction list`, `copilot skill list`) and isolated `CLAUDE_CONFIG_DIR` smoke + `claude auth status` / `claude -p` check. Update the plan's test matrix and `Failure handoff` with exact results and commit SHAs.
 
-- [ ] **Step 5: Commit Task 2, run whole-PR independent `code-review`, verify at final `HEAD`, and open PR**
+- [x] **Step 5: Commit Task 2, run whole-PR independent `code-review`, verify at final `HEAD`, and open PR**
 
 Commit Task 2, dispatch independent `code-review` subagent across `main...HEAD`, fix any confirmed Critical/Important findings via TDD, remove `.superpowers/sdd/` scratch workspace before final verification, rerun final-head checks, push once to origin, open the PR with `assets/pr-body.md`, inspect CI + `copilot-pull-request-reviewer`, and report to the coordinator session (`25e68ef4-9c23-43e2-9139-e1d7b6ae4e48`).
 

@@ -417,7 +417,7 @@ function checkSkills() {
       for (const mdFile of walkMarkdownFiles(skillDir, join(skillDir, subdir))) checkSkillLinks(skillDir, mdFile, readFileSync(mdFile, "utf8"));
     }
     if (name === "dev-loop") {
-      for (const reqRel of ["references/hosts/README.md", "references/hosts/copilot.md"]) {
+      for (const reqRel of ["references/hosts/README.md", "references/hosts/copilot.md", "references/hosts/claude.md"]) {
         if (!checkExistingFileInsideDir(skillDir, reqRel)) fault(join(skillDir, reqRel), `required host reference ${reqRel} is missing`);
       }
     }
