@@ -710,6 +710,28 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
       "expected checkRepo to reject non-array plugins in .claude-plugin/marketplace.json without throwing",
     );
 
+    const outsideMarketDir = mkdtempSync(join(tmpdir(), "dev-loop-m2-outside-market-"));
+    try {
+      const outsideMarketPath = join(outsideMarketDir, "outside-marketplace.json");
+      writeFileSync(
+        outsideMarketPath,
+        JSON.stringify({
+          name: "dev-loop",
+          metadata: { version: "0.5.13" },
+          plugins: [{ name: "dev-loop", source: "./", version: "0.5.13" }],
+        }),
+      );
+      unlinkSync(join(dir, ".claude-plugin/marketplace.json"));
+      symlinkSync(outsideMarketPath, join(dir, ".claude-plugin/marketplace.json"));
+      assert.ok(
+        checkMod.checkRepo(dir).some((f) => f.includes(".claude-plugin/marketplace.json") && f.includes("escapes root")),
+        "expected checkRepo to reject .claude-plugin/marketplace.json symlinks escaping root",
+      );
+      unlinkSync(join(dir, ".claude-plugin/marketplace.json"));
+    } finally {
+      rmSync(outsideMarketDir, { recursive: true, force: true });
+    }
+
     writeFileSync(
       join(dir, ".claude-plugin/marketplace.json"),
       JSON.stringify({

@@ -208,23 +208,28 @@ function checkManifest() {
   }
 
   const claudeMarketPath = join(root, ".claude-plugin/marketplace.json");
-  if (pathOrLinkExists(claudeMarketPath) && checkExistingFileInsideDir(root, ".claude-plugin/marketplace.json")) {
-    const claudeMarket = readJson(claudeMarketPath);
-    if (claudeMarket) {
-      if (claudeMarket.name !== plugin.name) {
-        fault(claudeMarketPath, `name "${claudeMarket.name}" differs from plugin.json name "${plugin.name}"`);
-      }
-      if (!Array.isArray(claudeMarket.plugins)) {
-        fault(claudeMarketPath, "plugins must be an array");
-      } else {
-        const claudeEntry = claudeMarket.plugins.find((p) => p?.name === plugin.name);
-        if (!claudeEntry) fault(claudeMarketPath, `no plugin entry named "${plugin.name}"`);
-        else if (claudeEntry.version !== plugin.version) {
-          fault(claudeMarketPath, `version ${claudeEntry.version} differs from plugin.json version ${plugin.version}`);
+  if (pathOrLinkExists(claudeMarketPath)) {
+    const safeClaudeMarketPath = checkExistingFileInsideDir(root, ".claude-plugin/marketplace.json");
+    if (!safeClaudeMarketPath) {
+      fault(claudeMarketPath, "file is missing, is not a regular file, or escapes root");
+    } else {
+      const claudeMarket = readJson(safeClaudeMarketPath);
+      if (claudeMarket) {
+        if (claudeMarket.name !== plugin.name) {
+          fault(claudeMarketPath, `name "${claudeMarket.name}" differs from plugin.json name "${plugin.name}"`);
         }
-      }
-      if (claudeMarket.metadata?.version !== undefined && claudeMarket.metadata.version !== plugin.version) {
-        fault(claudeMarketPath, `metadata.version ${claudeMarket.metadata.version} differs from plugin.json version ${plugin.version}`);
+        if (!Array.isArray(claudeMarket.plugins)) {
+          fault(claudeMarketPath, "plugins must be an array");
+        } else {
+          const claudeEntry = claudeMarket.plugins.find((p) => p?.name === plugin.name);
+          if (!claudeEntry) fault(claudeMarketPath, `no plugin entry named "${plugin.name}"`);
+          else if (claudeEntry.version !== plugin.version) {
+            fault(claudeMarketPath, `version ${claudeEntry.version} differs from plugin.json version ${plugin.version}`);
+          }
+        }
+        if (claudeMarket.metadata?.version !== undefined && claudeMarket.metadata.version !== plugin.version) {
+          fault(claudeMarketPath, `metadata.version ${claudeMarket.metadata.version} differs from plugin.json version ${plugin.version}`);
+        }
       }
     }
   }
