@@ -137,7 +137,7 @@ test("required gaps block ready claims while optional limits remain explicit", (
 
 test("CI runs the testing contract alongside existing suites", () => {
   const workflow = read(".github/workflows/check.yml");
-  for (const suite of ["testing-contract", "independent-review", "branch-maintenance", "device-handoff", "collect-metrics", "run-benchmark"]) {
+  for (const suite of ["testing-contract", "independent-review", "branch-maintenance", "device-handoff", "collect-metrics", "run-benchmark", "portability-contract"]) {
     assert.ok(workflow.includes(`node --test scripts/${suite}.test.mjs`), `missing CI suite: ${suite}`);
   }
 });

@@ -17,4 +17,5 @@ jobs:
       - run: node --test scripts/testing-contract.test.mjs
       - run: node --test scripts/collect-metrics.test.mjs
       - run: node --test scripts/run-benchmark.test.mjs
+      - run: node --test scripts/portability-contract.test.mjs
       - run: node --test tools/work-ledger/*.test.mjs
