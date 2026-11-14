@@ -18,7 +18,8 @@ function sanitizedEnv(overrides = {}) {
       k.startsWith("COPILOT_") ||
       k.startsWith("ANTHROPIC_") ||
       k === "CLAUDECODE" ||
-      k.startsWith("CLAUDE_")
+      k.startsWith("CLAUDE_") ||
+      k.startsWith("GEMINI_")
     ) {
       continue;
     }
@@ -182,7 +183,7 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
     );
     writeFileSync(
       join(dir, "hooks/session-start"),
-      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"core"}}\\n\'\n',
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ] || [ -n "${GEMINI_PROJECT_DIR:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"core"}}\\n\'\n',
     );
     chmodSync(join(dir, "hooks/session-start"), 0o755);
 
@@ -228,7 +229,7 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
 
     writeFileSync(
       join(dir, "hooks/session-start"),
-      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"core"}}\\n\'\n',
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ] || [ -n "${GEMINI_PROJECT_DIR:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"core"}}\\n\'\n',
     );
     chmodSync(join(dir, "hooks/session-start"), 0o644);
     assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("executable")), "non-executable hook script must fail");
@@ -272,7 +273,7 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
     );
     writeFileSync(
       join(dir, "hooks/session-start"),
-      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nexit 1\n',
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ] || [ -n "${GEMINI_PROJECT_DIR:-}" ]; then printf "{}\\n"; exit 0; fi\nexit 1\n',
     );
     chmodSync(join(dir, "hooks/session-start"), 0o755);
     assert.ok(
@@ -282,7 +283,7 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
 
     writeFileSync(
       join(dir, "hooks/session-start"),
-      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'["not-an-object"]\\n\'\n',
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ] || [ -n "${GEMINI_PROJECT_DIR:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'["not-an-object"]\\n\'\n',
     );
     chmodSync(join(dir, "hooks/session-start"), 0o755);
     assert.ok(
@@ -292,7 +293,7 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
 
     writeFileSync(
       join(dir, "hooks/session-start"),
-      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"systemMessage":"${"s".repeat(15_001)}"}\\n'\n`,
+      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ] || [ -n "\${GEMINI_PROJECT_DIR:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"systemMessage":"${"s".repeat(15_001)}"}\\n'\n`,
     );
     chmodSync(join(dir, "hooks/session-start"), 0o755);
     assert.ok(
@@ -308,7 +309,7 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
     chmodSync(join(dir, "hooks/run-hook.cmd"), 0o755);
     writeFileSync(
       join(dir, "hooks/session-start"),
-      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"ok"}}\\n\'\n',
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ] || [ -n "${GEMINI_PROJECT_DIR:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"ok"}}\\n\'\n',
     );
     chmodSync(join(dir, "hooks/session-start"), 0o755);
     writeFileSync(
@@ -372,11 +373,11 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
     // Mutually exclusive SessionStart matchers (8,000 bytes startup + 8,000 bytes compact) pass, while overlapping matchers fail
     writeFileSync(
       join(dir, "hooks/startup-only.sh"),
-      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"additionalContext":"${"a".repeat(8_000)}"}\\n'\n`,
+      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ] || [ -n "\${GEMINI_PROJECT_DIR:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"additionalContext":"${"a".repeat(8_000)}"}\\n'\n`,
     );
     writeFileSync(
       join(dir, "hooks/compact-only.sh"),
-      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"additionalContext":"${"b".repeat(8_000)}"}\\n'\n`,
+      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ] || [ -n "\${GEMINI_PROJECT_DIR:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"additionalContext":"${"b".repeat(8_000)}"}\\n'\n`,
     );
     chmodSync(join(dir, "hooks/startup-only.sh"), 0o755);
     chmodSync(join(dir, "hooks/compact-only.sh"), 0o755);
@@ -443,7 +444,7 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
     unlinkSync(join(dir, "hooks/compact-only.sh"));
     writeFileSync(
       join(dir, "hooks/session-start"),
-      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"ok"}}\\n\'\n',
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ] || [ -n "${GEMINI_PROJECT_DIR:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"ok"}}\\n\'\n',
     );
     chmodSync(join(dir, "hooks/session-start"), 0o755);
 
@@ -492,7 +493,7 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
     writeFileSync(join(dir, "GEMINI.md"), "# Tiny\n");
     writeFileSync(
       join(dir, "hooks/session-start"),
-      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"${"y".repeat(200)}"}}\\n'\n`,
+      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ] || [ -n "\${GEMINI_PROJECT_DIR:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"${"y".repeat(200)}"}}\\n'\n`,
     );
     chmodSync(join(dir, "hooks/session-start"), 0o755);
     assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("15000") || f.includes("15 KB")), "Claude hook additionalContext + AGENTS.md > 15,000 bytes must fail");
@@ -603,17 +604,22 @@ test("T-M1-3: host capability contract, Copilot adapter, SKILL.md routing, PR te
 test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook single-source contract", () => {
   const prevClaudeCode = process.env.CLAUDECODE;
   const prevClaudePluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+  const prevGeminiProjectDir = process.env.GEMINI_PROJECT_DIR;
   try {
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_PLUGIN_ROOT = "/tmp/stale-claude-plugin";
+    process.env.GEMINI_PROJECT_DIR = "/tmp/stale-gemini-project";
     const clean = sanitizedEnv();
     assert.equal(clean.CLAUDECODE, undefined, "sanitizedEnv must strip CLAUDECODE nested-session sentinel");
     assert.equal(clean.CLAUDE_PLUGIN_ROOT, undefined, "sanitizedEnv must strip inherited CLAUDE_PLUGIN_ROOT");
+    assert.equal(clean.GEMINI_PROJECT_DIR, undefined, "sanitizedEnv must strip inherited GEMINI_PROJECT_DIR");
   } finally {
     if (prevClaudeCode === undefined) delete process.env.CLAUDECODE;
     else process.env.CLAUDECODE = prevClaudeCode;
     if (prevClaudePluginRoot === undefined) delete process.env.CLAUDE_PLUGIN_ROOT;
     else process.env.CLAUDE_PLUGIN_ROOT = prevClaudePluginRoot;
+    if (prevGeminiProjectDir === undefined) delete process.env.GEMINI_PROJECT_DIR;
+    else process.env.GEMINI_PROJECT_DIR = prevGeminiProjectDir;
   }
 
   withFixtureRepo((dir) => {
@@ -699,7 +705,7 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
 
     mkdirSync(join(dir, "hooks"), { recursive: true });
     writeFileSync(
-      join(dir, "hooks/hooks.json"),
+      join(dir, ".claude-plugin/hooks.json"),
       JSON.stringify({
         hooks: {
           SessionStart: [
@@ -711,11 +717,37 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
         },
       }),
     );
+    writeFileSync(
+      join(dir, "hooks/session-start"),
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ] || [ -n "${GEMINI_PROJECT_DIR:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"ok"}}\\n\'\n',
+    );
+    chmodSync(join(dir, "hooks/session-start"), 0o755);
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes(".claude-plugin/plugin.json") && f.includes("./.claude-plugin/hooks.json")),
+      'expected checkRepo to require "hooks": "./.claude-plugin/hooks.json" in .claude-plugin/plugin.json when .claude-plugin/hooks.json exists',
+    );
+
+    writeFileSync(
+      join(dir, ".claude-plugin/plugin.json"),
+      JSON.stringify({ name: "dev-loop", version: "0.5.13", hooks: "./.claude-plugin/hooks.json" }),
+    );
+    assert.deepEqual(checkMod.checkRepo(dir), []);
+
+    writeFileSync(
+      join(dir, "hooks/session-start"),
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"gemini-dup"}}\\n\'\n',
+    );
+    chmodSync(join(dir, "hooks/session-start"), 0o755);
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("hooks/session-start") && f.includes("GEMINI_PROJECT_DIR")),
+      "expected checkRepo to reject SessionStart hook emitting context when GEMINI_PROJECT_DIR is set",
+    );
+
     writeFileSync(join(dir, "hooks/session-start"), "#!/usr/bin/env bash\r\necho '{}'\r\n");
     chmodSync(join(dir, "hooks/session-start"), 0o755);
     assert.ok(
       checkMod.checkRepo(dir).some((f) => f.includes("hooks/session-start") && f.includes("LF line endings")),
-      "expected checkRepo to reject CRLF in executable hook script",
+      "expected checkRepo to reject CRLF in executable hook script referenced by .claude-plugin/hooks.json",
     );
   });
 
@@ -731,16 +763,23 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
   const claudeMarket = JSON.parse(readFileSync(claudeMarketPath, "utf8"));
   assert.equal(claudePlugin.name, rootPlugin.name);
   assert.equal(claudePlugin.version, rootPlugin.version);
+  assert.equal(claudePlugin.hooks, "./.claude-plugin/hooks.json");
   assert.equal(claudeMarket.metadata?.version, rootPlugin.version);
   const marketEntry = (claudeMarket.plugins ?? []).find((p) => p.name === rootPlugin.name);
   assert.ok(marketEntry, "missing dev-loop entry in .claude-plugin/marketplace.json");
   assert.equal(marketEntry.version, rootPlugin.version);
   assert.equal(marketEntry.source, "./");
 
-  const hooksJsonPath = join(REPO_ROOT, "hooks/hooks.json");
+  const legacyHooksJsonPath = join(REPO_ROOT, "hooks/hooks.json");
+  const claudeHooksJsonPath = join(REPO_ROOT, ".claude-plugin/hooks.json");
   const runHookPath = join(REPO_ROOT, "hooks/run-hook.cmd");
   const sessionStartPath = join(REPO_ROOT, "hooks/session-start");
-  assert.ok(existsSync(hooksJsonPath), "missing hooks/hooks.json");
+  assert.equal(
+    existsSync(legacyHooksJsonPath),
+    false,
+    "hooks/hooks.json must not exist at repo root because Gemini CLI auto-loads <extensionDir>/hooks/hooks.json",
+  );
+  assert.ok(existsSync(claudeHooksJsonPath), "missing .claude-plugin/hooks.json");
   assert.ok(existsSync(runHookPath), "missing hooks/run-hook.cmd");
   assert.ok(existsSync(sessionStartPath), "missing hooks/session-start");
   assert.ok((statSync(runHookPath).mode & 0o111) !== 0, "hooks/run-hook.cmd must be executable (+x)");
@@ -755,7 +794,13 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
   assert.match(gitAttrs.stdout, /hooks\/run-hook\.cmd: eol: lf/);
   assert.match(gitAttrs.stdout, /hooks\/session-start: eol: lf/);
 
-  const hooksJson = JSON.parse(readFileSync(hooksJsonPath, "utf8"));
+  const runHookCmdText = readFileSync(runHookPath, "utf8");
+  const cmdBlock = runHookCmdText.split(/\nCMDBLOCK\r?\n/)[0] ?? "";
+  assert.match(cmdBlock, /%COPILOT_CLI%/, "Windows cmd.exe block must guard COPILOT_CLI");
+  assert.match(cmdBlock, /%GEMINI_PROJECT_DIR%/, "Windows cmd.exe block must guard GEMINI_PROJECT_DIR");
+  assert.match(cmdBlock, /%CLAUDE_PLUGIN_ROOT%/, "Windows cmd.exe block must guard empty CLAUDE_PLUGIN_ROOT");
+
+  const hooksJson = JSON.parse(readFileSync(claudeHooksJsonPath, "utf8"));
   const sessionStartGroups = hooksJson?.hooks?.SessionStart;
   assert.ok(Array.isArray(sessionStartGroups) && sessionStartGroups.length === 1, "expected 1 SessionStart hook group");
   assert.equal(sessionStartGroups[0].matcher, "startup|resume|clear|compact");
@@ -769,27 +814,46 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
     readFileSync(join(REPO_ROOT, "com.github.copilot/rules/core.mdc"), "utf8"),
   );
 
-  // Guard: COPILOT_CLI=1 must emit "{}\n" under both /bin/bash and /bin/sh (even with PATH="")
-  for (const [shellBin, pathEnv] of [
-    ["/bin/bash", process.env.PATH ?? "/usr/bin:/bin"],
-    ["/bin/sh", ""],
-  ]) {
-    const copilotRun = spawnSync(shellBin, [runHookPath, "session-start"], {
+  // Defense-in-depth guards on both run-hook.cmd and session-start:
+  // COPILOT_CLI non-empty, GEMINI_PROJECT_DIR non-empty, and CLAUDE_PLUGIN_ROOT unset/empty must all emit "{}\n" and exit 0
+  const suppressedEnvs = [
+    { label: "COPILOT_CLI=1", overrides: { CLAUDE_PLUGIN_ROOT: REPO_ROOT, COPILOT_CLI: "1" } },
+    { label: "GEMINI_PROJECT_DIR set", overrides: { CLAUDE_PLUGIN_ROOT: REPO_ROOT, GEMINI_PROJECT_DIR: "/tmp/gemini-proj" } },
+    { label: "CLAUDE_PLUGIN_ROOT unset", overrides: {} },
+    { label: "CLAUDE_PLUGIN_ROOT empty", overrides: { CLAUDE_PLUGIN_ROOT: "" } },
+  ];
+  for (const { label, overrides } of suppressedEnvs) {
+    for (const [shellBin, pathEnv] of [
+      ["/bin/bash", process.env.PATH ?? "/usr/bin:/bin"],
+      ["/bin/sh", ""],
+    ]) {
+      const wrapperRun = spawnSync(shellBin, [runHookPath, "session-start"], {
+        cwd: REPO_ROOT,
+        env: sanitizedEnv({ ...overrides, PATH: pathEnv }),
+        encoding: "utf8",
+      });
+      assert.equal(wrapperRun.status, 0, `run-hook.cmd (${label}, ${shellBin}) failed: ${wrapperRun.stderr}`);
+      assert.equal(wrapperRun.stderr, "");
+      assert.equal(wrapperRun.stdout, "{}\n", `run-hook.cmd (${label}, ${shellBin}) must emit "{}\\n"`);
+      assert.deepEqual(JSON.parse(wrapperRun.stdout), {});
+    }
+
+    const directRun = spawnSync("/bin/bash", [sessionStartPath], {
       cwd: REPO_ROOT,
-      env: sanitizedEnv({ COPILOT_CLI: "1", PATH: pathEnv }),
+      env: sanitizedEnv({ ...overrides, PATH: "" }),
       encoding: "utf8",
     });
-    assert.equal(copilotRun.status, 0, `${shellBin} failed: ${copilotRun.stderr}`);
-    assert.equal(copilotRun.stderr, "");
-    assert.equal(copilotRun.stdout, "{}\n");
-    assert.deepEqual(JSON.parse(copilotRun.stdout), {});
+    assert.equal(directRun.status, 0, `session-start (${label}) failed: ${directRun.stderr}`);
+    assert.equal(directRun.stderr, "");
+    assert.equal(directRun.stdout, "{}\n", `session-start (${label}) must emit "{}\\n"`);
+    assert.deepEqual(JSON.parse(directRun.stdout), {});
   }
 
   // Claude Code execution (including empty PATH and CDPATH=. with a relative script path)
   for (const [scriptArg, extraEnv] of [
-    [runHookPath, { PATH: process.env.PATH ?? "/usr/bin:/bin" }],
-    [runHookPath, { PATH: "" }],
-    ["hooks/run-hook.cmd", { PATH: "", CDPATH: "." }],
+    [runHookPath, { CLAUDE_PLUGIN_ROOT: REPO_ROOT, PATH: process.env.PATH ?? "/usr/bin:/bin" }],
+    [runHookPath, { CLAUDE_PLUGIN_ROOT: REPO_ROOT, PATH: "" }],
+    ["hooks/run-hook.cmd", { CLAUDE_PLUGIN_ROOT: REPO_ROOT, PATH: "", CDPATH: "." }],
   ]) {
     const claudeRun = spawnSync("/bin/bash", [scriptArg, "session-start"], {
       cwd: REPO_ROOT,
@@ -813,7 +877,7 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
     ["-c", 'set -o pipefail; "hooks/run-hook.cmd" session-start | true'],
     {
       cwd: REPO_ROOT,
-      env: sanitizedEnv(),
+      env: sanitizedEnv({ CLAUDE_PLUGIN_ROOT: REPO_ROOT }),
       encoding: "utf8",
     },
   );
@@ -833,7 +897,7 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
     writeFileSync(join(crlfDir, "com.github.copilot/rules/core.mdc"), crlfMdc);
     const crlfRun = spawnSync("/bin/bash", [join(crlfDir, "hooks/run-hook.cmd"), "session-start"], {
       cwd: crlfDir,
-      env: sanitizedEnv({ PATH: "" }),
+      env: sanitizedEnv({ CLAUDE_PLUGIN_ROOT: crlfDir, PATH: "" }),
       encoding: "utf8",
     });
     assert.equal(crlfRun.status, 0, crlfRun.stderr);
@@ -1061,6 +1125,8 @@ test("T-M2-3: Claude Code host guide is required by checkRepo, linked from hosts
   assert.match(claudeHost, /^## Conclusion$/m);
   assert.match(claudeHost, /CLAUDE_PLUGIN_ROOT/);
   assert.match(claudeHost, /COPILOT_CLI/);
+  assert.match(claudeHost, /GEMINI_PROJECT_DIR/);
+  assert.match(claudeHost, /\.claude-plugin\/hooks\.json/);
   assert.match(claudeHost, /hooks\/session-start/);
   assert.match(claudeHost, /startup\|resume\|clear\|compact/);
   assert.match(claudeHost, /hookSpecificOutput\.additionalContext/);

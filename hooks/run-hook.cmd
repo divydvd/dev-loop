@@ -14,6 +14,14 @@ if not "%COPILOT_CLI%"=="" (
     echo {}
     exit /b 0
 )
+if not "%GEMINI_PROJECT_DIR%"=="" (
+    echo {}
+    exit /b 0
+)
+if "%CLAUDE_PLUGIN_ROOT%"=="" (
+    echo {}
+    exit /b 0
+)
 set "HOOK_DIR=%~dp0"
 set "BASH_EXE="
 
@@ -28,7 +36,7 @@ if not defined BASH_EXE exit /b 0
 exit /b %ERRORLEVEL%
 CMDBLOCK
 
-if [ -n "${COPILOT_CLI:-}" ]; then
+if [ -n "${COPILOT_CLI:-}" ] || [ -n "${GEMINI_PROJECT_DIR:-}" ] || [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then
   trap '' PIPE
   printf '{}\n' 2>/dev/null || true
   exit 0

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SessionStart hook for dev-loop in Claude Code.
 # Injects the single-source core rules from com.github.copilot/rules/core.mdc
-# and returns {} under COPILOT_CLI so GitHub Copilot CLI never double-loads them.
+# and returns {} when COPILOT_CLI or GEMINI_PROJECT_DIR is set or CLAUDE_PLUGIN_ROOT is empty.
 
 set -euo pipefail
 
@@ -10,7 +10,7 @@ emit_json() {
   printf "$@" 2>/dev/null || true
 }
 
-if [ -n "${COPILOT_CLI:-}" ]; then
+if [ -n "${COPILOT_CLI:-}" ] || [ -n "${GEMINI_PROJECT_DIR:-}" ] || [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then
   emit_json '{}\n'
   exit 0
 fi

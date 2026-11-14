@@ -267,17 +267,57 @@ function checkRules(agentsBytes) {
 
 function checkHooks(agentsBytes) {
   const hooksJsonPath = join(root, "hooks/hooks.json");
+  const claudeHooksJsonPath = join(root, ".claude-plugin/hooks.json");
+  const claudePluginPath = join(root, ".claude-plugin/plugin.json");
   const defaultSessionStart = join(root, "hooks/session-start");
   const hasDefaultSessionStart = pathOrLinkExists(defaultSessionStart);
-  if (!existsSync(hooksJsonPath)) {
-    if (hasDefaultSessionStart) fault(hooksJsonPath, "file is missing while hooks/session-start is present");
+
+  const hookManifestPaths = [];
+  for (const [relManifest, absManifest] of [
+    ["hooks/hooks.json", hooksJsonPath],
+    [".claude-plugin/hooks.json", claudeHooksJsonPath],
+  ]) {
+    if (!pathOrLinkExists(absManifest)) continue;
+    const validManifest = checkExistingFileInsideDir(root, relManifest);
+    if (!validManifest) fault(absManifest, "hook manifest is missing, is not a file, or escapes root");
+    else hookManifestPaths.push(validManifest);
+  }
+
+  if (existsSync(claudePluginPath)) {
+    let claudePlugin = null;
+    try {
+      const parsed = JSON.parse(readFileSync(claudePluginPath, "utf8"));
+      if (isPlainObject(parsed)) claudePlugin = parsed;
+    } catch {
+      // Already reported by checkManifest()
+    }
+    if (claudePlugin) {
+      if (pathOrLinkExists(claudeHooksJsonPath) && claudePlugin.hooks !== "./.claude-plugin/hooks.json") {
+        fault(claudePluginPath, 'hooks must be "./.claude-plugin/hooks.json" when .claude-plugin/hooks.json is present');
+      } else if (claudePlugin.hooks !== undefined) {
+        if (typeof claudePlugin.hooks !== "string") {
+          fault(claudePluginPath, "hooks must be a relative path string when specified");
+        } else {
+          const customHooksPath = checkExistingFileInsideDir(root, claudePlugin.hooks);
+          if (!customHooksPath) {
+            fault(claudePluginPath, `hooks path ${claudePlugin.hooks} is missing, is not a file, or escapes root`);
+          } else if (!hookManifestPaths.includes(customHooksPath)) {
+            hookManifestPaths.push(customHooksPath);
+          }
+        }
+      }
+    }
+  }
+
+  if (hookManifestPaths.length === 0) {
+    if (hasDefaultSessionStart && !pathOrLinkExists(hooksJsonPath) && !pathOrLinkExists(claudeHooksJsonPath)) {
+      fault(hooksJsonPath, "file is missing while hooks/session-start is present");
+    }
     return;
   }
-  const hooksCfg = readJson(hooksJsonPath);
-  if (!hooksCfg) return;
 
   const validatedExecPaths = new Set();
-  function requireExecHookFile(relRef, reportPath = hooksJsonPath, missingMsg = `referenced hook path ${relRef} is missing, is not a file, or escapes root`) {
+  function requireExecHookFile(relRef, reportPath, missingMsg = `referenced hook path ${relRef} is missing, is not a file, or escapes root`) {
     const target = checkExistingFileInsideDir(root, relRef);
     if (!target) return (fault(reportPath, missingMsg), null);
     if (process.platform !== "win32" && (statSync(target).mode & 0o111) === 0) {
@@ -294,36 +334,47 @@ function checkHooks(agentsBytes) {
     return target;
   }
 
-  for (const relRef of new Set(collectPluginRootRefs(hooksCfg))) requireExecHookFile(relRef);
   const validDefault = hasDefaultSessionStart
     ? requireExecHookFile("hooks/session-start", defaultSessionStart, "hook script is missing, is not a file, or escapes root")
     : null;
 
   const invocations = [];
   let defaultCovered = false;
-  for (const cmd of parseSessionStartCommands(hooksCfg?.hooks?.SessionStart)) {
-    if (cmd.invalidCommand) {
-      fault(hooksJsonPath, `SessionStart command must reference \${CLAUDE_PLUGIN_ROOT}/...: ${cmd.invalidCommand}`);
-      continue;
-    }
-    if (cmd.unsupportedSyntax) {
-      fault(hooksJsonPath, `unsupported shell syntax or non-literal argument in SessionStart command: ${cmd.unsupportedSyntax}`);
-      continue;
-    }
-    const scriptPath = checkExistingFileInsideDir(root, cmd.relPath);
-    if (!scriptPath || !validatedExecPaths.has(scriptPath)) continue;
-    if (cmd.args[0]) {
-      const siblingRel = join(dirname(cmd.relPath), cmd.args[0]).replaceAll("\\", "/");
-      if (pathOrLinkExists(join(root, siblingRel))) {
-        const validSibling = requireExecHookFile(siblingRel, hooksJsonPath, `SessionStart target ${siblingRel} is not a valid file inside root`);
-        if (!validSibling) continue;
-        if (validDefault && validSibling === validDefault) defaultCovered = true;
+  let parsedAnyManifest = false;
+  for (const manifestPath of hookManifestPaths) {
+    const hooksCfg = readJson(manifestPath);
+    if (!hooksCfg) continue;
+    parsedAnyManifest = true;
+
+    for (const relRef of new Set(collectPluginRootRefs(hooksCfg))) requireExecHookFile(relRef, manifestPath);
+
+    for (const cmd of parseSessionStartCommands(hooksCfg?.hooks?.SessionStart)) {
+      if (cmd.invalidCommand) {
+        fault(manifestPath, `SessionStart command must reference \${CLAUDE_PLUGIN_ROOT}/...: ${cmd.invalidCommand}`);
+        continue;
       }
+      if (cmd.unsupportedSyntax) {
+        fault(manifestPath, `unsupported shell syntax or non-literal argument in SessionStart command: ${cmd.unsupportedSyntax}`);
+        continue;
+      }
+      const scriptPath = checkExistingFileInsideDir(root, cmd.relPath);
+      if (!scriptPath || !validatedExecPaths.has(scriptPath)) continue;
+      if (cmd.args[0]) {
+        const siblingRel = join(dirname(cmd.relPath), cmd.args[0]).replaceAll("\\", "/");
+        if (pathOrLinkExists(join(root, siblingRel))) {
+          const validSibling = requireExecHookFile(siblingRel, manifestPath, `SessionStart target ${siblingRel} is not a valid file inside root`);
+          if (!validSibling) continue;
+          if (validDefault && validSibling === validDefault) defaultCovered = true;
+        }
+      }
+      if (validDefault && scriptPath === validDefault) defaultCovered = true;
+      invocations.push({ scriptPath, args: cmd.args, shell: cmd.shell, matcher: cmd.matcher, bytes: 0, manifestPath });
     }
-    if (validDefault && scriptPath === validDefault) defaultCovered = true;
-    invocations.push({ scriptPath, args: cmd.args, shell: cmd.shell, matcher: cmd.matcher, bytes: 0 });
   }
-  if (validDefault && !defaultCovered) invocations.push({ scriptPath: validDefault, args: [], shell: null, matcher: "", bytes: 0 });
+  if (!parsedAnyManifest) return;
+  if (validDefault && !defaultCovered) {
+    invocations.push({ scriptPath: validDefault, args: [], shell: null, matcher: "", bytes: 0, manifestPath: hookManifestPaths[0] });
+  }
 
   const runHook = (inv, env) =>
     spawnSync(inv.shell === "bash" ? "bash" : inv.scriptPath, inv.shell === "bash" ? [inv.scriptPath, ...inv.args] : inv.args, {
@@ -346,7 +397,11 @@ function checkHooks(agentsBytes) {
   }
 
   for (const inv of invocations) {
-    const copilotRes = runHook(inv, { ...process.env, CLAUDE_PLUGIN_ROOT: root, COPILOT_CLI: "1" });
+    const baseHookEnv = { ...process.env, CLAUDE_PLUGIN_ROOT: root };
+    delete baseHookEnv.COPILOT_CLI;
+    delete baseHookEnv.GEMINI_PROJECT_DIR;
+
+    const copilotRes = runHook(inv, { ...baseHookEnv, COPILOT_CLI: "1" });
     if (copilotRes.status !== 0 || copilotRes.error) {
       fault(inv.scriptPath, `COPILOT_CLI=1 guard check failed with status ${copilotRes.status ?? copilotRes.error?.code ?? "error"}`);
     } else {
@@ -356,9 +411,17 @@ function checkHooks(agentsBytes) {
       }
     }
 
-    const claudeEnv = { ...process.env, CLAUDE_PLUGIN_ROOT: root };
-    delete claudeEnv.COPILOT_CLI;
-    const claudeRes = runHook(inv, claudeEnv);
+    const geminiRes = runHook(inv, { ...baseHookEnv, GEMINI_PROJECT_DIR: root });
+    if (geminiRes.status !== 0 || geminiRes.error) {
+      fault(inv.scriptPath, `GEMINI_PROJECT_DIR guard check failed with status ${geminiRes.status ?? geminiRes.error?.code ?? "error"}`);
+    } else {
+      const parsed = parseHookJson(inv.scriptPath, geminiRes.stdout, "GEMINI_PROJECT_DIR");
+      if (parsed && hookContextStrings(parsed).length > 0) {
+        fault(inv.scriptPath, "must not emit additionalContext or systemMessage when GEMINI_PROJECT_DIR is set (causes duplicate core loading)");
+      }
+    }
+
+    const claudeRes = runHook(inv, baseHookEnv);
     if (claudeRes.status !== 0 || claudeRes.error) {
       fault(inv.scriptPath, `SessionStart hook failed when COPILOT_CLI is unset with status ${claudeRes.status ?? claudeRes.error?.code ?? "error"}`);
     } else {
@@ -376,7 +439,7 @@ function checkHooks(agentsBytes) {
         try {
           inv.matcherRe = new RegExp(inv.matcher);
         } catch {
-          fault(hooksJsonPath, `invalid SessionStart matcher regex "${inv.matcher}"`);
+          fault(inv.manifestPath, `invalid SessionStart matcher regex "${inv.matcher}"`);
           inv.matcherRe = null;
         }
         const inner = inv.matcher.trim().replace(/^\^?\((?:\?:)?([^()]+)\)\$?$/, "$1");
@@ -397,7 +460,7 @@ function checkHooks(agentsBytes) {
     );
     const claudeMdPath = join(root, "CLAUDE.md");
     const claudeMdBytes = existsSync(claudeMdPath) ? utf8Bytes(readFileSync(claudeMdPath, "utf8")) : 0;
-    checkStartupCeiling(hooksJsonPath, agentsBytes + claudeMdBytes + maxInjected);
+    checkStartupCeiling(hookManifestPaths[0], agentsBytes + claudeMdBytes + maxInjected);
   }
 }
 
