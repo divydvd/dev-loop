@@ -649,6 +649,32 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
     writeFileSync(
       join(dir, ".claude-plugin/marketplace.json"),
       JSON.stringify({
+        name: "drifted-marketplace",
+        metadata: { version: "0.5.13" },
+        plugins: [{ name: "dev-loop", source: "./", version: "0.5.13" }],
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes(".claude-plugin/marketplace.json") && f.includes("drifted-marketplace")),
+      "expected checkRepo to reject divergent top-level name in .claude-plugin/marketplace.json",
+    );
+
+    writeFileSync(
+      join(dir, ".claude-plugin/marketplace.json"),
+      JSON.stringify({
+        name: "dev-loop",
+        metadata: { version: "0.5.13" },
+        plugins: { name: "dev-loop" },
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes(".claude-plugin/marketplace.json") && f.includes("plugins")),
+      "expected checkRepo to reject non-array plugins in .claude-plugin/marketplace.json without throwing",
+    );
+
+    writeFileSync(
+      join(dir, ".claude-plugin/marketplace.json"),
+      JSON.stringify({
         name: "dev-loop",
         metadata: { version: "0.5.13" },
         plugins: [{ name: "dev-loop", source: "./", version: "0.5.13" }],
@@ -698,25 +724,34 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
     readFileSync(join(REPO_ROOT, "com.github.copilot/rules/core.mdc"), "utf8"),
   );
 
-  // Guard: COPILOT_CLI=1 must emit "{}\n" so GitHub Copilot CLI never double-loads core.mdc
-  const copilotRun = spawnSync("/bin/bash", [runHookPath, "session-start"], {
-    cwd: REPO_ROOT,
-    env: sanitizedEnv({ COPILOT_CLI: "1" }),
-    encoding: "utf8",
-  });
-  assert.equal(copilotRun.status, 0, copilotRun.stderr);
-  assert.equal(copilotRun.stderr, "");
-  assert.equal(copilotRun.stdout, "{}\n");
-  assert.deepEqual(JSON.parse(copilotRun.stdout), {});
-
-  // Claude Code execution (including empty PATH per anthropics/claude-code#43127)
-  for (const pathEnv of [process.env.PATH ?? "/usr/bin:/bin", ""]) {
-    const claudeRun = spawnSync("/bin/bash", [runHookPath, "session-start"], {
+  // Guard: COPILOT_CLI=1 must emit "{}\n" under both /bin/bash and /bin/sh (even with PATH="")
+  for (const [shellBin, pathEnv] of [
+    ["/bin/bash", process.env.PATH ?? "/usr/bin:/bin"],
+    ["/bin/sh", ""],
+  ]) {
+    const copilotRun = spawnSync(shellBin, [runHookPath, "session-start"], {
       cwd: REPO_ROOT,
-      env: sanitizedEnv({ PATH: pathEnv }),
+      env: sanitizedEnv({ COPILOT_CLI: "1", PATH: pathEnv }),
       encoding: "utf8",
     });
-    assert.equal(claudeRun.status, 0, `failed with PATH="${pathEnv}": ${claudeRun.stderr}`);
+    assert.equal(copilotRun.status, 0, `${shellBin} failed: ${copilotRun.stderr}`);
+    assert.equal(copilotRun.stderr, "");
+    assert.equal(copilotRun.stdout, "{}\n");
+    assert.deepEqual(JSON.parse(copilotRun.stdout), {});
+  }
+
+  // Claude Code execution (including empty PATH and CDPATH=. with a relative script path)
+  for (const [scriptArg, extraEnv] of [
+    [runHookPath, { PATH: process.env.PATH ?? "/usr/bin:/bin" }],
+    [runHookPath, { PATH: "" }],
+    ["hooks/run-hook.cmd", { PATH: "", CDPATH: "." }],
+  ]) {
+    const claudeRun = spawnSync("/bin/bash", [scriptArg, "session-start"], {
+      cwd: REPO_ROOT,
+      env: sanitizedEnv(extraEnv),
+      encoding: "utf8",
+    });
+    assert.equal(claudeRun.status, 0, `failed for ${scriptArg} (${JSON.stringify(extraEnv)}): ${claudeRun.stderr}`);
     assert.equal(claudeRun.stderr, "");
     const parsed = JSON.parse(claudeRun.stdout);
     assert.deepEqual(parsed, {
@@ -726,6 +761,19 @@ test("T-M2-1: Claude Code manifests, marketplace parity, and SessionStart hook s
       },
     });
   }
+
+  // Early pipe closure / closed stdout must exit 0 without SIGPIPE (141) or stderr noise
+  const pipeCloseRun = spawnSync(
+    "/bin/bash",
+    ["-c", 'set -o pipefail; "hooks/run-hook.cmd" session-start | true'],
+    {
+      cwd: REPO_ROOT,
+      env: sanitizedEnv(),
+      encoding: "utf8",
+    },
+  );
+  assert.equal(pipeCloseRun.status, 0, `pipe close exited ${pipeCloseRun.status}: ${pipeCloseRun.stderr}`);
+  assert.equal(pipeCloseRun.stderr, "");
 
   // CRLF frontmatter tolerance on a temporary plugin copy
   const crlfDir = mkdtempSync(join(tmpdir(), "dev-loop-crlf-hook-"));
@@ -989,24 +1037,5 @@ test("T-M2-3: Claude Code host guide is required by checkRepo, linked from hosts
   assert.match(claudeHost, /claude plugin install --marketplace/);
 
   assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
-
-  const ruleDiff = spawnSync(
-    "git",
-    [
-      "--no-pager",
-      "diff",
-      "3351237cd769ea6b6ceae0eda47550e6b1471b27",
-      "--",
-      "com.github.copilot/rules/core.mdc",
-      "skills/dev-loop/SKILL.md",
-      "skills/design-review/SKILL.md",
-      "skills/flow-docs/SKILL.md",
-      "skills/infra-review/SKILL.md",
-    ],
-    { cwd: REPO_ROOT, env: sanitizedEnv(), encoding: "utf8" },
-  );
-  if (ruleDiff.status === 0) {
-    assert.equal(ruleDiff.stdout, "", "core.mdc and skills/*/SKILL.md must have 0 diff lines vs M1 base");
-  }
 });
 

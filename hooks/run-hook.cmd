@@ -10,6 +10,10 @@ if "%~1"=="" (
 )
 
 setlocal
+if not "%COPILOT_CLI%"=="" (
+    echo {}
+    exit /b 0
+)
 set "HOOK_DIR=%~dp0"
 set "BASH_EXE="
 
@@ -24,11 +28,29 @@ if not defined BASH_EXE exit /b 0
 exit /b %ERRORLEVEL%
 CMDBLOCK
 
-# Unix: avoid external dirname/PATH lookups so SessionStart works with an empty PATH.
+if [ -n "${COPILOT_CLI:-}" ]; then
+  trap '' PIPE
+  printf '{}\n' 2>/dev/null || true
+  exit 0
+fi
+
+# Unix: avoid cd/CDPATH and external dirname/PATH lookups so SessionStart works with an empty PATH.
 case "$0" in
-  */*|*\\*) SCRIPT_DIR="$(cd "${0%[/\\]*}" && pwd)" ;;
-  *) SCRIPT_DIR="$(pwd)" ;;
+  */*|*\\*)
+    SCRIPT_DIR="${0%[/\\]*}"
+    SCRIPT_DIR="${SCRIPT_DIR:-/}"
+    ;;
+  *)
+    SCRIPT_DIR="."
+    ;;
 esac
 SCRIPT_NAME="$1"
 shift
-exec "${BASH:-/bin/bash}" "${SCRIPT_DIR}/${SCRIPT_NAME}" "$@"
+if [ -n "${BASH:-}" ]; then
+  BASH_BIN="$BASH"
+elif BASH_BIN="$(command -v bash 2>/dev/null)"; then
+  :
+else
+  BASH_BIN="/bin/bash"
+fi
+exec "$BASH_BIN" "${SCRIPT_DIR}/${SCRIPT_NAME}" "$@"

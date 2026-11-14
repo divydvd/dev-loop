@@ -6,11 +6,8 @@
 set -euo pipefail
 
 emit_json() {
-  if command -v cat >/dev/null 2>&1; then
-    printf "$@" | cat
-  else
-    printf "$@"
-  fi
+  trap '' PIPE
+  printf "$@" 2>/dev/null || true
 }
 
 if [ -n "${COPILOT_CLI:-}" ]; then
@@ -19,10 +16,15 @@ if [ -n "${COPILOT_CLI:-}" ]; then
 fi
 
 case "$0" in
-  */*|*\\*) SCRIPT_DIR="$(cd "${0%[/\\]*}" && pwd)" ;;
-  *) SCRIPT_DIR="$(pwd)" ;;
+  */*|*\\*)
+    SCRIPT_DIR="${0%[/\\]*}"
+    SCRIPT_DIR="${SCRIPT_DIR:-/}"
+    ;;
+  *)
+    SCRIPT_DIR="."
+    ;;
 esac
-PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PLUGIN_ROOT="${SCRIPT_DIR}/.."
 CORE_MDC="${PLUGIN_ROOT}/com.github.copilot/rules/core.mdc"
 
 if [ ! -r "$CORE_MDC" ]; then
