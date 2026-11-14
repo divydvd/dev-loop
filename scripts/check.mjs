@@ -236,18 +236,23 @@ function checkRules(agentsBytes) {
   const hasGeminiExt = pathOrLinkExists(geminiExtPath);
   const hasGeminiMd = pathOrLinkExists(geminiMdPath);
   let validGeminiMdPath = null;
+  let geminiBytes = 0;
   if (hasGeminiExt || hasGeminiMd) {
     if (!hasGeminiExt) fault(geminiExtPath, "file is missing while GEMINI.md is present");
     validGeminiMdPath = checkExistingFileInsideDir(root, "GEMINI.md");
     if (!validGeminiMdPath) {
       fault(geminiMdPath, "file is missing, is not a regular file, or escapes root");
-    } else if (existsSync(corePath) && readFileSync(validGeminiMdPath, "utf8") !== stripFrontmatter(readFileSync(corePath, "utf8"))) {
-      fault(geminiMdPath, "content differs from com.github.copilot/rules/core.mdc body");
+    } else {
+      const geminiText = readFileSync(validGeminiMdPath, "utf8");
+      geminiBytes = utf8Bytes(geminiText);
+      if (existsSync(corePath) && geminiText !== stripFrontmatter(readFileSync(corePath, "utf8"))) {
+        fault(geminiMdPath, "content differs from com.github.copilot/rules/core.mdc body");
+      }
     }
   }
 
-  checkStartupCeiling(rulesDir, agentsBytes + copilotRulesBytes);
-  if (validGeminiMdPath) checkStartupCeiling(geminiMdPath, agentsBytes + utf8Bytes(readFileSync(validGeminiMdPath, "utf8")));
+  checkStartupCeiling(rulesDir, agentsBytes + copilotRulesBytes + geminiBytes);
+  if (validGeminiMdPath) checkStartupCeiling(geminiMdPath, agentsBytes + 2 * geminiBytes);
 }
 
 function checkHooks(agentsBytes) {

@@ -433,6 +433,8 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
     writeFileSync(join(dir, "com.github.copilot/rules/core.mdc"), CORE_MDC);
 
     // 4. Exact 15,000-byte (PASS) vs 15,001-byte (FAIL) UTF-8 boundary (including multi-byte characters) and Claude hook startup budget
+    unlinkSync(join(dir, "gemini-extension.json"));
+    unlinkSync(join(dir, "GEMINI.md"));
     const coreMdcBytes = Buffer.byteLength(CORE_MDC, "utf8");
     const prefix = "# Profile\n";
     const remainingEven = 15_000 - coreMdcBytes - Buffer.byteLength(prefix, "utf8");
@@ -450,7 +452,6 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
       join(dir, "com.github.copilot/rules/core.mdc"),
       "---\ndescription: tiny\nalwaysApply: true\n---\n# Tiny\n",
     );
-    writeFileSync(join(dir, "GEMINI.md"), "# Tiny\n");
     writeFileSync(
       join(dir, "hooks/session-start"),
       `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"${"y".repeat(200)}"}}\\n'\n`,
@@ -682,6 +683,47 @@ test("T-M3-1: checkRepo enforces gemini-extension.json description parity and sy
     });
     assert.equal(checkSynced.status, 0, "sync-host-core.mjs --check must exit 0 after sync");
     assert.match(checkSynced.stdout, /GEMINI\.md: in sync/);
+
+    // Combined self-repository startup ceilings in checkRepo include mirrored GEMINI.md for Copilot and 2x GEMINI.md for Gemini
+    const bigBody = `# Rules\n${"r".repeat(5_295)}\n`;
+    const bigCoreMdc = `---\ndescription: Core rules\nalwaysApply: true\n---\n${bigBody}`;
+    const bigBodyBytes = Buffer.byteLength(bigBody, "utf8");
+    const bigCoreBytes = Buffer.byteLength(bigCoreMdc, "utf8");
+    writeFileSync(join(dir, "com.github.copilot/rules/core.mdc"), bigCoreMdc);
+    writeFileSync(join(dir, "GEMINI.md"), bigBody);
+
+    const exactAgentsLen = 15_000 - bigCoreBytes - bigBodyBytes;
+    const exactAgents = `# Profile\n${"a".repeat(exactAgentsLen - 11)}\n`;
+    assert.equal(Buffer.byteLength(exactAgents, "utf8") + bigCoreBytes + bigBodyBytes, 15_000);
+    writeFileSync(join(dir, "AGENTS.md"), exactAgents);
+    assert.deepEqual(checkMod.checkRepo(dir), [], "combined 15,000-byte self-repo Copilot startup ceiling must pass");
+
+    writeFileSync(join(dir, "AGENTS.md"), `${exactAgents}x`);
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("com.github.copilot/rules") && (f.includes("15000") || f.includes("15 KB"))),
+      "15,001-byte combined self-repo Copilot startup context must fail",
+    );
+
+    const exactGeminiAgentsLen = 15_000 - 2 * bigBodyBytes;
+    const exactGeminiAgents = `# Profile\n${"a".repeat(exactGeminiAgentsLen - 11)}\n`;
+    assert.equal(Buffer.byteLength(exactGeminiAgents, "utf8") + 2 * bigBodyBytes, 15_000);
+    writeFileSync(join(dir, "AGENTS.md"), exactGeminiAgents);
+    assert.equal(
+      checkMod.checkRepo(dir).some((f) => f.includes("GEMINI.md") && (f.includes("15000") || f.includes("15 KB"))),
+      false,
+      "15,000-byte 2x GEMINI.md self-repo ceiling must not fault GEMINI.md",
+    );
+
+    writeFileSync(join(dir, "AGENTS.md"), `${exactGeminiAgents}x`);
+    const overBudgetFaults = checkMod.checkRepo(dir);
+    assert.ok(
+      overBudgetFaults.some((f) => f.includes("com.github.copilot/rules") && (f.includes("15000") || f.includes("15 KB"))),
+      `expected Copilot combined self-repo startup ceiling fault, got: ${overBudgetFaults.join("; ")}`,
+    );
+    assert.ok(
+      overBudgetFaults.some((f) => f.includes("GEMINI.md") && (f.includes("15000") || f.includes("15 KB"))),
+      `expected Gemini 2x self-repo startup ceiling fault, got: ${overBudgetFaults.join("; ")}`,
+    );
   });
 });
 
