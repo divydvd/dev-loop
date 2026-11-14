@@ -288,6 +288,79 @@ test("T-M1-2: checkRepo enforces multi-host manifest sync, GEMINI.md byte sync, 
     assert.deepEqual(checkMod.checkRepo(dir), [], "guarded polyglot run-hook.cmd session-start must pass");
     unlinkSync(join(dir, "hooks/run-hook.cmd"));
 
+    // Compound shell operators in SessionStart command must be rejected (preventing unvalidated second commands)
+    writeFileSync(join(dir, "hooks/safe.sh"), '#!/usr/bin/env bash\nprintf "{}\\n"\n');
+    writeFileSync(join(dir, "hooks/dup.sh"), '#!/usr/bin/env bash\nprintf \'{"additionalContext":"dup"}\\n\'\n');
+    chmodSync(join(dir, "hooks/safe.sh"), 0o755);
+    chmodSync(join(dir, "hooks/dup.sh"), 0o755);
+    writeFileSync(
+      join(dir, "hooks/hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            {
+              matcher: "startup",
+              hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/safe.sh" && "${CLAUDE_PLUGIN_ROOT}/hooks/dup.sh"' }],
+            },
+          ],
+        },
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("hooks/hooks.json") && f.includes("unsupported")),
+      "compound shell operators in SessionStart command must fail validation",
+    );
+    unlinkSync(join(dir, "hooks/safe.sh"));
+    unlinkSync(join(dir, "hooks/dup.sh"));
+
+    // Mutually exclusive SessionStart matchers (8,000 bytes startup + 8,000 bytes compact) pass, while overlapping matchers fail
+    writeFileSync(
+      join(dir, "hooks/startup-only.sh"),
+      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"additionalContext":"${"a".repeat(8_000)}"}\\n'\n`,
+    );
+    writeFileSync(
+      join(dir, "hooks/compact-only.sh"),
+      `#!/usr/bin/env bash\nif [ -n "\${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf '{"additionalContext":"${"b".repeat(8_000)}"}\\n'\n`,
+    );
+    chmodSync(join(dir, "hooks/startup-only.sh"), 0o755);
+    chmodSync(join(dir, "hooks/compact-only.sh"), 0o755);
+    unlinkSync(join(dir, "hooks/session-start"));
+    writeFileSync(
+      join(dir, "hooks/hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            { matcher: "startup", hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/hooks/startup-only.sh" }] },
+            { matcher: "compact", hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/hooks/compact-only.sh" }] },
+          ],
+        },
+      }),
+    );
+    assert.deepEqual(checkMod.checkRepo(dir), [], "mutually exclusive startup and compact hooks under 15 KB each must pass");
+
+    writeFileSync(
+      join(dir, "hooks/hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            { matcher: "startup", hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/hooks/startup-only.sh" }] },
+            { matcher: "startup|compact", hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/hooks/compact-only.sh" }] },
+          ],
+        },
+      }),
+    );
+    assert.ok(
+      checkMod.checkRepo(dir).some((f) => f.includes("15000") || f.includes("15 KB")),
+      "overlapping startup matchers exceeding 15 KB together must fail",
+    );
+    unlinkSync(join(dir, "hooks/startup-only.sh"));
+    unlinkSync(join(dir, "hooks/compact-only.sh"));
+    writeFileSync(
+      join(dir, "hooks/session-start"),
+      '#!/usr/bin/env bash\nif [ -n "${COPILOT_CLI:-}" ]; then printf "{}\\n"; exit 0; fi\nprintf \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"ok"}}\\n\'\n',
+    );
+    chmodSync(join(dir, "hooks/session-start"), 0o755);
+
     // Orphan hooks/session-start without hooks/hooks.json
     unlinkSync(join(dir, "hooks/hooks.json"));
     assert.ok(checkMod.checkRepo(dir).some((f) => f.includes("hooks/hooks.json")), "orphan hooks/session-start without hooks/hooks.json must fail");

@@ -97,19 +97,38 @@ function collectPluginRootRefs(value, out = []) {
   return out;
 }
 
+function parseHookCommand(rawCmd) {
+  const match = rawCmd.match(SESSION_CMD_RE);
+  if (!match) return { invalidCommand: rawCmd };
+  const relPath = match[1] ?? match[2] ?? match[3];
+  const tail = (match[4] ?? "").trim();
+  if (!tail) return { relPath, args: [] };
+  const tokens = tail.split(/\s+/).filter(Boolean);
+  const args = [];
+  for (const tok of tokens) {
+    const unquoted = tok.replace(/^"([^"]*)"$|^'([^']*)'$/, "$1$2");
+    if (!/^[A-Za-z0-9._/-]+$/.test(unquoted)) return { unsupportedSyntax: rawCmd };
+    args.push(unquoted);
+  }
+  return { relPath, args };
+}
+
 function parseSessionStartCommands(sessionStartCfg) {
   const commands = [];
   for (const group of Array.isArray(sessionStartCfg) ? sessionStartCfg : []) {
+    const matcher = typeof group?.matcher === "string" ? group.matcher : "";
     for (const entry of Array.isArray(group?.hooks) ? group.hooks : []) {
       if (typeof entry?.command !== "string") continue;
-      const match = entry.command.match(SESSION_CMD_RE);
-      if (!match) {
-        commands.push({ invalidCommand: entry.command });
+      const parsed = parseHookCommand(entry.command);
+      if (parsed.invalidCommand || parsed.unsupportedSyntax) {
+        commands.push(parsed);
         continue;
       }
-      const relPath = match[1] ?? match[2] ?? match[3];
-      const args = (match[4] ?? "").trim().split(/\s+/).filter(Boolean).map((a) => a.replace(/^["']|["']$/g, ""));
-      commands.push({ relPath, args, shell: entry.shell === "bash" || relPath.endsWith(".cmd") ? "bash" : null });
+      commands.push({
+        ...parsed,
+        matcher,
+        shell: entry.shell === "bash" || parsed.relPath.endsWith(".cmd") ? "bash" : null,
+      });
     }
   }
   return commands;
@@ -254,6 +273,10 @@ function checkHooks(agentsBytes) {
       fault(hooksJsonPath, `SessionStart command must reference \${CLAUDE_PLUGIN_ROOT}/...: ${cmd.invalidCommand}`);
       continue;
     }
+    if (cmd.unsupportedSyntax) {
+      fault(hooksJsonPath, `unsupported shell syntax or non-literal argument in SessionStart command: ${cmd.unsupportedSyntax}`);
+      continue;
+    }
     const scriptPath = checkExistingFileInsideDir(root, cmd.relPath);
     if (!scriptPath || !validatedExecPaths.has(scriptPath)) continue;
     if (cmd.args[0]) {
@@ -265,9 +288,9 @@ function checkHooks(agentsBytes) {
       }
     }
     if (validDefault && scriptPath === validDefault) defaultCovered = true;
-    invocations.push({ scriptPath, args: cmd.args, shell: cmd.shell });
+    invocations.push({ scriptPath, args: cmd.args, shell: cmd.shell, matcher: cmd.matcher, bytes: 0 });
   }
-  if (validDefault && !defaultCovered) invocations.push({ scriptPath: validDefault, args: [], shell: null });
+  if (validDefault && !defaultCovered) invocations.push({ scriptPath: validDefault, args: [], shell: null, matcher: "", bytes: 0 });
 
   const runHook = (inv, env) =>
     spawnSync(inv.shell === "bash" ? "bash" : inv.scriptPath, inv.shell === "bash" ? [inv.scriptPath, ...inv.args] : inv.args, {
@@ -289,7 +312,6 @@ function checkHooks(agentsBytes) {
     }
   }
 
-  let totalInjectedClaudeBytes = 0;
   for (const inv of invocations) {
     const copilotRes = runHook(inv, { ...process.env, CLAUDE_PLUGIN_ROOT: root, COPILOT_CLI: "1" });
     if (copilotRes.status !== 0 || copilotRes.error) {
@@ -308,14 +330,36 @@ function checkHooks(agentsBytes) {
       fault(inv.scriptPath, `SessionStart hook failed when COPILOT_CLI is unset with status ${claudeRes.status ?? claudeRes.error?.code ?? "error"}`);
     } else {
       const parsed = parseHookJson(inv.scriptPath, claudeRes.stdout, "SessionStart");
-      if (parsed) for (const s of hookContextStrings(parsed)) totalInjectedClaudeBytes += utf8Bytes(s);
+      if (parsed) for (const s of hookContextStrings(parsed)) inv.bytes += utf8Bytes(s);
     }
   }
 
   if (invocations.length > 0) {
+    const events = new Set(["startup", "resume", "clear", "compact"]);
+    for (const inv of invocations) {
+      if (!inv.matcher || inv.matcher === "*") inv.matcherRe = null;
+      else {
+        try {
+          inv.matcherRe = new RegExp(inv.matcher);
+        } catch {
+          fault(hooksJsonPath, `invalid SessionStart matcher regex "${inv.matcher}"`);
+          inv.matcherRe = null;
+        }
+      }
+      for (const alt of (inv.matcher || "").split("|")) {
+        const clean = alt.replace(/^\^|\$$/g, "").trim();
+        if (/^[A-Za-z0-9_-]+$/.test(clean)) events.add(clean);
+      }
+    }
+    const unconditionalBytes = invocations.filter((inv) => !inv.matcherRe).reduce((s, inv) => s + inv.bytes, 0);
+    const maxInjected = Math.max(
+      unconditionalBytes,
+      ...invocations.map((inv) => (inv.matcherRe ? unconditionalBytes + inv.bytes : inv.bytes)),
+      ...[...events].map((ev) => invocations.filter((inv) => !inv.matcherRe || inv.matcherRe.test(ev)).reduce((s, inv) => s + inv.bytes, 0)),
+    );
     const claudeMdPath = join(root, "CLAUDE.md");
     const claudeMdBytes = existsSync(claudeMdPath) ? utf8Bytes(readFileSync(claudeMdPath, "utf8")) : 0;
-    checkStartupCeiling(hooksJsonPath, agentsBytes + claudeMdBytes + totalInjectedClaudeBytes);
+    checkStartupCeiling(hooksJsonPath, agentsBytes + claudeMdBytes + maxInjected);
   }
 }
 
