@@ -350,7 +350,11 @@ test("T5 & T6: analyzeSessions handles cumulative totalNanoAiu, edit-aware dupli
     ];
 
     const out = analyzeSessions(prs, { sessionsDir, repo: "org/app" });
-    assert.equal(out.perPr[3].attribution, "unmatched", "PR #3 must not match /pull/31");
+    assert.equal(
+      out.perPr[3].attribution,
+      "unmatched_non_copilot_or_missing_session",
+      "PR #3 must not match /pull/31",
+    );
     const p31 = out.perPr[31];
     assert.equal(p31.attribution, "unique");
     assert.equal(p31.totalNanoAiu, 250000); // latest checkpoint, NOT 350000 and NOT overwritten by null shutdown
@@ -1323,5 +1327,288 @@ test("S-T6: review regressions — multi-digit sleep, verdict repo slug vs CLI, 
     assert.equal(parseSessionEvents(r1UserBgPath).timeBuckets.buildTestSec, 81, "user-backgrounded shell [0..81s] up to successful stop_bash = 81s");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("T-M5-1: mixed-host Copilot and non-Copilot PRs preserve Git/GitHub metrics and report unmatched_non_copilot_or_missing_session", () => {
+  const root = makeTempDir("m5-mixed");
+  const gitDir = initGitRepo();
+  try {
+    // Matured PR #10 (21 days before nowIso): adds 10 production lines in src/matured.js
+    const maturedLines = Array.from({ length: 10 }, (_, i) => `export const m${i} = ${i};`).join("\n") + "\n";
+    writeFileSync(join(gitDir, "src/matured.js"), maturedLines);
+    git(gitDir, ["add", "src/matured.js"]);
+    git(gitDir, ["commit", "-m", "feat: matured pr (#10)"]);
+    const sha10 = git(gitDir, ["rev-parse", "HEAD"]);
+
+    // In-window Copilot PR #41 (small: 20 prod lines)
+    const copilotLines = Array.from({ length: 20 }, (_, i) => `export const c${i} = ${i};`).join("\n") + "\n";
+    writeFileSync(join(gitDir, "src/copilot.js"), copilotLines);
+    git(gitDir, ["add", "src/copilot.js"]);
+    git(gitDir, ["commit", "-m", "feat: copilot feature (#41)"]);
+    const sha41 = git(gitDir, ["rev-parse", "HEAD"]);
+
+    // In-window Claude Code PR #42 (trivial: docs only)
+    writeFileSync(join(gitDir, "README.md"), "# Example\n\nUpdated from Claude Code.\n");
+    git(gitDir, ["add", "README.md"]);
+    git(gitDir, ["commit", "-m", "docs: claude readme (#42)"]);
+    const sha42 = git(gitDir, ["rev-parse", "HEAD"]);
+
+    // In-window Gemini CLI PR #43 (multi-task: 130 prod lines)
+    const geminiLines = Array.from({ length: 130 }, (_, i) => `export const g${i} = ${i};`).join("\n") + "\n";
+    writeFileSync(join(gitDir, "src/gemini.js"), geminiLines);
+    git(gitDir, ["add", "src/gemini.js"]);
+    git(gitDir, ["commit", "-m", "feat: gemini adapter (#43)"]);
+    const sha43 = git(gitDir, ["rev-parse", "HEAD"]);
+
+    // In-window Claude Code fix-up PR #44: overwrites 2 of PR #10's lines in src/matured.js
+    const churnedLines = [
+      "export const m0 = 100;",
+      "export const m1 = 101;",
+      ...Array.from({ length: 8 }, (_, i) => `export const m${i + 2} = ${i + 2};`),
+    ].join("\n") + "\n";
+    writeFileSync(join(gitDir, "src/matured.js"), churnedLines);
+    git(gitDir, ["add", "src/matured.js"]);
+    git(gitDir, ["commit", "-m", "fix: follow-up on #10 (#44)"]);
+    const sha44 = git(gitDir, ["rev-parse", "HEAD"]);
+
+    // Copilot work-ledger only records Copilot PR #41 (and older #10); Claude/Gemini PRs #43 and #44 have no work-ledger entries
+    const ledgerDir = join(root, "ledger");
+    mkdirSync(ledgerDir, { recursive: true });
+    writeFileSync(
+      join(ledgerDir, "ledger.json"),
+      JSON.stringify({
+        units: {
+          "org/app#10": { repo: "org/app", evidence: [{ kind: "validated", sha: sha10 }] },
+          "org/app#41": { repo: "org/app", evidence: [{ kind: "validated", sha: sha41 }] },
+        },
+        validations: [],
+      }),
+    );
+
+    // ~/.copilot/session-state has sessions for #10, #41, and another repo, but NONE for #42, #43, or #44
+    const sessionsDir = join(root, "sessions");
+    mkdirSync(join(sessionsDir, "s-10"), { recursive: true });
+    mkdirSync(join(sessionsDir, "s-41"), { recursive: true });
+    mkdirSync(join(sessionsDir, "s-other"), { recursive: true });
+    writeFileSync(
+      join(sessionsDir, "s-10", "workspace.yaml"),
+      "id: s-10\nrepository: org/app\ncreated_at: 2026-10-30T09:00:00Z\n",
+    );
+    writeFileSync(
+      join(sessionsDir, "s-10", "events.jsonl"),
+      JSON.stringify({ timestamp: "2026-10-30T09:05:00Z", type: "assistant.message", data: { content: "Opened https://github.com/org/app/pull/10" } }) + "\n",
+    );
+    writeFileSync(
+      join(sessionsDir, "s-41", "workspace.yaml"),
+      "id: s-41\nrepository: org/app\ncreated_at: 2026-11-12T09:00:00Z\n",
+    );
+    writeFileSync(
+      join(sessionsDir, "s-41", "events.jsonl"),
+      [
+        JSON.stringify({ timestamp: "2026-11-12T09:00:00Z", type: "user.message", data: { content: "Implement feature 41" } }),
+        JSON.stringify({ timestamp: "2026-11-12T09:00:05Z", type: "assistant.turn_start", data: { turnId: "1" } }),
+        JSON.stringify({ timestamp: "2026-11-12T09:00:25Z", type: "assistant.message", data: { turnId: "1", content: "Opened https://github.com/org/app/pull/41 (relates to #42 and #43)" } }),
+        JSON.stringify({ timestamp: "2026-11-12T09:00:30Z", type: "user.message", data: { content: "Remember small PRs" } }),
+        JSON.stringify({ timestamp: "2026-11-12T09:00:35Z", type: "assistant.turn_start", data: { turnId: "2" } }),
+        JSON.stringify({ timestamp: "2026-11-12T09:00:45Z", type: "assistant.message", data: { turnId: "2", content: "Updated https://github.com/org/app/pull/41" } }),
+        JSON.stringify({ timestamp: "2026-11-12T09:00:46Z", type: "session.usage_checkpoint", data: { totalNanoAiu: 400000 } }),
+      ].join("\n") + "\n",
+    );
+    writeFileSync(
+      join(sessionsDir, "s-other", "workspace.yaml"),
+      "id: s-other\nrepository: org/other\ncreated_at: 2026-11-12T09:00:00Z\n",
+    );
+    writeFileSync(
+      join(sessionsDir, "s-other", "events.jsonl"),
+      JSON.stringify({ timestamp: "2026-11-12T09:05:00Z", type: "assistant.message", data: { content: "Opened https://github.com/org/other/pull/42" } }) + "\n",
+    );
+
+    // Intentionally pass in-window PRs out of numeric order (#44, #41, #43, #42) to verify sorted unmatchedPrNumbers
+    const prs = [
+      {
+        number: 10,
+        title: "feat: matured pr",
+        url: "https://github.com/org/app/pull/10",
+        createdAt: "2026-10-30T09:30:00Z",
+        mergedAt: "2026-10-30T10:00:00Z",
+        mergeCommit: { oid: sha10 },
+        headRefOid: sha10,
+        body: "Initial matured PR",
+        commits: [{ committedDate: "2026-10-30T09:20:00Z" }],
+        files: [{ path: "src/matured.js", additions: 10, deletions: 0 }],
+      },
+      {
+        number: 44,
+        title: "fix: follow-up on #10",
+        url: "https://github.com/org/app/pull/44",
+        createdAt: "2026-11-11T14:30:00Z",
+        mergedAt: "2026-11-11T15:00:00Z",
+        mergeCommit: { oid: sha44 },
+        headRefOid: sha44,
+        body: "Fixes #10 from Claude Code",
+        commits: [{ committedDate: "2026-11-11T14:20:00Z" }],
+        files: [{ path: "src/matured.js", additions: 2, deletions: 2 }],
+      },
+      {
+        number: 41,
+        title: "feat: copilot feature",
+        url: "https://github.com/org/app/pull/41",
+        createdAt: "2026-11-12T09:30:00Z",
+        mergedAt: "2026-11-12T10:00:00Z",
+        mergeCommit: { oid: sha41 },
+        headRefOid: sha41,
+        body: "Copilot PR",
+        commits: [{ committedDate: "2026-11-12T09:25:00Z" }],
+        files: [{ path: "src/copilot.js", additions: 20, deletions: 0 }],
+      },
+      {
+        number: 43,
+        title: "feat: gemini adapter",
+        url: "https://github.com/org/app/pull/43",
+        createdAt: "2026-11-13T11:00:00Z",
+        mergedAt: "2026-11-13T12:00:00Z",
+        mergeCommit: { oid: sha43 },
+        headRefOid: sha43,
+        body: "Gemini CLI PR",
+        commits: [
+          { committedDate: "2026-11-13T10:50:00Z" },
+          { committedDate: "2026-11-13T11:30:00Z" },
+        ],
+        files: [{ path: "src/gemini.js", additions: 130, deletions: 0 }],
+      },
+      {
+        number: 42,
+        title: "docs: claude readme",
+        url: "https://github.com/org/app/pull/42",
+        createdAt: "2026-11-12T13:30:00Z",
+        mergedAt: "2026-11-12T14:00:00Z",
+        mergeCommit: { oid: sha42 },
+        headRefOid: sha42,
+        body: "Claude Code docs PR",
+        commits: [{ committedDate: "2026-11-12T13:20:00Z" }],
+        files: [{ path: "README.md", additions: 2, deletions: 0 }],
+      },
+    ];
+
+    const sessOut = analyzeSessions(prs, {
+      sessionsDir,
+      repo: "org/app",
+      windowPrNumbers: [44, 41, 43, 42],
+    });
+    assert.equal(sessOut.mappedCount, 1);
+    assert.deepEqual(sessOut.unmatchedPrNumbers, [42, 43, 44], "unmatchedPrNumbers must be sorted ascending");
+    for (const unmatchedNum of [42, 43, 44]) {
+      assert.deepEqual(sessOut.perPr[unmatchedNum], {
+        sessionId: null,
+        sharedSession: false,
+        attribution: "unmatched_non_copilot_or_missing_session",
+        totalNanoAiu: null,
+        modelCalls: null,
+        duplicateReadRate: null,
+        ownerRepeatMessages: null,
+        activeSec: null,
+        humanWaitSec: null,
+        parallelismFactor: null,
+        timeBuckets: null,
+      });
+    }
+
+    const mixed = collectMetrics({
+      repo: "org/app",
+      prs,
+      from: "2026-11-08T12:00:00Z",
+      to: "2026-11-15T12:00:00Z",
+      maturityDays: 14,
+      checkoutDir: gitDir,
+      ledgerDir,
+      sessionsDir,
+    });
+
+    // 1. All Git and GitHub metrics remain intact across Copilot + Claude + Gemini PRs
+    assert.equal(mixed.mergedPrCount, 4);
+    assert.equal(mixed.durability.codeSurvival.survivingLines, 8);
+    assert.equal(mixed.durability.codeSurvival.addedLines, 10);
+    assert.equal(mixed.durability.codeSurvival.rate, 0.8);
+    assert.equal(mixed.durability.fixupStatus, "ok");
+    assert.equal(mixed.durability.fixupPrCount, 1);
+    assert.equal(mixed.autonomy.firstPushGreenCount, 3);
+    assert.equal(mixed.autonomy.commitInfoCount, 4);
+    assert.equal(mixed.autonomy.firstPushGreenRate, 0.75);
+    assert.equal(mixed.medianProdLines, 12); // median of [0, 4, 20, 130] -> (4 + 20) / 2 = 12
+    assert.equal(mixed.routeBuckets.trivial.count, 1);
+    assert.equal(mixed.routeBuckets.small.count, 2);
+    assert.equal(mixed.routeBuckets["multi-task"].count, 1);
+    assert.equal(mixed.routeBuckets["multi-task"].medianProdLines, 130);
+    assert.equal(mixed.verification.verifiedCount, 2); // #41 ledger + #42 exempt_no_prod_code
+    assert.equal(mixed.verification.verifiableCount, 4);
+    assert.equal(mixed.verification.rate, 0.5);
+
+    // 2. Session-only metrics cover ONLY matched Copilot PR #41 without cross-attribution or null crashes
+    assert.equal(mixed.routeBuckets.trivial.uniqueSessions, 0);
+    assert.equal(mixed.routeBuckets.trivial.medianNanoAiu, null);
+    assert.equal(mixed.routeBuckets["multi-task"].uniqueSessions, 0);
+    assert.equal(mixed.routeBuckets["multi-task"].meanModelCalls, null);
+    assert.equal(mixed.routeBuckets.small.uniqueSessions, 1);
+    assert.equal(mixed.routeBuckets.small.medianNanoAiu, 400000);
+    assert.equal(mixed.routeBuckets.small.meanModelCalls, 2);
+    assert.deepEqual(mixed.autonomy.unmatchedPrNumbers, [42, 43, 44]);
+    assert.equal(mixed.autonomy.ownerRepeatMessages, 1);
+    assert.equal(mixed.durableFirstPassYield.status, "ok");
+    assert.equal(mixed.durableFirstPassYield.eligibleCount, 1); // #41 only
+
+    const mixedMd = formatMarkdownReport(mixed);
+    assert.match(
+      mixedMd,
+      /\| Unmatched PRs \(non-Copilot or missing session\) \| unmatched_non_copilot_or_missing_session on #42, #43, #44 \| observe \|/,
+    );
+    assert.doesNotMatch(mixedMd, /n\/a \(ok\)/);
+
+    // 3. All-unmatched window (only non-Copilot PRs #42, #43, #44 in window; mappedCount === 0 while windowPrs.length > 0)
+    const nonCopilotOnly = collectMetrics({
+      repo: "org/app",
+      prs: prs.filter((p) => p.number !== 41),
+      from: "2026-11-08T12:00:00Z",
+      to: "2026-11-15T12:00:00Z",
+      maturityDays: 14,
+      checkoutDir: gitDir,
+      ledgerDir,
+      sessionsDir,
+    });
+    assert.equal(nonCopilotOnly.mergedPrCount, 3);
+    assert.deepEqual(nonCopilotOnly.autonomy.unmatchedPrNumbers, [42, 43, 44]);
+    assert.equal(
+      nonCopilotOnly.autonomy.ownerRepeatMessages,
+      null,
+      "must NOT report ownerRepeatMessages as 0 when mappedCount === 0 and windowPrs.length > 0",
+    );
+    assert.equal(
+      nonCopilotOnly.durableFirstPassYield.status,
+      "unmatched_non_copilot_or_missing_session",
+      "yieldStatus must report unmatched_non_copilot_or_missing_session when all in-window PRs lack Copilot sessions",
+    );
+    assert.equal(nonCopilotOnly.durableFirstPassYield.rate, null);
+
+    const nonCopilotMd = formatMarkdownReport(nonCopilotOnly);
+    assert.match(
+      nonCopilotMd,
+      /\| Durable first-pass yield \| n\/a \(unmatched_non_copilot_or_missing_session\) \| 90\.0% or higher \|/,
+    );
+    assert.match(
+      nonCopilotMd,
+      /\| Owner repeat-rule messages \(matched sessions\) \| n\/a \(unmatched_non_copilot_or_missing_session\) \| 0 \|/,
+    );
+    assert.match(
+      nonCopilotMd,
+      /\| Unmatched PRs \(non-Copilot or missing session\) \| unmatched_non_copilot_or_missing_session on #42, #43, #44 \| observe \|/,
+    );
+    assert.doesNotMatch(
+      nonCopilotMd,
+      /\| Owner repeat-rule messages \(matched sessions\) \| 0 \|/,
+    );
+    assert.doesNotMatch(nonCopilotMd, /n\/a \(ok\)/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(gitDir, { recursive: true, force: true });
   }
 });
