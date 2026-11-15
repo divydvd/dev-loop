@@ -478,6 +478,18 @@ Trivial UI text changes need no new plan or mockup.
 2. Run `node scripts/check.mjs`.
 3. After the merge, run `copilot plugin update dev-loop@dev-loop` on each computer. The weekly review does this at its start.
 
+### GitHub releases
+After all checks pass for a push to `main`, CI publishes the version from `plugin.json` if that release does not exist.
+Each [release](https://github.com/divydvd/dev-loop/releases) has a `v<version>` tag, the matching `CHANGELOG.md` notes, and GitHub source ZIP/TAR downloads.
+The tag points to the exact commit that passed the checks. PR runs and failed checks cannot publish.
+An unchanged version does not create another release. Existing releases remain unchanged.
+The first release uses the version merged with this workflow; CI does not create historical releases.
+Use a stable version such as `0.5.16` and one nonempty changelog section for that version.
+If a tag exists without a release, CI uses it only when it points to the checked commit.
+A conflicting tag or API failure stops the release job. Correct the cause, then rerun the failed job.
+The release job alone has `contents: write` permission. It does not change merge approvals or publish to package registries.
+Run `node --test scripts/release.test.mjs` to check publication against a local HTTP API without creating GitHub releases.
+
 To resolve PR conflicts, merge the PR's current base into its working branch.
 Preserve both sets of changes, then rerun the required checks and review before requesting merge approval.
 Do not merge into the default branch locally, rebase, or force push.

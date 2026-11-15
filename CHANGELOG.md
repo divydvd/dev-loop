@@ -2,6 +2,12 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.16 (2026-11-15)
+- **Publish checked versions in GitHub Releases.**
+  - **What:** Add a main-only release job after the complete check job. Publish `v<version>` from `plugin.json` with matching changelog notes and GitHub source downloads. Preserve existing releases and conflicting tags. Keep write permission in the release job.
+  - **Why:** GitHub had no releases or tags, although this repository had versioned manifests and changelog entries. The existing workflow only ran checks.
+  - **Check:** Run `node --test scripts/release.test.mjs` and `node scripts/check.mjs`. The CLI tests cover exact release data, repeat runs, matching annotated tags, conflicts, invalid metadata, and API failures. After merge, confirm that the main run publishes one release with ZIP/TAR downloads.
+
 ## 0.5.15 (2026-11-15)
 - **Add Gemini CLI `0.32.1` extension adapter, byte-synced `GEMINI.md`, and Gemini host guide (Milestone M3).**
   - **What:** Add root `gemini-extension.json` (`contextFileName: "GEMINI.md"`), root `GEMINI.md` (`5,304` bytes) synced byte-for-byte from the body of `com.github.copilot/rules/core.mdc` via `scripts/sync-host-core.mjs`, `description` parity plus host-manifest/`GEMINI.md` regular-file containment, required `references/hosts/gemini.md` check, and combined self-repository `15,000`-byte startup ceiling validation in `scripts/check.mjs`, and `skills/dev-loop/references/hosts/gemini.md` linked from `skills/dev-loop/references/hosts/README.md` (with explicit `skills/dev-loop/` relative path clarification).
