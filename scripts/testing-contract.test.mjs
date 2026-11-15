@@ -367,6 +367,8 @@ test("T-IR8: infra review and project profile are host-aware across Copilot, Cla
   assert.match(measure, /highest active host/i);
   assert.ok(measure.includes("unmatched_non_copilot_or_missing_session"));
   assert.match(measure, /Owner repeat-rule messages.*n\/a \(unmatched_non_copilot_or_missing_session\)/i);
+  assert.match(measure, /sessions_unavailable|status: "unavailable"|n\/a \(unavailable\)/);
+  assert.match(measure, /ledger.*fix-up|prerequisite|ledger_unavailable/i);
   assert.match(measure, /work-ledger.*Copilot-only|Copilot-only.*work-ledger/i);
   assert.match(measure, /instructions only/i);
 
