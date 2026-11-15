@@ -339,3 +339,52 @@ test("infra review defines 5-box active work time, parallelismFactor, and qualit
   const readme = read("README.md");
   assert.ok(readme.includes("T-IR7"), "README must document T-IR7 speed application check");
 });
+
+test("T-IR8: infra review and project profile are host-aware across Copilot, Claude Code, and Gemini CLI", () => {
+  const infra = read("skills/infra-review/SKILL.md");
+  const collect = infra.split("## 1. Collect")[1]?.split("## 2. Measure")[0] ?? "";
+  const measure = infra.split("## 2. Measure")[1]?.split("## 3. Find the faults")[0] ?? "";
+  const output = infra.split("## 5. Output")[1] ?? "";
+
+  // Step 1.1: active-host refresh commands + source checkout verification
+  assert.ok(collect.includes("copilot plugin update dev-loop@dev-loop"));
+  assert.ok(collect.includes("claude plugin update dev-loop@dev-loop"));
+  assert.ok(collect.includes("gemini extensions update dev-loop"));
+  assert.match(collect, /origin\/main/);
+
+  // Step 1.2: multi-host repo discovery
+  assert.ok(collect.includes(".github/copilot/settings.json"));
+  assert.ok(collect.includes(".claude/settings.json"));
+  assert.match(collect, /gemini.*extension|\.gemini/i);
+
+  // Step 2: 17-row table preserved, per-host startup KB (highest active host), matched-Copilot-only session telemetry, Copilot-only work-ledger
+  const mainTable = measure.split("### Shadow-mode objective telemetry")[0] ?? "";
+  const dataRows = mainTable.split("\n").filter((line) => /^\| (?!Measure|---)/.test(line));
+  assert.equal(dataRows.length, 17, "infra-review main table must keep all 17 rows");
+  assert.match(measure, /CLAUDE\.md/);
+  assert.match(measure, /SessionStart/);
+  assert.match(measure, /GEMINI\.md/);
+  assert.match(measure, /highest active host/i);
+  assert.ok(measure.includes("unmatched_non_copilot_or_missing_session"));
+  assert.match(measure, /Owner repeat-rule messages.*n\/a \(unmatched_non_copilot_or_missing_session\)/i);
+  assert.match(measure, /work-ledger.*Copilot-only|Copilot-only.*work-ledger/i);
+  assert.match(measure, /instructions only/i);
+
+  // Step 5: Core PR bumps all 5 manifests + sync-host-core.mjs
+  for (const manifest of [
+    "plugin.json",
+    ".github/plugin/marketplace.json",
+    ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
+    "gemini-extension.json",
+  ]) {
+    assert.ok(output.includes(manifest), `Step 5 Core PR must list ${manifest}`);
+  }
+  assert.match(output, /sync-host-core\.mjs/);
+
+  // Project profile stays <= 5.5 KB and host-accurate
+  assert.ok(Buffer.byteLength(profile, "utf8") <= 5500, "project-profile.md must stay <= 5.5 KB");
+  assert.match(profile, /plugin or extension/i);
+  assert.match(profile, /precedence over skill instructions, including Superpowers/);
+});
+
