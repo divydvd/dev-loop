@@ -1512,6 +1512,22 @@ test("T-M5: multi-host README matrix, T-IR8, rule/check map, CHANGELOG, and 0.5.
     assert.ok(readme.includes(hostToken), `README.md missing expected M5 token: ${hostToken}`);
   }
 
+  // Supported hosts separates installed verification from <dev-loop-checkout> source validation,
+  // and distinguishes CI structural checks from local isolated temporary-home CLI runs
+  const supportedHosts = section(readme, "## Supported hosts");
+  assert.doesNotMatch(supportedHosts, /claude plugin validate --strict \./);
+  assert.doesNotMatch(supportedHosts, /gemini extensions validate \./);
+  assert.match(supportedHosts, /claude plugin validate --strict <dev-loop-checkout>/);
+  assert.match(supportedHosts, /gemini extensions validate <dev-loop-checkout>/);
+  assert.doesNotMatch(supportedHosts, /harness checks run in CI\b/i);
+  assert.match(supportedHosts, /CI runs structural/i);
+
+  // Objective infra-review telemetry distinguishes available ~/.copilot/session-state with unmatched PRs from absent session-state (unavailable / sessions_unavailable)
+  const telemetrySection = section(readme, "## Objective infra-review telemetry");
+  assert.match(telemetrySection, /unmatched_non_copilot_or_missing_session/);
+  assert.match(telemetrySection, /unavailable/);
+  assert.match(telemetrySection, /sessions_unavailable/);
+
   // Only one Rule/check map table exists (no second rule inventory), and it covers M2/M3/M5 limits
   const mapHeadings = [...readme.matchAll(/^## Rule\/check map$/gm)];
   assert.equal(mapHeadings.length, 1, "README.md must have exactly one ## Rule/check map section");
