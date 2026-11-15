@@ -1,27 +1,43 @@
 # dev-loop
 
-A Copilot plugin that lets one session run the full development loop from one line of input: plan, build, test, update the docs, review, and open a PR. It works on top of [Superpowers](https://github.com/obra/superpowers) and does not change it. A weekly review improves the plugin from the feedback in each PR.
+A multi-host plugin and extension (GitHub Copilot, Claude Code, and Gemini CLI) that lets one session run the full development loop from one line of input: plan, build, test, update the docs, review, and open a PR. It works on top of [Superpowers](https://github.com/obra/superpowers) and does not change it. A weekly review improves the plugin from the feedback in each PR.
 
 ## What it contains
 | Part | Path | Job |
 | --- | --- | --- |
-| Core rules | `com.github.copilot/rules/core.mdc` | The owner's standing instructions. Always on in a repo that turns on the plugin. |
+| Core rules | `com.github.copilot/rules/core.mdc` | The owner's single authoritative standing instructions (`<= 60` lines). Loaded directly in Copilot, injected on `SessionStart` in Claude Code, and mirrored byte-for-byte in `GEMINI.md`. |
+| Host adapters and core sync | `plugin.json`, `.claude-plugin/`, `gemini-extension.json`, `GEMINI.md`, `hooks/`, `scripts/sync-host-core.mjs`, `skills/dev-loop/references/hosts/` | Per-host manifests, Claude `SessionStart` injection, Gemini startup context mirror, and runtime-selected host delta guides (`copilot.md`, `claude.md`, `gemini.md`). |
 | `dev-loop` skill | `skills/dev-loop/` | The loop for one task: route, plan, build, flow docs, self-review, verify, PR, and report. Templates: the acceptance record, the PR body, and the project profile. |
 | `design-review` skill | `skills/design-review/` | Optional fresh-context review of a saved design before the existing owner approval. |
 | `flow-docs` skill | `skills/flow-docs/` | Read, update, and create the flow docs in `docs/flows/`. |
-| `infra-review` skill | `skills/infra-review/` | The weekly review that improves this plugin and the project profiles. |
-| Check script | `scripts/check.mjs` | Exact checks: the rule size, the frontmatter, the links, and the versions. CI runs it on each PR. |
+| `infra-review` skill | `skills/infra-review/` | The weekly review that improves this plugin and the project profiles across enabled hosts. |
+| Check script | `scripts/check.mjs` | Exact checks: the rule size, the frontmatter, the links, the 5 host manifests, `GEMINI.md` byte parity, hook isolation, and the `15 KB` startup ceiling. CI runs it on each PR. |
+| Portability contract tests | `scripts/portability-contract.test.mjs` | Regression checks for multi-host manifests, `GEMINI.md` sync, Claude `SessionStart` hook isolation, Gemini CLI packaging, and host guides. |
 | Device handoff tests | `scripts/device-handoff.test.mjs` | Regression checks for passing-build retention, monitor grants, and authorized post-merge refresh instructions. |
 | Independent review tests | `scripts/independent-review.test.mjs` | Regression checks for review scope, coverage reuse, exemptions, and readiness evidence. |
 | Testing contract checks | `scripts/testing-contract.test.mjs` | Structural checks for test planning, evidence fields, coverage review, and readiness instructions. |
-| Objective metrics collector | `scripts/collect-metrics.mjs` | Read-only shadow-mode collector for 14-day code survival, Git-ancestry ledger verification, autonomy, and route-bucketed `totalNanoAiu`. |
+| Objective metrics collector | `scripts/collect-metrics.mjs` | Read-only shadow-mode collector for 14-day code survival, Git-ancestry ledger verification, autonomy, route-bucketed `totalNanoAiu`, and mixed-host `unmatched_non_copilot_or_missing_session` PR reporting. |
 | Executable benchmark runner | `scripts/run-benchmark.mjs` | Isolated Git sandbox runner and anti-tampering oracle grader for baseline-vs-candidate plugin comparisons (`B1–B6`). |
-| Work-ledger source | `tools/work-ledger/` | Separate SDK extension with classification corrections, scoped controls, and verified local Maven recovery. Owner installation remains outstanding. The plugin does not load it. |
+| Work-ledger source | `tools/work-ledger/` | Separate Copilot SDK extension with classification corrections, scoped controls, and verified local Maven recovery. Owner installation remains outstanding. The plugin does not load it, and it does not run on Claude Code or Gemini CLI. |
 
 ## Layers
 1. **Superpowers:** the process skills (brainstorming, plans, TDD, debugging, review).
 2. **dev-loop (this repo):** the generic rules and skills.
 3. **The project:** the profile in `AGENTS.md`, the project skills, and the flow docs.
+
+## Supported hosts
+Select the host guide in `skills/dev-loop/references/hosts/` from the active runtime environment and available tools, never from the model ID.
+
+| Host (verified CLI) | Install | Enable in a project | Verify | Uninstall | Runtime `work-ledger` guards |
+| --- | --- | --- | --- | --- | --- |
+| **GitHub Copilot** (`1.0.106-8`) | `copilot plugin marketplace add obra/superpowers-marketplace && copilot plugin install superpowers@superpowers-marketplace && copilot plugin disable superpowers@superpowers-marketplace` then `copilot plugin marketplace add divydvd/dev-loop && copilot plugin install dev-loop@dev-loop && copilot plugin disable dev-loop@dev-loop` | `.github/copilot/settings.json` with `"dev-loop@dev-loop": true` and `"superpowers@superpowers-marketplace": true` in a trusted folder | `copilot instruction list` and `copilot skill list` | `copilot plugin uninstall dev-loop@dev-loop` | Copilot SDK extension (`tools/work-ledger`, installed separately) |
+| **Claude Code** (`2.1.299`) | `claude plugin marketplace add obra/superpowers-marketplace && claude plugin install superpowers@superpowers-marketplace && claude plugin disable superpowers@superpowers-marketplace` then `claude plugin marketplace add divydvd/dev-loop && claude plugin install dev-loop@dev-loop && claude plugin disable dev-loop@dev-loop` | `.claude/settings.json` with `"enabledPlugins": { "superpowers@superpowers-marketplace": true, "dev-loop@dev-loop": true }` | Installed: `claude plugin list` (source manifest: `claude plugin validate --strict <dev-loop-checkout>`) | `claude plugin uninstall dev-loop@dev-loop` | `none` (`core.mdc` rules are instructions only) |
+| **Gemini CLI** (`0.32.1`) | `gemini extensions install https://github.com/obra/superpowers` and `gemini extensions install https://github.com/divydvd/dev-loop` (or `gemini extensions link <path>`) | `gemini extensions enable dev-loop` (after `gemini extensions disable dev-loop` outside target scopes) | Installed: `gemini extensions list` and `gemini skills list` (source manifest: `gemini extensions validate <dev-loop-checkout>`) | `gemini extensions uninstall dev-loop` | `none` (`core.mdc` rules are instructions only) |
+| **Codex** (`planned` — gated on local Codex runtime installation; not yet verified) | `n/a` (not yet packaged) | `n/a` | `n/a` | `n/a` | `none` |
+
+CI runs structural manifest, `GEMINI.md` sync, and `hooks/session-start` shell checks without installing host CLIs (`T-M2-2` skips when `claude` is absent).
+Offline host CLI validation (`COPILOT_HOME` install/list, `CLAUDE_CONFIG_DIR` `claude plugin validate` plus `SessionStart` wire-capture, and `GEMINI_CLI_HOME` `gemini extensions validate` plus `--fake-responses` harness checks) runs locally in isolated temporary homes without touching `~/.copilot`, `~/.claude`, or `~/.gemini`.
+Live vendor-API LLM verification (`T-M2-7` on Claude Code and `T-M3-7` on Gemini CLI) requires local host sign-in (`claude auth login` or Google/Gemini API credentials).
 
 ## Install (one time on each computer)
 Run these commands in a terminal:
@@ -101,6 +117,8 @@ Run `node scripts/collect-metrics.mjs --repo <owner/repo> --checkout <path> --fr
 The script evaluates 14-day production line survival on mature PRs (`mergedAt <= to - 14d`) and detects 14-day fix-up PRs from explicit `#<N>` references and bug-fix `git blame` churn.
 It checks `work-ledger` validations at `headRefOid` and across docs-only first-parent Git ancestors while rejecting untested production edits after a tested SHA.
 It classifies PRs into `trivial`, `small`, and `multi-task` routes, reads the latest cumulative `totalNanoAiu` checkpoint, resets duplicate file-read tracking after edits, computes merged `activeSec` (excluding `humanWaitSec` and idle gaps) across five bottleneck buckets (`modelSec`, `buildTestSec`, `pollSec`, `subagentSec`, `ioOtherSec`) plus `parallelismFactor`, and marks shared multi-PR sessions `ambiguous` instead of duplicating cost or speed.
+When `~/.copilot/session-state` exists (`sessionAnalysis.status === "ok"`), `scripts/collect-metrics.mjs` still computes all Git and GitHub durability and verification measures for non-Copilot PRs (such as Claude Code or Gemini CLI PRs) or missing transcripts, marks each unmatched PR as `unmatched_non_copilot_or_missing_session` with `null` session-only fields, and reports `n/a (unmatched_non_copilot_or_missing_session)` instead of `0` for repeat messages (and for `Durable first-pass yield` once ledger and fix-up prerequisites pass) when `mappedCount === 0` while `mergedPrCount > 0`.
+When `~/.copilot/session-state` is absent, session analysis preserves `unavailable` (`n/a (unavailable)` for repeat messages and unmatched PRs, and `sessions_unavailable` or an earlier prerequisite status such as `ledger_unavailable` for `Durable first-pass yield`).
 In Section 4 of `infra-review`, keep `Durable first-pass yield` at `90.0%` or higher before prioritizing route-bucketed `totalNanoAiu`, duplicate-read, or `dominantBottleneck` (`activeSec` / `parallelismFactor`) reductions.
 Propose to remove or automate non-safety manual checks or PR template lines that record zero confirmed catches across 4 consecutive observed weekly reviews (`n/a` weeks excluded), while keeping all mandatory safety approvals and Git history guards intact.
 No `core.mdc` rule or `assets/pr-body.md` field changes.
@@ -117,6 +135,7 @@ Use `writing-skills` with five fresh consuming agents per phase on the fixed `M1
 | T-IR5 | `Durable first-pass yield` `60.0%` (3 untested post-SHA PRs) vs `95.0%` (`multi-task` high `totalNanoAiu` & dup reads) | Enforce `90.0%` quality floor first; above `90.0%`, target recurring waste in the highest-cost task route |
 | T-IR6 | 4 consecutive observed reviews with `0` catches on a manual PR prose line vs typed `merge #N` approval, plus `1/2` minor miss & `n/a` weeks | Propose pruning/automating only the non-safety prose line; preserve safety gates and ignore `n/a` or sub-threshold counts |
 | T-IR7 | `Durable first-pass yield` `75.0%` under owner speed request vs `95.0%` (`small` has low `totalNanoAiu` but `26m` `activeSec` led by `pollSec` + `1.0x` `parallelismFactor`; `trivial` has `182m` `ask_user` wait) | Hold `90.0%` floor first; at `95.0%`, ignore `humanWaitSec` and `1`-session routes, keep shared sessions `ambiguous`, and target `small`'s `pollSec` / serial subagent bottleneck |
+| T-IR8 | Mixed Copilot, Claude Code, and Gemini CLI repos (`example/mixed-app` + Claude-only `example/claude-service`) | Refresh active host (`copilot`/`claude`/`gemini` or synced `origin/main`), discover `.claude` and Gemini repos, report highest active-host startup KB (`14.2 KB` Gemini CLI), mark non-Copilot PRs `unmatched_non_copilot_or_missing_session` (`n/a`, never `0`, when `mappedCount === 0`), disclose Copilot-only `work-ledger` runtime guards (`P12`), and bump all 5 manifests on Core PRs |
 
 Run `node scripts/check.mjs`, `node --test scripts/collect-metrics.test.mjs`, `node --test scripts/testing-contract.test.mjs`, and temporary-home discovery.
 
@@ -182,9 +201,9 @@ Source tests and structural checks do not prove that an agent followed an instru
 | Require independent review before substantive PR readiness | [Review instructions](skills/dev-loop/SKILL.md) | [Independent review suite](scripts/independent-review.test.mjs) | Structural checks preserve the instruction contract; they do not block an agent that skips review. |
 | Keep required coverage gaps visible | [Testing instructions](skills/dev-loop/references/testing.md) | [Testing contract suite](scripts/testing-contract.test.mjs) | Structural checks and sampled consuming-agent cases do not prove coverage of every future task. |
 | Guard protected Git history operations | [Work-ledger policy](tools/work-ledger/lib/policy.mjs) | [Guard policy suite](tools/work-ledger/guard-policy.test.mjs) | Runtime policy source is separate from the plugin. Source tests do not verify live installation; supported scoped controls can pause individual checks. |
-| Collect shadow-mode objective weekly metrics without estimating missing data | [Metrics collector](scripts/collect-metrics.mjs) | [Metrics collector suite](scripts/collect-metrics.test.mjs) | Read-only shadow-mode report; it does not block merges, verify unrecorded local runs, or disambiguate cost inside shared multi-PR sessions. |
+| Collect shadow-mode objective weekly metrics without estimating missing data | [Metrics collector](scripts/collect-metrics.mjs) | [Metrics collector suite](scripts/collect-metrics.test.mjs) | Read-only shadow-mode report; it does not block merges, verify unrecorded local runs, disambiguate shared multi-PR sessions, or collect non-Copilot session transcripts (when `~/.copilot/session-state` exists, Claude Code and Gemini CLI PRs report `unmatched_non_copilot_or_missing_session` for session-only fields while Git and GitHub metrics still run; when `~/.copilot/session-state` is absent, session metrics stay `unavailable`). |
 | Grade baseline-vs-candidate harness runs against hidden oracles and test/history integrity | [Benchmark runner](scripts/run-benchmark.mjs) | [Benchmark suite](scripts/run-benchmark.test.mjs) | CI runs deterministic local drivers with zero AI credits; live `copilot` A/B comparisons run on demand and cover six canonical task shapes, not every project runtime. |
-| Keep multi-host manifests, core-rule mirrors, host capability guides, and the 15 KB startup budget synchronized | [Plugin check](scripts/check.mjs) | [Portability contract suite](scripts/portability-contract.test.mjs) | Structural checks verify file sync, nested reference links, and `COPILOT_CLI=1` hook suppression; they do not prove runtime host compliance or install live `work-ledger` guards. |
+| Keep multi-host manifests, core-rule mirrors, host capability guides, and the 15 KB startup budget synchronized | [Plugin check](scripts/check.mjs), [Core sync](scripts/sync-host-core.mjs) | [Portability contract suite](scripts/portability-contract.test.mjs) | Structural checks verify 5-manifest version sync, `.claude-plugin/hooks.json` isolation (`COPILOT_CLI`/`GEMINI_PROJECT_DIR` suppression), `gemini-extension.json` and `GEMINI.md` byte parity, nested reference links, and `15 KB` startup ceilings; they do not prove runtime host compliance or install Copilot-only `work-ledger` guards. |
 
 Infra review uses this map before adding another rule or check.
 Select additions from repeated or costly incidents, not a goal to map every instruction.
@@ -484,7 +503,7 @@ Each [release](https://github.com/divydvd/dev-loop/releases) has a `v<version>` 
 The tag points to the exact commit that passed the checks. PR runs and failed checks cannot publish.
 An unchanged version does not create another release. Existing releases remain unchanged.
 The first release uses the version merged with this workflow; CI does not create historical releases.
-Use a stable version such as `0.5.16` and one nonempty changelog section for that version.
+Use a stable version such as `0.5.17` and one nonempty changelog section for that version.
 If a tag exists without a release, CI uses it only when it points to the checked commit.
 A conflicting tag or API failure stops the release job. Correct the cause, then rerun the failed job.
 The release job alone has `contents: write` permission. It does not change merge approvals or publish to package registries.

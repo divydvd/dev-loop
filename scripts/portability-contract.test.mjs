@@ -1393,6 +1393,7 @@ test("T-M3-2: repository ships gemini-extension.json and byte-identical GEMINI.m
 
   const geminiExt = JSON.parse(readFileSync(geminiExtPath, "utf8"));
   assert.equal(geminiExt.name, "dev-loop");
+  assert.notEqual(plugin.version, "0.5.14");
   assert.equal(geminiExt.version, plugin.version);
   assert.equal(geminiExt.version, marketplace.metadata.version);
   assert.equal(geminiExt.version, claudePlugin.version);
@@ -1464,6 +1465,76 @@ test("T-M3-3: Gemini CLI host guide is required by checkRepo, linked from hosts/
   assert.match(geminiHost, /work_ledger_record/);
   assert.match(geminiHost, /tools\/work-ledger/);
   assert.match(geminiHost, /copilot-pull-request-reviewer/);
+
+  assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
+});
+
+test("T-M5: multi-host README matrix, T-IR8, rule/check map, CHANGELOG, and manifest sync", async () => {
+  const syncMod = await import("./sync-host-core.mjs");
+  const plugin = JSON.parse(readFileSync(join(REPO_ROOT, "plugin.json"), "utf8"));
+  const marketplace = JSON.parse(readFileSync(join(REPO_ROOT, ".github/plugin/marketplace.json"), "utf8"));
+  const claudePlugin = JSON.parse(readFileSync(join(REPO_ROOT, ".claude-plugin/plugin.json"), "utf8"));
+  const claudeMarketplace = JSON.parse(readFileSync(join(REPO_ROOT, ".claude-plugin/marketplace.json"), "utf8"));
+  const geminiExt = JSON.parse(readFileSync(join(REPO_ROOT, "gemini-extension.json"), "utf8"));
+
+  assert.equal(marketplace.metadata.version, plugin.version);
+  assert.equal(marketplace.plugins[0].version, plugin.version);
+  assert.equal(claudePlugin.version, plugin.version);
+  assert.equal(claudeMarketplace.metadata.version, plugin.version);
+  assert.equal(claudeMarketplace.plugins[0].version, plugin.version);
+  assert.equal(geminiExt.version, plugin.version);
+  assert.equal(syncMod.syncHostCore(REPO_ROOT, { check: true }).synced, true);
+
+  const changelog = readFileSync(join(REPO_ROOT, "CHANGELOG.md"), "utf8");
+  assert.match(changelog, /^## 0\.5\.16\b/m);
+
+  const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf8");
+  // Multi-host install / enable / verify / uninstall + runtime work-ledger guard matrix
+  for (const hostToken of [
+    "GitHub Copilot",
+    "1.0.106-8",
+    "Claude Code",
+    "2.1.299",
+    "Gemini CLI",
+    "0.32.1",
+    "Codex",
+    "planned",
+    "Runtime `work-ledger` guards",
+    "instructions only",
+    "T-M2-7",
+    "T-M3-7",
+    "T-IR8",
+    "unmatched_non_copilot_or_missing_session",
+    "scripts/sync-host-core.mjs",
+    "scripts/portability-contract.test.mjs",
+  ]) {
+    assert.ok(readme.includes(hostToken), `README.md missing expected M5 token: ${hostToken}`);
+  }
+
+  // Supported hosts separates installed verification from <dev-loop-checkout> source validation,
+  // and distinguishes CI structural checks from local isolated temporary-home CLI runs
+  const supportedHosts = section(readme, "## Supported hosts");
+  assert.doesNotMatch(supportedHosts, /claude plugin validate --strict \./);
+  assert.doesNotMatch(supportedHosts, /gemini extensions validate \./);
+  assert.match(supportedHosts, /claude plugin validate --strict <dev-loop-checkout>/);
+  assert.match(supportedHosts, /gemini extensions validate <dev-loop-checkout>/);
+  assert.doesNotMatch(supportedHosts, /harness checks run in CI\b/i);
+  assert.match(supportedHosts, /CI runs structural/i);
+
+  // Objective infra-review telemetry distinguishes available ~/.copilot/session-state with unmatched PRs from absent session-state (unavailable / sessions_unavailable)
+  const telemetrySection = section(readme, "## Objective infra-review telemetry");
+  assert.match(telemetrySection, /unmatched_non_copilot_or_missing_session/);
+  assert.match(telemetrySection, /unavailable/);
+  assert.match(telemetrySection, /sessions_unavailable/);
+
+  // Only one Rule/check map table exists (no second rule inventory), and it covers M2/M3/M5 limits
+  const mapHeadings = [...readme.matchAll(/^## Rule\/check map$/gm)];
+  assert.equal(mapHeadings.length, 1, "README.md must have exactly one ## Rule/check map section");
+  const ruleMap = readme.split("## Rule/check map")[1]?.split(/\n#{2,3} /)[0] ?? "";
+  assert.ok(ruleMap.includes(".claude-plugin/hooks.json"));
+  assert.ok(ruleMap.includes("gemini-extension.json"));
+  assert.ok(ruleMap.includes("GEMINI.md"));
+  assert.ok(ruleMap.includes("unmatched_non_copilot_or_missing_session"));
 
   assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
 });
