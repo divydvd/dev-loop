@@ -1393,7 +1393,6 @@ test("T-M3-2: repository ships gemini-extension.json and byte-identical GEMINI.m
 
   const geminiExt = JSON.parse(readFileSync(geminiExtPath, "utf8"));
   assert.equal(geminiExt.name, "dev-loop");
-  assert.equal(plugin.version, "0.5.15");
   assert.equal(geminiExt.version, plugin.version);
   assert.equal(geminiExt.version, marketplace.metadata.version);
   assert.equal(geminiExt.version, claudePlugin.version);

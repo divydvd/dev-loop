@@ -4,7 +4,7 @@ Each entry says what changed, why (the evidence), and how the next weekly review
 
 ## 0.5.16 (2026-11-15)
 - **Publish checked versions in GitHub Releases.**
-  - **What:** Add a main-only release job after the complete check job. Publish `v<version>` from `plugin.json` with matching changelog notes and GitHub source downloads. Preserve existing releases and conflicting tags. Keep write permission in the release job.
+  - **What:** Add a main-only release job after the complete check job. Publish `v<version>` from `plugin.json` with matching changelog notes and GitHub source downloads. Preserve existing releases and conflicting tags. Queue pending jobs instead of replacing them. Keep write permission in the release job. Remove the fixed version assertion from the Gemini parity test; keep all cross-manifest checks.
   - **Why:** GitHub had no releases or tags, although this repository had versioned manifests and changelog entries. The existing workflow only ran checks.
   - **Check:** Run `node --test scripts/release.test.mjs` and `node scripts/check.mjs`. The CLI tests cover exact release data, repeat runs, matching annotated tags, conflicts, invalid metadata, and API failures. After merge, confirm that the main run publishes one release with ZIP/TAR downloads.
 

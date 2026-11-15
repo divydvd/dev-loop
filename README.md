@@ -488,6 +488,7 @@ Use a stable version such as `0.5.16` and one nonempty changelog section for tha
 If a tag exists without a release, CI uses it only when it points to the checked commit.
 A conflicting tag or API failure stops the release job. Correct the cause, then rerun the failed job.
 The release job alone has `contents: write` permission. It does not change merge approvals or publish to package registries.
+Release jobs run one at a time, with up to 100 pending jobs. This prevents a newer push from replacing a pending release.
 Run `node --test scripts/release.test.mjs` to check publication against a local HTTP API without creating GitHub releases.
 
 To resolve PR conflicts, merge the PR's current base into its working branch.
