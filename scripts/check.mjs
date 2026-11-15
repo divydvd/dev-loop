@@ -189,32 +189,47 @@ function checkManifest() {
 
   for (const relManifest of [".claude-plugin/plugin.json", ".codex-plugin/plugin.json", "gemini-extension.json"]) {
     const hostPath = join(root, relManifest);
-    if (!existsSync(hostPath)) continue;
-    const host = readJson(hostPath);
+    if (!pathOrLinkExists(hostPath)) continue;
+    const safeHostPath = checkExistingFileInsideDir(root, relManifest);
+    if (!safeHostPath) {
+      fault(hostPath, "file is missing, is not a regular file, or escapes root");
+      continue;
+    }
+    const host = readJson(safeHostPath);
     if (!host) continue;
     if (host.name !== plugin.name) fault(hostPath, `name "${host.name}" differs from plugin.json name "${plugin.name}"`);
     if (host.version !== plugin.version) fault(hostPath, `version ${host.version} differs from plugin.json version ${plugin.version}`);
-    if (relManifest === "gemini-extension.json" && host.contextFileName !== "GEMINI.md") fault(hostPath, 'contextFileName must be "GEMINI.md"');
+    if (relManifest === "gemini-extension.json") {
+      if (typeof plugin.description === "string" && host.description !== plugin.description) {
+        fault(hostPath, "description differs from plugin.json description");
+      }
+      if (host.contextFileName !== "GEMINI.md") fault(hostPath, 'contextFileName must be "GEMINI.md"');
+    }
   }
 
   const claudeMarketPath = join(root, ".claude-plugin/marketplace.json");
-  if (existsSync(claudeMarketPath)) {
-    const claudeMarket = readJson(claudeMarketPath);
-    if (claudeMarket) {
-      if (claudeMarket.name !== plugin.name) {
-        fault(claudeMarketPath, `name "${claudeMarket.name}" differs from plugin.json name "${plugin.name}"`);
-      }
-      if (!Array.isArray(claudeMarket.plugins)) {
-        fault(claudeMarketPath, "plugins must be an array");
-      } else {
-        const claudeEntry = claudeMarket.plugins.find((p) => p?.name === plugin.name);
-        if (!claudeEntry) fault(claudeMarketPath, `no plugin entry named "${plugin.name}"`);
-        else if (claudeEntry.version !== plugin.version) {
-          fault(claudeMarketPath, `version ${claudeEntry.version} differs from plugin.json version ${plugin.version}`);
+  if (pathOrLinkExists(claudeMarketPath)) {
+    const safeClaudeMarketPath = checkExistingFileInsideDir(root, ".claude-plugin/marketplace.json");
+    if (!safeClaudeMarketPath) {
+      fault(claudeMarketPath, "file is missing, is not a regular file, or escapes root");
+    } else {
+      const claudeMarket = readJson(safeClaudeMarketPath);
+      if (claudeMarket) {
+        if (claudeMarket.name !== plugin.name) {
+          fault(claudeMarketPath, `name "${claudeMarket.name}" differs from plugin.json name "${plugin.name}"`);
         }
-      }
-      if (claudeMarket.metadata?.version !== undefined && claudeMarket.metadata.version !== plugin.version) {
-        fault(claudeMarketPath, `metadata.version ${claudeMarket.metadata.version} differs from plugin.json version ${plugin.version}`);
+        if (!Array.isArray(claudeMarket.plugins)) {
+          fault(claudeMarketPath, "plugins must be an array");
+        } else {
+          const claudeEntry = claudeMarket.plugins.find((p) => p?.name === plugin.name);
+          if (!claudeEntry) fault(claudeMarketPath, `no plugin entry named "${plugin.name}"`);
+          else if (claudeEntry.version !== plugin.version) {
+            fault(claudeMarketPath, `version ${claudeEntry.version} differs from plugin.json version ${plugin.version}`);
+          }
+        }
+        if (claudeMarket.metadata?.version !== undefined && claudeMarket.metadata.version !== plugin.version) {
+          fault(claudeMarketPath, `metadata.version ${claudeMarket.metadata.version} differs from plugin.json version ${plugin.version}`);
+        }
       }
     }
   }
@@ -254,15 +269,26 @@ function checkRules(agentsBytes) {
 
   const geminiExtPath = join(root, "gemini-extension.json");
   const geminiMdPath = join(root, "GEMINI.md");
-  if (existsSync(geminiExtPath) || existsSync(geminiMdPath)) {
-    if (!existsSync(geminiMdPath)) fault(geminiMdPath, "file is missing while gemini-extension.json is present");
-    else if (existsSync(corePath) && readFileSync(geminiMdPath, "utf8") !== stripFrontmatter(readFileSync(corePath, "utf8"))) {
-      fault(geminiMdPath, "content differs from com.github.copilot/rules/core.mdc body");
+  const hasGeminiExt = pathOrLinkExists(geminiExtPath);
+  const hasGeminiMd = pathOrLinkExists(geminiMdPath);
+  let validGeminiMdPath = null;
+  let geminiBytes = 0;
+  if (hasGeminiExt || hasGeminiMd) {
+    if (!hasGeminiExt) fault(geminiExtPath, "file is missing while GEMINI.md is present");
+    validGeminiMdPath = checkExistingFileInsideDir(root, "GEMINI.md");
+    if (!validGeminiMdPath) {
+      fault(geminiMdPath, "file is missing, is not a regular file, or escapes root");
+    } else {
+      const geminiText = readFileSync(validGeminiMdPath, "utf8");
+      geminiBytes = utf8Bytes(geminiText);
+      if (existsSync(corePath) && geminiText !== stripFrontmatter(readFileSync(corePath, "utf8"))) {
+        fault(geminiMdPath, "content differs from com.github.copilot/rules/core.mdc body");
+      }
     }
   }
 
-  checkStartupCeiling(rulesDir, agentsBytes + copilotRulesBytes);
-  if (existsSync(geminiMdPath)) checkStartupCeiling(geminiMdPath, agentsBytes + utf8Bytes(readFileSync(geminiMdPath, "utf8")));
+  checkStartupCeiling(rulesDir, agentsBytes + copilotRulesBytes + geminiBytes);
+  if (validGeminiMdPath) checkStartupCeiling(geminiMdPath, agentsBytes + 2 * geminiBytes);
 }
 
 function checkHooks(agentsBytes) {
@@ -496,7 +522,12 @@ function checkSkills() {
       for (const mdFile of walkMarkdownFiles(skillDir, join(skillDir, subdir))) checkSkillLinks(skillDir, mdFile, readFileSync(mdFile, "utf8"));
     }
     if (name === "dev-loop") {
-      for (const reqRel of ["references/hosts/README.md", "references/hosts/copilot.md", "references/hosts/claude.md"]) {
+      for (const reqRel of [
+        "references/hosts/README.md",
+        "references/hosts/copilot.md",
+        "references/hosts/claude.md",
+        "references/hosts/gemini.md",
+      ]) {
         if (!checkExistingFileInsideDir(skillDir, reqRel)) fault(join(skillDir, reqRel), `required host reference ${reqRel} is missing`);
       }
     }

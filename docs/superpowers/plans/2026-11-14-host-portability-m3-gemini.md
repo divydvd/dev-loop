@@ -1,0 +1,220 @@
+# Milestone M3: Gemini CLI Host Adapter Implementation Plan (`0.5.15`)
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` and `superpowers:test-driven-development` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Add the Gemini CLI `0.32.1` extension adapter (`gemini-extension.json`, byte-synced `GEMINI.md`, `scripts/sync-host-core.mjs`, and `skills/dev-loop/references/hosts/gemini.md` at `v0.5.15` after `M2` merged in `#42` as `0.5.14`) while keeping `com.github.copilot/rules/core.mdc` unchanged and preserving GitHub Copilot and Claude Code behavior.
+
+**Architecture:** Declare `"contextFileName": "GEMINI.md"` in root `gemini-extension.json` and mirror the body of `com.github.copilot/rules/core.mdc` byte-for-byte into root `GEMINI.md` via `stripFrontmatter` from `scripts/check.mjs`. Document only dev-loop-specific Gemini CLI workflow deltas in `skills/dev-loop/references/hosts/gemini.md` and link that guide from `skills/dev-loop/references/hosts/README.md`, delegating generic tool names to Superpowers `gemini-tools.md`.
+
+**Tech Stack:** Node.js ESM (`node:test`, `node:fs`, `node:child_process`), Gemini CLI `0.32.1`, GitHub Copilot CLI, Claude Code CLI, Markdown skill references.
+
+**Spec:** Owner-approved 5-milestone host portability architecture (`docs/superpowers/plans/2026-11-14-host-portability-m1.md`, `main` at `eca5200` after `M2` merged in `#42`).
+
+## Abstract
+Gemini CLI `0.32.1` supports local and repository extensions with `gemini-extension.json`, automatic startup context files, and `skills/*` discovery, while `dev-loop` on `main` (`0.5.14`) currently ships the GitHub Copilot and Claude Code adapters.
+Add `gemini-extension.json`, a byte-identical `GEMINI.md` mirror of `com.github.copilot/rules/core.mdc` (without YAML frontmatter), a small `scripts/sync-host-core.mjs` helper, and `skills/dev-loop/references/hosts/gemini.md` in Milestone `M3` (`0.5.15`).
+Verify automatic startup context loading, `activate_skill` consent boundaries, coexistence with GitHub Copilot and Claude Code inside `divydvd/dev-loop` (`0` Claude hooks loaded in Gemini CLI), and honest reporting of isolated authentication limits without changing `core.mdc` or touching live user home directories.
+
+## Global Constraints
+- `com.github.copilot/rules/core.mdc` must remain the single authoritative core rule (`0` diff lines against `main`).
+- Do not implement Codex (`M4`), `infra-review` telemetry (`M5`), or `tools/work-ledger/` runtime guard ports in this branch; preserve `M2` Claude Code packaging merged from `main` (`eca5200`).
+- Never read or edit the owner's live `~/.gemini`, `~/.copilot`, or `~/.claude` directories; run every CLI smoke and harness check in isolated temporary directories (`HOME` and `GEMINI_CLI_HOME` / `COPILOT_HOME`).
+- Changed production code lines across Milestone `M3` must stay `<= 400` lines (estimated `~35` production code lines).
+- Repo-owned startup context (`AGENTS.md` + `GEMINI.md`, and `AGENTS.md` + `core.mdc`) must stay `<= 15,000` UTF-8 bytes (`15 KB`, where `1 KB = 1,000` bytes).
+- Inline backtick paths starting with `assets/`, `scripts/`, or `references/` inside `skills/*` and `skills/*/references/**/*.md` must resolve inside that skill folder; refer to Superpowers' tool mapping as `gemini-tools.md` (not `references/gemini-tools.md`) and prefix repository scripts with `node <dev-loop-checkout>/scripts/...`.
+
+## Review Focus
+1. **Drifted `gemini-extension.json` description or `GEMINI.md` body:** `checkRepo` and `scripts/sync-host-core.mjs --check` must catch description mismatch against `plugin.json` and any byte difference between `GEMINI.md` and `stripFrontmatter(core.mdc)`.
+2. **Broken inline reference backticks in `gemini.md`:** Mentioning Superpowers' `references/gemini-tools.md` or repo-root `scripts/check.mjs` in inline backticks inside `skills/dev-loop/references/hosts/gemini.md` would fail `SKILL_LINK_RE`; tests must verify `checkRepo(REPO_ROOT)` passes with zero link faults.
+3. **Interactive `activate_skill` consent denial in Gemini CLI:** Gemini CLI `0.32.1`'s default policy (`write.toml`) sets `activate_skill` to `decision = "ask_user"`. If the owner declines skill consent or headless `--approval-mode default` blocks `activate_skill`, the agent must report `blocked` with the missing skill prerequisite instead of improvising the workflow without `dev-loop`.
+4. **Coexistence inside `divydvd/dev-loop`:** Adding root `GEMINI.md` to `divydvd/dev-loop` must not break GitHub Copilot plugin installation (`COPILOT_HOME`) or push total startup memory above `15,000` bytes in either Gemini CLI (`AGENTS.md` + `2 * GEMINI.md` = `12,696 B`; `2 * GEMINI.md` = `10,608 B`) or GitHub Copilot (`AGENTS.md` + `GEMINI.md` + `core.mdc` = `12,818 B`) when working inside `divydvd/dev-loop` itself.
+5. **Honest isolated CLI verification vs live Google API auth:** In an isolated temporary `GEMINI_CLI_HOME` without `GEMINI_API_KEY`, Vertex AI, or GCA credentials, live remote-API `gemini -p` calls exit `41`. Verification must test real Gemini CLI `0.32.1` extension/memory/skill/policy execution (`gemini extensions`, `gemini skills`, and `gemini --fake-responses`) plus fresh-subagent LLM behavior (`writing-skills`), and report the unauthenticated live-LLM API limit honestly instead of faking live Google API passes.
+
+## Acceptance record
+- **Goal:** Deliver Milestone `M3` (`0.5.15`) Gemini CLI `0.32.1` extension packaging, core-rule mirror sync, and Gemini host workflow guide without changing `core.mdc` or regressing GitHub Copilot or Claude Code.
+- **Done when:**
+  - [x] Root `gemini-extension.json` declares `"name": "dev-loop"`, `"version": "0.5.15"`, `"description"` matching `plugin.json`, and `"contextFileName": "GEMINI.md"`, synced with `plugin.json`, `.github/plugin/marketplace.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `CHANGELOG.md` (`0.5.15`).
+  - [x] Root `GEMINI.md` matches `stripFrontmatter(com.github.copilot/rules/core.mdc)` byte-for-byte, `com.github.copilot/rules/core.mdc` has `0` diff lines against `main`, `scripts/sync-host-core.mjs` verifies/syncs `GEMINI.md`, and `AGENTS.md` + `GEMINI.md` stays `<= 15,000` bytes.
+  - [x] `skills/dev-loop/references/hosts/gemini.md` is linked from `skills/dev-loop/references/hosts/README.md` alongside `copilot.md` and `claude.md`, required by `scripts/check.mjs`, documents only dev-loop-specific Gemini CLI deltas (`gemini-extension.json` + `GEMINI.md` startup loading, `activate_skill` consent + reporting `blocked` when declined, `invoke_agent` with `generalist` referencing `gemini-tools.md`, `ask_user`, offline `file://` HTML mockup preview, screenshot privacy + missing `github-pr-media` table deletion, milestone branches without `orchestrate`/`pr-stack`, explicit `work-ledger` runtime-guard absence, and `gh` CLI check-run inspection), and passes `5/5` fresh `writing-skills` consumer checks (`RED -> GREEN`).
+  - [x] `node scripts/check.mjs`, all 8 CI suites in `.github/workflows/check.yml` (`T-M1-*`, `T-M2-*`, `T-M3-*`), `claude plugin validate --strict --json .`, isolated temporary `COPILOT_HOME` discovery (`v0.5.15`), and isolated temporary `GEMINI_CLI_HOME` Gemini CLI `0.32.1` validation (`extensions` validate/link/install/list/disable/enable/uninstall, `skills list`, `0` Claude hooks loaded alongside `.claude-plugin/hooks.json`, unique-marker `--fake-responses` startup context injection, coexistence inside `divydvd/dev-loop`, and `activate_skill` policy/consent check: `P01`, `P08`, `P10`, `P11`, `P12` + offline `B1`–`B6`) complete with independent `code-review` coverage at the final commit.
+  - [ ] Live Google-authenticated Gemini CLI LLM turns (`T-M3-7`: `P02`–`P09`, `P11`, `P12`, and live `gemini` `B1`–`B6`) pass — blocked in isolated `GEMINI_CLI_HOME` because `GEMINI_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI`, and `GOOGLE_GENAI_USE_GCA` are unset (`exit 41`) and reading live `~/.gemini` credentials is prohibited; recorded below in `Failure handoff (T-M3-7)` so PR #43 is reported `open, not ready`.
+- **Required evidence:** `node scripts/check.mjs`; all 8 CI suites in `.github/workflows/check.yml`; `writing-skills` baseline (`RED`, 5 fresh consumers) and revised (`GREEN`, 5 fresh consumers); `claude plugin validate --strict --json .`; isolated temporary `GEMINI_CLI_HOME` Gemini CLI `0.32.1` CLI/harness checks and `P01`–`P12` + `B1`–`B6` matrix results; temporary `COPILOT_HOME` install and list check (`0.5.15`); independent `code-review` subagent verdict; no device test (this repo has no app).
+- **Test matrix:** Compact matrix (`T-M3-1`–`T-M3-7`) and Gemini portability matrix (`P01`–`P12`) below, saved before implementation under `references/testing.md`.
+- **Regression selection:** Reuse `.github/workflows/check.yml` suites (`device-handoff`, `branch-maintenance`, `independent-review`, `testing-contract`, `collect-metrics`, `run-benchmark`, `portability-contract`, and `tools/work-ledger/*.test.mjs`) plus `README.md` skill application invariants. `AGENTS.md` defines no separate `docs/testing/regression-matrix.md`.
+- **Size estimate:** Task 1: ~35 production lines (`gemini-extension.json`, `scripts/sync-host-core.mjs`, `scripts/check.mjs`, version bumps across manifests); Task 2: ~0 production code lines (Markdown host references, tests, and docs do not count). Total ~35 production lines, well below 400.
+- **Milestone selection:** Milestone `M3` of the approved 5-milestone portability assignment under `skills/dev-loop/references/milestones.md`. Independent PR off `main` (`3351237`, synced with `origin/main` at `eca5200` after `M2` merged in PR `#42` as `0.5.14`); `M1` (`#41`) and `M2` (`#42`) are merged, `M4` remains blocked on local Codex installation, and `M5` follows verified host PRs.
+- **Out of scope:** Codex adapter (`M4`), `infra-review` / `collect-metrics.mjs` mixed-host telemetry (`M5`), `tools/work-ledger/` runtime guard ports, and edits to live user home directories.
+- **Risky area:** Approval, skill-consent blocking, and finish/review routing in `skills/dev-loop/references/hosts/gemini.md` (owner design and risky-plan approval already completed; mandatory independent task/branch `code-review` subagent review applies under `core` rules 7 & 23).
+- **Stop conditions:**
+  - Done: each "done when" item has evidence at the head commit, the PR is open, CI checks pass at the head commit, and review rounds stopped. Independent review covers the final substantive content. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass and no required coverage gap remains.
+  - Partial (`open, not ready`) / Blocked: local packaging, CI, deterministic `--fake-responses` CLI verification (`P01`, `P08`, `P10`, `P11`, `P12`), offline `B1`–`B6`, `writing-skills` (`5/5`), `COPILOT_HOME` (`0.5.15`), and independent review pass, while `T-M3-7` stops on missing isolated Google auth (`exit 41`), 3 failed fixes occur, or an unapproved product decision arises. Record the exact `Failure handoff (T-M3-7)` under `references/testing.md` and report PR #43 honestly as `open, not ready` rather than faking a pass or downgrading a required check.
+
+### Milestone record
+| Milestone ID | Observable result | Acceptance checks / evidence | Dependencies / evidence | Branch / base / reason | Remaining behavior / compatibility limits | Status | Tested / reviewed identity | PR / next action |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M1 | Shared host capability contract, `check.mjs` sync validators, and Copilot host guide (`0.5.13`) | Merged in PR `#41` (`node scripts/check.mjs`, 8 CI suites, `5/5` `writing-skills`, temp `COPILOT_HOME`, `B1`–`B6`) | None | `divydvd-dev-loop-agent-portability` -> `main` | Copilot installer only | merged | `3351237` | Merged (`#41`) |
+| M2 | Claude Code plugin + `SessionStart` core injection (`COPILOT_CLI` / `GEMINI_PROJECT_DIR` guarded, `0.5.14`) | Merged in PR `#42` (`T-M2-1`–`T-M2-3`, `claude plugin validate --strict --json`, isolated `CLAUDE_CONFIG_DIR` wire capture, `5/5` `writing-skills`) | `M1` (`3351237`) | `divydvd-claude-code-portability-m2` -> `main` | Workflow only; runtime guards absent | merged | `eca5200` | Merged (`#42`) |
+| M3 | Gemini CLI `0.32.1` extension (`gemini-extension.json` + byte-synced `GEMINI.md` + `references/hosts/gemini.md`, `0.5.15`) | `T-M3-1`–`T-M3-6` passed, deterministic CLI `P01`/`P08`/`P10`/`P11`/`P12` + `5/5` subagent `P02`–`P12` passed, offline `B1`–`B6` `6/6`, `claude plugin validate --strict --json .`, temp `GEMINI_CLI_HOME` (`0` Claude hooks loaded) + `COPILOT_HOME` (`0.5.15`) passed, independent `code-review` clean, Round-1/2 GitHub Copilot review threads resolved (live review status tracked in PR `#43`); `T-M3-7` blocked on isolated Google auth (`exit 41`) | `M1` (`3351237`), synced with `M2` (`eca5200`) | `divydvd-gemini-cli-portability-m3` -> `main` | Workflow only; interactive `activate_skill` consent in default mode; `work-ledger` runtime guards absent; `T-M3-7` live Google API LLM turns blocked on isolated auth (`exit 41`) | open, not ready (`T-M3-7` auth blocker) | branch head (macOS, Node `v26.12.1`, Gemini CLI `0.32.1`) | PR `#43` (`open, not ready` pending isolated `GEMINI_API_KEY` / login or owner merge approval at new HEAD SHA) |
+| M4 | Codex plugin/instruction support with verified startup core loading | Unique-marker test + isolated Codex `P01`–`P12` + `B1`–`B6` | `M1` + local Codex runtime (`codex` absent on this Mac) | `portability-codex` -> `main` | Blocked locally until Codex is installed | blocked | none | Defer until Codex is installed |
+| M5 | Host-aware `infra-review`, `collect-metrics.mjs` `n/a` handling, and verified support matrix | `collect-metrics.test.mjs`, `testing-contract.test.mjs`, 5 fresh `infra-review` consumers | `M1` + verified host PRs (`M2`/`M3`) | `portability-reporting` -> `main` | Claims only hosts with committed `P01`–`P12` evidence | planned | none | Start after `M2`/`M3` |
+
+- Overall assignment: `in progress` (`M1` merged at `3351237`; `M2` merged at `eca5200`; `M3` active in this session; `M4` blocked on local Codex runtime; `M5` planned).
+
+### Compact test matrix
+| Case | Requirement / risk | Required? | Setup / input | Expected result | Method | Test location | Status | Evidence | Tested identity |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| T-M3-1 | `checkRepo` enforces `gemini-extension.json` description parity with `plugin.json`, `GEMINI.md` orphan/containment rules, and combined self-repo `15,000`-byte startup ceilings; `scripts/sync-host-core.mjs` syncs, `--check`s, and rejects unknown flags without modifying `core.mdc` | yes | Fixture repos with omitted/mismatched `gemini-extension.json` `description`, orphan/symlinked `GEMINI.md`, missing/drifted `GEMINI.md`, combined `> 15,000 B` `AGENTS.md` + `core.mdc`/`GEMINI.md`, and unknown CLI flag | `checkRepo` reports description, orphan, containment, and combined `15,000 B` ceiling faults; `sync-host-core.mjs` exits `1` on unknown flags or `--check` drift and `0` (`GEMINI.md: in sync`) after sync while leaving `core.mdc` untouched | automated | `scripts/portability-contract.test.mjs` | passed | `node --test scripts/portability-contract.test.mjs` (`9/9` pass) | branch head (macOS, Node `v26.12.1`) |
+| T-M3-2 | Real repo `gemini-extension.json`, `GEMINI.md` byte parity with `core.mdc` body, `<= 15,000` byte consumer and self-repo startup ceilings, `0`-line `core.mdc` diff in `M3`, and version `0.5.15` parity across all 5 manifests | yes | `REPO_ROOT` files (`gemini-extension.json`, `GEMINI.md`, `plugin.json`, `.github/plugin/marketplace.json`, `.claude-plugin/{plugin,marketplace}.json`, `CHANGELOG.md`, `core.mdc`) | Exact `0.5.15` parity across all 5 manifests and `CHANGELOG.md`, `GEMINI.md === stripFrontmatter(core.mdc)` (`5,304 B`), consumer (`7,392 B`) and self-repo (`12,696 B` Gemini / `12,818 B` Copilot) `<= 15,000 B`, `core.mdc` `0` diff lines against `origin/main` | automated | `scripts/portability-contract.test.mjs`, `scripts/check.mjs` | passed | `node scripts/check.mjs` (`check: no faults`); `node scripts/sync-host-core.mjs --check` (`GEMINI.md: in sync`); `git diff origin/main -- com.github.copilot/rules/core.mdc` (`0` lines) | branch head (macOS, Node `v26.12.1`) |
+| T-M3-3 | `skills/dev-loop/references/hosts/gemini.md` coverage, requirement in `checkRepo`, link from `references/hosts/README.md`, valid skill backticks, and full 8-suite CI regression pass (`T-M1-*`, `T-M2-*`, `T-M3-*`) | yes | `REPO_ROOT` `skills/dev-loop/references/hosts/{README,copilot,claude,gemini}.md` + all 8 `.github/workflows/check.yml` suites + `claude plugin validate --strict --json .` | `gemini.md` covers all Gemini CLI deltas without broken backtick links; `node scripts/check.mjs`, `claude plugin validate --strict --json .`, and all 8 CI suites pass | automated | `scripts/portability-contract.test.mjs`, `.github/workflows/check.yml` suites | passed | `device-handoff` `8/8`, `branch-maintenance` `3/3`, `independent-review` `6/6`, `testing-contract` `29/29`, `collect-metrics` `17/17`, `run-benchmark` `6/6`, `portability-contract` `9/9`, `tools/work-ledger/*.test.mjs` `231` pass (`0` fail, `1` skipped) | branch head (macOS, Node `v26.12.1`) |
+| T-M3-4 | `writing-skills` fresh consumer routing (`S-G1`–`S-G4`: `activate_skill` consent denial -> `blocked`, `invoke_agent` `generalist` + two-failure `not ready`, runtime host detection vs Gemini model name, UI/screenshot/milestone/guard-absence/`gh api` deltas) | yes | 5 fresh baseline (`RED`, without `gemini.md`) vs 5 fresh revised (`GREEN`, with `gemini.md`) `explore` subagents | Baseline exposes missing Gemini CLI `activate_skill` consent-denial and `invoke_agent` `generalist` specifics (`0/5` `RED`); revised converges `5/5` (`GREEN`) across `S-G1`–`S-G4` | subagent application check | `CHANGELOG.md` (`0.5.15`) | passed | `RED` `0/5` (`S-G1`–`S-G3`) -> initial `GREEN` `4/5` -> refactored `GREEN` `5/5` | `681cc3d` (`5/5` fresh subagents; historical evidence — `0` diff lines on `gemini.md` since, and `hosts/README.md` retains both `claude.md` and `gemini.md` links) |
+| T-M3-5 | Isolated Gemini CLI `0.32.1` extension packaging, skill discovery, `0` Claude hooks loaded alongside `.claude-plugin/hooks.json`, unique-marker startup `GEMINI.md` injection, `activate_skill` policy/consent mechanics, and `divydvd/dev-loop` coexistence (`P01`, `P10`, deterministic CLI harness for `P06`/`P08`/`P12`) | yes | Fresh temporary `HOME` / `GEMINI_CLI_HOME` with Superpowers + `dev-loop`; `gemini extensions {validate,link,install,list,disable,enable,uninstall}`, `gemini skills list`, and `gemini -m gemini-2.5-pro -p --fake-responses` | Extension validates/installs/links cleanly (`0.5.15`), lists 4 `dev-loop` skills, loads `0` Claude hooks (`hooks/hooks.json` absent + `GEMINI_PROJECT_DIR` suppresses `hooks/session-start`), auto-injects `UNIQUE_M3_MARKER_94c8f1` from `GEMINI.md` into Turn-1 `systemInstruction` (`0` `read_file` calls, `0` `<hook_context>`), denies `activate_skill` in headless `default` mode (`Tool execution denied by policy.`) while loading `<activated_skill name="dev-loop">` and `read_file` on `references/hosts/gemini.md` under explicit policy, and keeps startup bytes `<= 15,000 B` (`5,304 B` consumer; `10,608 B` self-repo) | integration | Isolated CLI smoke & `--fake-responses` harness | passed | Real `gemini 0.32.1` isolated `GEMINI_CLI_HOME` exit `0` across all checks | branch head (macOS, Gemini CLI `0.32.1`) |
+| T-M3-6 | Temporary `COPILOT_HOME` regression & coexistence (`0.5.15`) and deterministic `B1`–`B6` benchmark suite | yes | Fresh temporary `COPILOT_HOME` installing `dev-loop` with root `GEMINI.md` and `.claude-plugin/` present + `scripts/run-benchmark.mjs` / `scripts/run-benchmark.test.mjs` | Copilot discovers `dev-loop (v0.5.15)`, `dev-loop: core`, and 4 skills (`12,818 B <= 15,000 B` inside `divydvd/dev-loop`; single `core.mdc` load in consumer repos); `B1`–`B6` deterministic reference/anti-cheat suite passes `6/6` | integration | CLI smoke + `scripts/run-benchmark.test.mjs` | passed | Temp `COPILOT_HOME` `copilot plugin/instruction/skill list` + `run-benchmark.test.mjs` `6/6` | branch head (macOS, Copilot CLI) |
+| T-M3-7 | Live Google-authenticated `gemini -p` multi-turn LLM runs across `P02`–`P09`, `P11`, `P12`, and live `gemini` `B1`–`B6` in isolated `GEMINI_CLI_HOME` | yes | Isolated `HOME` / `GEMINI_CLI_HOME` with `dev-loop` + Superpowers installed (`GEMINI_API_KEY` / `GOOGLE_GENAI_USE_VERTEXAI` / `GOOGLE_GENAI_USE_GCA` unset; reading live `~/.gemini` credentials is prohibited) | Authenticated `gemini -p` behavioral sessions complete multi-turn LLM runs for `P02`–`P09`, `P11`, `P12`, and live `gemini` `B1`–`B6` with exit status `0` | integration / behavioral | Isolated CLI (`Failure handoff (T-M3-7)`) | blocked (`environment blocker`: `gemini -p "ping"` exits `41` without isolated Google auth) | `Failure handoff (T-M3-7)` below (`gemini -p` `exit 41`; deterministic CLI `P01`/`P08`/`P10`/`P11`/`P12` + `5/5` subagent `P02`–`P12` passed) | branch head (isolated `GEMINI_CLI_HOME`) |
+
+- **Required blockers:** `T-M3-7` is `blocked` (`environment blocker`: isolated `GEMINI_CLI_HOME` has no `GEMINI_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI`, or `GOOGLE_GENAI_USE_GCA` configured, so live `gemini -p` exits `41`, and reading or copying live `~/.gemini` credentials is prohibited). Dependent readiness claim is withheld (`open, not ready`).
+- **Optional limits:** none.
+- **Reassessment:** Re-ran `sync-host-core.mjs --check`, `check.mjs`, all 8 CI suites (`T-M1-*`, `T-M2-*`, `T-M3-*`), `claude plugin validate --strict --json .`, temporary `COPILOT_HOME` discovery (`v0.5.15`), and isolated `GEMINI_CLI_HOME` checks (`0` Claude hooks loaded) after merging `origin/main` (`eca5200`, `M2` `0.5.14`) and bumping `M3` to `0.5.15` per Rule 21. `T-M3-4` retains historical tested identity `681cc3d` (`gemini.md` unchanged; `hosts/README.md` retains both `claude.md` and `gemini.md` links).
+
+- Category assessment: `boundaries and invalid input` -> `T-M3-1`, `T-M3-2` (`15,000`-byte startup ceiling, drifted `GEMINI.md` / `description`, inline backtick containment); `permissions and state changes` -> `T-M3-4`, `T-M3-5`, `T-M3-7` (`activate_skill` `ask_user` consent denial in Gemini CLI, guard-absence disclosure, isolated `GEMINI_CLI_HOME` non-mutation of `~/.gemini`, preserved owner gates); `existing consumers` -> `T-M3-3`, `T-M3-6` (all 8 CI suites, Copilot `COPILOT_HOME` discovery with root `GEMINI.md` present, `B1`–`B6` benchmark suite); `migration and compatibility` -> `T-M3-2`, `T-M3-5`, `T-M3-6` (`0.5.14` -> `0.5.15` upgrade and Copilot + Claude + Gemini coexistence inside `divydvd/dev-loop`); `partial failure and recovery` -> `T-M3-4`, `T-M3-5`, `T-M3-7` (two-failure `invoke_agent` fallback, declined `activate_skill` stop, unauthenticated CLI `exit 41` failure handoff); `concurrency and retries`, `UI, accessibility, and device`, `performance` -> excluded because `M3` adds static extension metadata, a small synchronous file-sync script, and Markdown host instructions in a repository with no UI or device app.
+
+---
+
+### Task 1: Gemini extension manifest, byte-synced `GEMINI.md`, sync helper, and contract tests (`0.5.14`)
+
+**Files:**
+- Modify: `scripts/portability-contract.test.mjs`
+- Modify: `scripts/check.mjs:191-201`
+- Create: `scripts/sync-host-core.mjs`
+- Create: `gemini-extension.json`
+- Create: `GEMINI.md`
+- Modify: `plugin.json`
+- Modify: `.github/plugin/marketplace.json`
+- Modify: `CHANGELOG.md`
+- Test: `scripts/portability-contract.test.mjs`
+
+**Interfaces:**
+- Consumes: `checkRepo(repoRoot)` and `stripFrontmatter(text)` from `scripts/check.mjs`; `com.github.copilot/rules/core.mdc`.
+- Produces: `export function syncHostCore(repoRoot, { check = false } = {}): { synced: boolean, targetPath: string }` in `scripts/sync-host-core.mjs` (CLI supports `--check`); root `gemini-extension.json` (`0.5.14`); root `GEMINI.md`.
+
+- [ ] **Step 1: Write failing tests (`T-M3-1`, `T-M3-2`) in `scripts/portability-contract.test.mjs`**
+
+Assert:
+1. `T-M3-1`: In a fixture repo where `plugin.json` includes `description`, `checkRepo` reports a fault when `gemini-extension.json` omits or mismatches `description`; `scripts/sync-host-core.mjs` writes `GEMINI.md` equal to `stripFrontmatter(core.mdc)`, exits `1` under `--check` when `GEMINI.md` drifts, and exits `0` under `--check` when synced without changing `core.mdc`.
+2. `T-M3-2`: On `REPO_ROOT`, `gemini-extension.json` exists with `name: "dev-loop"`, `version === plugin.json.version` (`"0.5.14"`), `description === plugin.json.description`, and `contextFileName: "GEMINI.md"`; `GEMINI.md` equals `stripFrontmatter(core.mdc)` byte-for-byte; `AGENTS.md` + `GEMINI.md` is `<= 15,000` UTF-8 bytes; and `checkMod.checkRepo(REPO_ROOT)` returns `[]`.
+
+- [ ] **Step 2: Run test suite to verify `RED` failure**
+
+Run: `node --test scripts/portability-contract.test.mjs`
+Expected: FAIL (`scripts/sync-host-core.mjs` and `gemini-extension.json` do not exist yet).
+
+- [ ] **Step 3: Implement `description` check in `scripts/check.mjs`, `scripts/sync-host-core.mjs`, `gemini-extension.json`, `GEMINI.md`, and `0.5.14` version bump**
+
+- In `scripts/check.mjs` (`checkManifest`), when `relManifest === "gemini-extension.json"` and `typeof plugin.description === "string"`, report a fault if `host.description !== plugin.description`.
+- Create `scripts/sync-host-core.mjs` importing `stripFrontmatter` from `./check.mjs` to sync or `--check` `GEMINI.md` from `com.github.copilot/rules/core.mdc`.
+- Create `gemini-extension.json` (`0.5.14`), run `node scripts/sync-host-core.mjs` to generate `GEMINI.md`, bump `plugin.json` and `.github/plugin/marketplace.json` to `0.5.14`, and add the `## 0.5.14 (2026-11-14)` entry in `CHANGELOG.md`.
+
+- [ ] **Step 4: Run sync check, plugin check, and contract tests to verify `GREEN`**
+
+Run: `node scripts/sync-host-core.mjs --check && node scripts/check.mjs && node --test scripts/portability-contract.test.mjs`
+Expected: `check: no faults` and all tests in `scripts/portability-contract.test.mjs` PASS.
+
+- [ ] **Step 5: Commit Task 1**
+
+```bash
+git add docs/superpowers/plans/2026-11-14-host-portability-m3-gemini.md scripts/check.mjs scripts/sync-host-core.mjs scripts/portability-contract.test.mjs gemini-extension.json GEMINI.md plugin.json .github/plugin/marketplace.json CHANGELOG.md
+git commit -m "feat(gemini): add Gemini CLI extension manifest and synced GEMINI.md"
+```
+
+---
+
+### Task 2: Gemini CLI host guide (`references/hosts/gemini.md`), `writing-skills` verification, and isolated CLI validation
+
+**Files:**
+- Modify: `scripts/portability-contract.test.mjs`
+- Create: `skills/dev-loop/references/hosts/gemini.md`
+- Modify: `skills/dev-loop/references/hosts/README.md:14-16`
+- Modify: `CHANGELOG.md`
+- Modify: `docs/superpowers/plans/2026-11-14-host-portability-m3-gemini.md`
+- Test: `scripts/portability-contract.test.mjs`
+
+**Interfaces:**
+- Consumes: `gemini-extension.json`, `GEMINI.md`, `skills/dev-loop/references/hosts/README.md`, Superpowers `gemini-tools.md`.
+- Produces: `skills/dev-loop/references/hosts/gemini.md` linked from `skills/dev-loop/references/hosts/README.md`; verified `writing-skills` (`5/5`) and isolated CLI evidence recorded in `CHANGELOG.md` and this plan.
+
+- [ ] **Step 1: Run `writing-skills` `RED` baseline (5 fresh consumers without `references/hosts/gemini.md`) and write failing test `T-M3-3`**
+
+- Dispatch 5 fresh `explore` subagents against the current skill files (before `gemini.md` exists) on scenarios `S-G1`–`S-G4` (`activate_skill` interactive consent declined -> must report `blocked` rather than run `dev-loop` steps ad hoc; `invoke_agent` with `agent_name: "generalist"` referencing `gemini-tools.md` + 2-failure `open, not ready: independent review unavailable`; `gemini-extension.json` + `GEMINI.md` startup context + runtime-tool host selection; offline `file://` HTML mockup + missing `github-pr-media` table deletion + `gh pr create --base` milestones + `work-ledger` guard-absence disclosure + `gh api` `copilot-pull-request-reviewer`).
+- Add `T-M3-3` to `scripts/portability-contract.test.mjs` asserting `skills/dev-loop/references/hosts/gemini.md` exists, is linked from `skills/dev-loop/references/hosts/README.md`, and covers every required Gemini CLI delta with zero broken inline links.
+
+- [ ] **Step 2: Run `scripts/portability-contract.test.mjs` to verify `RED` failure**
+
+Run: `node --test scripts/portability-contract.test.mjs`
+Expected: FAIL (`skills/dev-loop/references/hosts/gemini.md` is missing).
+
+- [ ] **Step 3: Author `skills/dev-loop/references/hosts/gemini.md` and link it from `skills/dev-loop/references/hosts/README.md`**
+
+Write `skills/dev-loop/references/hosts/gemini.md` in ASD-STE100 (`Abstract` and `Conclusion`, concise numbered procedures) covering:
+1. Runtime identification (Gemini CLI runtime tools `activate_skill`, `invoke_agent`, `run_shell_command`, `read_file`, `replace`, `write_file` — never model name alone).
+2. Automatic startup core loading via `gemini-extension.json` (`"contextFileName": "GEMINI.md"`), keeping `GEMINI.md` synced via `node <dev-loop-checkout>/scripts/sync-host-core.mjs`, and `Always-loaded text <= 15 KB` including inside `divydvd/dev-loop`.
+3. `activate_skill` interactive skill-consent handling (`decision = "ask_user"` in Gemini CLI default approval mode): wait for consent; if skill activation is declined or blocked in non-interactive default mode without a policy allowance, stop and report `blocked` with the missing skill activation prerequisite instead of bypassing the skill workflow.
+4. Owner gates with Gemini CLI `ask_user` (one question at a time, recommended choice first).
+5. Fresh-context independent review (`design-review` and step 5) via `invoke_agent` with `agent_name: "generalist"` per Superpowers `gemini-tools.md`, passing diff/commits, acceptance record, test matrix, and review checklist without author chat history; retry once on failure, and report `open, not ready: independent review unavailable` after two failures without self-review substitution.
+6. UI HTML mockups (`file://` outside the repo), PR screenshots (local PII/secret inspection + deleting empty HTML table when `github-pr-media` is absent), milestones without `orchestrate`/`pr-stack` (`gh pr create --base <parent-branch>`), step-6 evidence in `## Evidence` + plan/ledger without `work_ledger_record`, explicit `work-ledger` runtime-guard **absence**, and `gh api repos/{owner}/{repo}/commits/<sha>/check-runs` inspection for `copilot-pull-request-reviewer`.
+
+Update step 4 of `skills/dev-loop/references/hosts/README.md` to reference `` `references/hosts/gemini.md` `` in Gemini CLI.
+
+- [ ] **Step 4: Verify `GREEN` across `check.mjs`, `portability-contract.test.mjs`, `writing-skills` (5 fresh consumers), isolated `GEMINI_CLI_HOME`, temporary `COPILOT_HOME`, and all 8 CI suites**
+
+Run:
+- `node scripts/check.mjs && node --test scripts/portability-contract.test.mjs`
+- 5 fresh `explore` subagents (`GREEN`) on `S-G1`–`S-G4`
+- Isolated temporary `GEMINI_CLI_HOME` validation (`gemini` `0.32.1` validate/link/install/list/skills, unique-marker `--fake-responses` startup context check, `activate_skill` consent denial vs policy allow check, coexistence check, `P01`–`P12` and `B1`–`B6`)
+- Isolated temporary `COPILOT_HOME` install (`copilot plugin install "$PWD"`, `copilot instruction list`, `copilot skill list`)
+- All 8 CI test suites in `.github/workflows/check.yml`
+
+Expected: `check: no faults`, `8/8` CI suites PASS, `5/5` `GREEN` fresh consumers, `COPILOT_HOME` and `GEMINI_CLI_HOME` checks verified, and exact `P01`–`P12` statuses recorded honestly in this plan and `CHANGELOG.md`.
+
+- [ ] **Step 5: Commit Task 2**
+
+```bash
+git add skills/dev-loop/references/hosts/gemini.md skills/dev-loop/references/hosts/README.md scripts/portability-contract.test.mjs CHANGELOG.md docs/superpowers/plans/2026-11-14-host-portability-m3-gemini.md
+git commit -m "docs(gemini): add Gemini CLI host guide and portability verification (0.5.14)"
+```
+
+---
+
+### Gemini CLI `0.32.1` `P01`–`P12` and `B1`–`B6` verification record
+
+| ID | Scenario | Real `gemini 0.32.1` CLI / harness evidence | Fresh consuming-agent behavioral evidence | Status |
+| --- | --- | --- | --- | --- |
+| `P01` | Startup core-rule auto-load without prompt priming | `gemini --debug -m gemini-2.5-pro -p "Check startup memory" --fake-responses empty.jsonl` in isolated `GEMINI_CLI_HOME` logged `Hook registry initialized with 0 hook entries` (`0` Claude hooks loaded from `dev-loop`) and injected `UNIQUE_M3_MARKER_94c8f1` and `# Dev-loop core rules` directly into Turn-1 `config.systemInstruction` with `0` `read_file` tool calls and `0` `dev-loop` `<hook_context>` (`markerInSys: true, noHookContext: true`) | `5/5` fresh consumers confirmed automatic `GEMINI.md` startup load via `gemini-extension.json` (`contextFileName: "GEMINI.md"`) | passed (real CLI) |
+| `P02` | Trivial route (typo fix without plan/review inflation) | `B2-trivial-typo` deterministic sandbox check passed in `scripts/run-benchmark.test.mjs` (`0` plan files, `0` prod edits) | Fresh Gemini simulator (`P02`): skips `brainstorming` & `writing-plans`, verifies check, records independent-review exemption + reason | offline CLI benchmark + subagent passed; live `gemini -p` blocked in `T-M3-7` (`exit 41`) |
+| `P03` | Bug route + TDD failing test first | `B1-small-bug` deterministic sandbox check passed in `scripts/run-benchmark.test.mjs` | Fresh Gemini simulator (`P03`): activates `dev-loop` + `systematic-debugging` + `test-driven-development`, writes failing regression test before fix | offline CLI benchmark + subagent passed; live `gemini -p` blocked in `T-M3-7` (`exit 41`) |
+| `P04` | Small feature + design gate + `file://` HTML mockup | `gemini 0.32.1` tool declarations verified (`ask_user` / `write_file`; no `open_canvas`) | `5/5` fresh consumers + `P04` simulator: 2–5 line design, 1 `ask_user` question (recommended first), self-contained `file://` HTML mockup outside repo before code | subagent + CLI tool schema passed; live `gemini -p` blocked in `T-M3-7` (`exit 41`) |
+| `P05` | Conditional `design-review` isolated subagent | `gemini 0.32.1` registers `generalist` subagent tool in `config.tools` | Fresh Gemini simulator (`P05`): dispatches fresh `generalist` via `invoke_agent` / `generalist`, withholds session history & internal plan paths, marks `incomplete` without auto-retry on subagent failure | subagent + CLI tool schema passed; live `gemini -p` blocked in `T-M3-7` (`exit 41`) |
+| `P06` | Risky-area plan gate + inline `executing-plans` (`<= 6` tasks) | `gemini 0.32.1` `GEMINI.md` rules 6–7 loaded in Turn-1 `systemInstruction` | Fresh Gemini simulator (`P06`): waits for owner plan review via `ask_user`, executes 4-task plan inline without asking execution method, dispatches per-task risky review | CLI startup + subagent passed; live `gemini -p` blocked in `T-M3-7` (`exit 41`) |
+| `P07` | Step-5 whole-PR independent review + 2-failure `not ready` | `gemini 0.32.1` exposes `generalist` subagent tool; `B6-blocked-stop-limit` passes in `run-benchmark.test.mjs` | `5/5` fresh consumers + `P07` simulator: dispatches fresh `generalist` without chat history, retries once on failure, reports `"open, not ready: independent review unavailable"` after 2 failures without self-review substitution | subagent + CLI tool check passed; live `gemini -p` blocked in `T-M3-7` (`exit 41`) |
+| `P08` | `flow-docs` co-update + skill resource path resolution | Real `gemini 0.32.1 --policy allow-skill.toml --fake-responses` executed `activate_skill("dev-loop")` (listing `references/hosts/gemini.md` and `assets/pr-body.md`) and `read_file` on `$REPO/skills/dev-loop/references/hosts/gemini.md` (`readGeminiHostGuideLoaded: true`); `B4-flow-doc-sync` passed | Fresh Gemini simulator (`P08`) + `5/5` consumers resolved `references/...` and `assets/...` relative to `skills/dev-loop/` and updated `docs/flows/INDEX.md` + flow doc in the same PR | passed (real CLI `--fake-responses` + subagent; live `gemini -p` `exit 41`) |
+| `P09` | PR template + screenshot privacy + `gh` review/check-run inspection | `checkRepo` validated `assets/pr-body.md` and `references/hosts/gemini.md` links (`0` faults) | `5/5` fresh consumers + `P09` simulator: inspects screenshots locally, deletes empty HTML table when `github-pr-media` is absent, never commits PNGs, inspects `gh pr checks`, `gh api .../check-runs`, `gh pr view --json reviews,comments`, and `gh api .../pulls/<pr>/comments` | subagent + contract check passed; live `gemini -p` blocked in `T-M3-7` (`exit 41`) |
+| `P10` | Multi-host coexistence inside `divydvd/dev-loop` (`<= 15 KB`) | Real `gemini 0.32.1` + real `copilot` CLI in isolated homes: consumer repo loads `GEMINI.md` `1` time (`5,304 B`); inside `divydvd/dev-loop`, Gemini loads workspace + extension `GEMINI.md` (`10,608 B <= 15,000 B`) and Copilot loads `AGENTS.md` + `GEMINI.md` + `dev-loop: core` (`12,818 B <= 15,000 B`), `0` errors | `T-M3-1`, `T-M3-2`, and `checkRepo` enforce consumer (`7,392 B`) and self-repo (`12,696 B` Gemini / `12,818 B` Copilot) `<= 15,000 B` | passed (real Gemini CLI + real Copilot CLI) |
+| `P11` | `work-ledger` runtime-guard absence honesty | `gemini 0.32.1` tool declarations confirmed `0` `work_ledger_*` tools or pre-tool command-blocking hooks; `B5-safety-no-rebase` passed | `5/5` fresh consumers + `P11` simulator explicitly stated `tools/work-ledger/` runtime command blocking is absent in Gemini CLI while keeping protected git/merge rules mandatory | CLI tool schema + subagent passed; live `gemini -p` blocked in `T-M3-7` (`exit 41`) |
+| `P12` | `activate_skill` interactive consent denial / headless policy block | Real `gemini 0.32.1 --approval-mode default --fake-responses` returned `{"error":"Tool execution denied by policy."}` on `activate_skill("dev-loop")` without interactive consent | `5/5` fresh consumers + `P12` simulator stopped immediately without editing files or opening a PR and reported `blocked` naming the unavailable `activate_skill` prerequisite | real CLI policy denial + `5/5` subagents passed; live `gemini -p` blocked in `T-M3-7` (`exit 41`) |
+
+#### Failure handoff (`T-M3-7`)
+| Field | Record |
+| --- | --- |
+| Cause | Environment blocker in isolated temporary `HOME` / `GEMINI_CLI_HOME`: `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI`, and `GOOGLE_GENAI_USE_GCA` are unset in this runner environment, and reading or copying the owner's live `~/.gemini` credentials is prohibited. |
+| Expected result | Authenticated `gemini -p` behavioral sessions complete live Google Gemini multi-turn LLM runs for `P02`–`P09`, `P11`, `P12`, and live `gemini` `B1`–`B6` with exit status `0`. |
+| Actual result | `HOME="$tmp/home" GEMINI_CLI_HOME="$tmp/home" gemini -p "ping" --output-format text` exited with code `41` (`Please set an Auth method in your .../.gemini/settings.json or specify one of the following environment variables before running: GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA`). |
+| Attempted change | Attempt 1 (read-only isolated `GEMINI_CLI_HOME` check): verified `gemini -p` exit code (`41`) without reading or modifying `~/.gemini`, and verified real `gemini 0.32.1` binary extension packaging, skill discovery, Turn-1 `GEMINI.md` startup memory injection, `activate_skill` policy denial/allowance, `read_file` skill resource loading, and `divydvd/dev-loop` coexistence via `gemini -m gemini-2.5-pro -p --fake-responses` (`T-M3-5`). |
+| New evidence | Confirmed `gemini 0.32.1` validates/links/installs `gemini-extension.json`, injects `GEMINI.md` once in consumer repos (`5,304 B`) and `<= 15,000 B` inside `divydvd/dev-loop` (`10,608 B`), lists all 4 `dev-loop` skills, blocks headless unapproved `activate_skill` (`Tool execution denied by policy.`), and loads `references/hosts/gemini.md` under explicit TOML policy; only live Google API authentication is missing in the isolated home. |
+| Coverage | Passed: `T-M3-1`–`T-M3-6` (`P01`, `P10`, deterministic `--fake-responses` `P08`/`P11`/`P12`, offline `B1`–`B6` `6/6`, `writing-skills` `5/5`, `claude plugin validate --strict --json .`, `COPILOT_HOME` `0.5.15`, `GEMINI_CLI_HOME` `0` Claude hooks loaded). Blocked: `T-M3-7` (live Google API LLM turns for `P02`–`P09`, `P11`, `P12`, and live `gemini` `B1`–`B6`). |
+| Recovery and access | All temporary `GEMINI_CLI_HOME` and `COPILOT_HOME` directories were deleted; `~/.gemini`, `~/.copilot`, and `~/.claude` were never read or modified. Owner authentication in an isolated shell (`GEMINI_API_KEY` or isolated Google login) is required if live remote-LLM verification must run before merge. |
+| Next action | Provide an isolated `GEMINI_API_KEY` (or sign in inside an isolated `GEMINI_CLI_HOME`) if live Google Gemini LLM behavioral runs are required before merging PR #43. |
+| Rerun scope | Run `T-M3-7` (`P02`–`P09`, `P11`, `P12`, and live `gemini` `B1`–`B6`) in an isolated `GEMINI_CLI_HOME`; rerun `node scripts/check.mjs` and `scripts/portability-contract.test.mjs` only if files change. |
+
+## Conclusion
+Execute Task 1 and Task 2 inline (`executing-plans`) with strict `RED -> GREEN` TDD and `writing-skills` fresh-consumer testing, followed by an independent `code-review` subagent review and PR creation.
+No new owner decision is needed unless verification hits an unapproved product trade-off, because the 5-milestone design and risky-area plan are already approved.
+The main risk is silent drift between `core.mdc` and `GEMINI.md` or overstated Gemini CLI runtime claims in an unauthenticated temporary home; deterministic byte-equality checks, `--fake-responses` CLI harness tests, and honest `P01`–`P12` reporting mitigate both risks.
+
