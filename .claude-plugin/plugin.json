@@ -1,6 +1,6 @@
 {
   "name": "dev-loop",
-  "version": "0.5.15",
+  "version": "0.5.16",
   "description": "One session runs the full development loop from one line of input. Core rules and the dev-loop, design-review, flow-docs, and infra-review skills, on top of Superpowers.",
   "hooks": "./.claude-plugin/hooks.json",
   "author": {
