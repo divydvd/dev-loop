@@ -2,6 +2,14 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.18 (2026-11-16)
+- **Add deterministic flow-doc drift and diff-impact scanner (`scan-flow-drift.mjs`).**
+  - **What:** Add zero-dependency `skills/flow-docs/scripts/scan-flow-drift.mjs` (exported `scanFlowDrift` and CLI `--repo-root`, `--flows-dir`, `--changed-from`, `--changed-to`, `--json`, `--fail-on-unupdated`) to check `docs/flows/INDEX.md` and `docs/flows/*.md` for missing or unindexed docs, `Last verified` mismatches, dead code or related-flow paths (`realpathSync` repo containment), Git ancestry key-file churn (`driftScore = round((3 * sqrt(commitsTouchingKeyFiles) + 5 * issueCount) * 10) / 10`), and branch diff-impact (`unupdatedImpactedDocs`).
+    Wire the scanner into `skills/flow-docs/SKILL.md` (with manual `git log` fallback when Node is unavailable), add shadow-mode telemetry instructions to `skills/infra-review/SKILL.md` while keeping the 17-row table unchanged, add `scripts/scan-flow-drift.test.mjs` to `.github/workflows/check.yml`, map the check in `README.md#rulecheck-map`, and bump all 5 manifests to `0.5.18` while keeping `com.github.copilot/rules/core.mdc` and `GEMINI.md` untouched (`0` diff lines).
+  - **Why:** Previously, `skills/flow-docs/SKILL.md` relied on manual per-file `git log` commands that agents could skip or misapply, and `skills/infra-review/SKILL.md` had no automated check for dead flow-doc references, `INDEX.md` drift, or merged PRs that changed listed key files without updating their flow doc.
+    Across five fresh baseline `0.5.17` consuming agents (`Q1`–`Q5`), `0/5` had a deterministic flow-doc drift or `--changed-from` diff-impact scanner in `flow-docs` or `infra-review` (`Q1`–`Q3`), while `5/5` preserved the 17-row table and mixed-host `infra-review` controls (`Q4`–`Q5`).
+  - **Check:** Run `node --test scripts/scan-flow-drift.test.mjs`, `node --test scripts/testing-contract.test.mjs`, `node scripts/check.mjs`, all CI suites, five fresh revised consuming agents (`5/5` across `Q1`–`Q5`), and isolated Copilot/Claude/Gemini plugin smoke checks. During the next weekly `infra-review`, confirm shadow-mode `scan-flow-drift.mjs` reports `driftScore` and per-PR `unupdatedImpactedDocs` without false positives on non-path code tokens.
+
 ## 0.5.17 (2026-11-15)
 - **Publish checked versions in GitHub Releases.**
   - **What:** Add a main-only release job after the complete check job. Publish `v<version>` from `plugin.json` with matching changelog notes and GitHub source downloads. Preserve existing releases and conflicting tags. Queue pending jobs instead of replacing them. Keep write permission in the release job. Replace fixed version assertions in the host tests with cross-manifest parity checks.

@@ -37,11 +37,11 @@ This plan adds a zero-dependency Node ESM scanner (`skills/flow-docs/scripts/sca
 ## Acceptance record
 - **Goal:** Add a deterministic flow-doc drift and diff-impact scanner (`skills/flow-docs/scripts/scan-flow-drift.mjs`) and wire it into `flow-docs`, `infra-review`, CI, and `README.md` (`v0.5.18`) without touching `core.mdc`.
 - **Done when:**
-  - [ ] `skills/flow-docs/scripts/scan-flow-drift.mjs` exports `scanFlowDrift(options)` and supports `--repo-root`, `--flows-dir`, `--changed-from`, `--changed-to`, `--json`, and `--fail-on-unupdated` with exact `no_flows`, `indexIssues`, `deadRefs`, Git ancestry `commitsTouchingKeyFiles`, damped `driftScore`, `diffStatus` / `unupdatedImpactedDocs`, path-traversal protection, and exit-code (`0` vs `1`) behavior.
-  - [ ] `scripts/scan-flow-drift.test.mjs` covers all 6 spec scenarios plus directory impact, prefix non-collision, invalid/flag-injected refs, and CLI execution, and `.github/workflows/check.yml` runs `node --test scripts/scan-flow-drift.test.mjs` alongside all existing suites.
-  - [ ] `skills/flow-docs/SKILL.md` and `skills/infra-review/SKILL.md` (`### Shadow-mode objective telemetry`, preserving the 17-row main table) instruct agents to run `scan-flow-drift.mjs` with manual `git log` fallback; verified by `writing-skills` `RED -> GREEN` subagent checks (`5` baseline vs `5` revised consumers).
-  - [ ] `README.md` `## Rule/check map` maps the flow-doc drift check and `scripts/scan-flow-drift.test.mjs` with honest structural/shadow limits; all 5 manifests and `CHANGELOG.md` are synced to `0.5.18`; `com.github.copilot/rules/core.mdc` and `GEMINI.md` have `0` diff lines.
-  - [ ] `node scripts/check.mjs`, all CI suites (`scripts/*.test.mjs` and `tools/work-ledger/*.test.mjs`), isolated `COPILOT_HOME` / Claude / Gemini validation smoke checks, and independent agent review pass at the final committed `HEAD` SHA.
+  - [x] `skills/flow-docs/scripts/scan-flow-drift.mjs` exports `scanFlowDrift(options)` and supports `--repo-root`, `--flows-dir`, `--changed-from`, `--changed-to`, `--json`, and `--fail-on-unupdated` with exact `no_flows`, `indexIssues`, `deadRefs`, Git ancestry `commitsTouchingKeyFiles`, damped `driftScore`, `diffStatus` / `unupdatedImpactedDocs`, path-traversal protection, and exit-code (`0` vs `1`) behavior.
+  - [x] `scripts/scan-flow-drift.test.mjs` covers all 6 spec scenarios plus directory impact, prefix non-collision, invalid/flag-injected refs, and CLI execution, and `.github/workflows/check.yml` runs `node --test scripts/scan-flow-drift.test.mjs` alongside all existing suites.
+  - [x] `skills/flow-docs/SKILL.md` and `skills/infra-review/SKILL.md` (`### Shadow-mode objective telemetry`, preserving the 17-row main table) instruct agents to run `scan-flow-drift.mjs` with manual `git log` fallback; verified by `writing-skills` `RED -> GREEN` subagent checks (`5` baseline vs `5` revised consumers).
+  - [x] `README.md` `## Rule/check map` maps the flow-doc drift check and `scripts/scan-flow-drift.test.mjs` with honest structural/shadow limits; all 5 manifests and `CHANGELOG.md` are synced to `0.5.18`; `com.github.copilot/rules/core.mdc` and `GEMINI.md` have `0` diff lines.
+  - [x] `node scripts/check.mjs`, all CI suites (`scripts/*.test.mjs` and `tools/work-ledger/*.test.mjs`), isolated `COPILOT_HOME` / Claude / Gemini validation smoke checks, and independent agent review pass at the final committed `HEAD` SHA.
 - **Required evidence:** `node --test scripts/scan-flow-drift.test.mjs`; `node scripts/check.mjs`; `node --test scripts/*.test.mjs`; `node --test tools/work-ledger/*.test.mjs`; isolated `COPILOT_HOME` plugin install + `copilot instruction list` + `copilot skill list` (`v0.5.18`); `writing-skills` `5` RED vs `5` GREEN consumer runs; independent `code-review` verdict; no device test (this repo has no app).
 - **Test matrix:** Compact test matrix (`T1`–`T8`) saved below under `skills/dev-loop/references/testing.md`.
 - **Regression selection:** Reuse `.github/workflows/check.yml` suites (`check.mjs`, `testing-contract.test.mjs`, `portability-contract.test.mjs`, `release.test.mjs`, `collect-metrics.test.mjs`, `run-benchmark.test.mjs`, `independent-review.test.mjs`, `branch-maintenance.test.mjs`, `device-handoff.test.mjs`, `tools/work-ledger/*.test.mjs`). `AGENTS.md` defines no separate `docs/testing/regression-matrix.md`.
@@ -56,14 +56,14 @@ This plan adds a zero-dependency Node ESM scanner (`skills/flow-docs/scripts/sca
 ### Compact test matrix
 | Case | Requirement / risk | Required? | Setup / input | Expected result | Method | Test location | Status | Evidence | Tested identity |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| T1 | Missing `docs/flows/INDEX.md` returns `no_flows` cleanly | yes | Disposable git repo without `docs/flows/INDEX.md` (API + CLI `--json --fail-on-unupdated`) | `{ status: "no_flows", flowsDir: "docs/flows", docs: [], indexIssues: [], unupdatedImpactedDocs: [] }` and exit `0` | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | not run | none | none |
-| T2 | Clean indexed flow doc with unchanged key files scores `0` and ignores non-path spans | yes | Indexed flow doc with `Entry points` (`/checkout`, `loginUser`, `./gradlew test`, `n/a`), existing `keyFiles`, matching `Last verified`, and valid `Related flows` | `driftScore === 0`, `deadRefs: []`, `indexIssues: []`, `commitsTouchingKeyFiles === 0`, `diffStatus: "untouched"` | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | not run | none | none |
-| T3 | Dead references, `Last verified` mismatch, `not yet` marker, missing indexed doc, and unindexed sibling doc compute exact `5 * issueCount` | yes | Repo with deleted key file + dead related flow + `Last verified` mismatch + unindexed `orphan.md` + missing indexed `ghost.md` | Exact `deadRefs`, `indexIssues`, `issues`, `driftScore` (`5 * issueCount`), and descending `driftScore` / ascending `docPath` sort | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | not run | none | none |
-| T4 | Git ancestry churn counts commits after `docLastCommit` without storing SHAs in Markdown | yes | `4` commits modifying a key file after the flow doc's last commit (plus inherited `GIT_DIR` env test) | `commitsTouchingKeyFiles === 4`, `recentCommits.length === 4`, `driftScore === 6.0` (`3 * sqrt(4)`), untracked doc gets `docLastCommit: null` and `0` churn | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | not run | none | none |
-| T5 | `--changed-from` diff-impact flags unupdated impacted docs (files, directories, deleted key files) and enforces `--fail-on-unupdated` | yes | Feature branch editing key file / directory child vs sibling prefix `src/auth-v2/`, with and without flow-doc edit | `unupdatedImpactedDocs: ["docs/flows/auth.md"]` (`exit 0` default, `exit 1` with `--fail-on-unupdated`); becomes `[]` (`diffStatus: "impacted_updated"`) once `docs/flows/auth.md` is updated; falls back to `..` when needed | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | not run | none | none |
-| T6 | Path-traversal, symlink escape, and CLI/ref validation guards | yes | Flow doc / `INDEX.md` containing `` `../../etc/passwd` ``, `../outside.md`, symlink outside `repoRoot`, unknown CLI flag, `--changed-from -bad`, and `--changed-from missing-ref` | Escaping paths never read outside `repoRoot` and are flagged safely; invalid flags/refs exit `1` | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | not run | none | none |
-| T7 | `writing-skills` `RED -> GREEN` consumer verification + structural contract (`SKILL_LINK_RE`, 17-row `infra-review` table, `Rule/check map`, `0.5.18` parity) | yes | 5 baseline (`RED`) vs 5 revised (`GREEN`) subagents + `check.mjs` + `testing-contract.test.mjs` + `portability-contract.test.mjs` + `release.test.mjs` | `0/5` RED -> `5/5` GREEN consumer compliance; `check.mjs` and all contract suites pass with `0` `core.mdc` diff lines | subagent + automated | `scripts/testing-contract.test.mjs`, `scripts/check.mjs`, `CHANGELOG.md` | not run | none | none |
-| T8 | Isolated `COPILOT_HOME` / Claude / Gemini smoke checks and independent `code-review` | yes | Temporary `COPILOT_HOME` install + `copilot instruction list` / `copilot skill list`, `claude plugin validate`, `gemini extensions validate`, and fresh `code-review` agent | Installed plugin discovers `v0.5.18` and bundles `skills/flow-docs/scripts/scan-flow-drift.mjs`; independent review clean | integration + review | CLI smoke + PR review | not run | none | none |
+| T1 | Missing `docs/flows/INDEX.md` returns `no_flows` cleanly | yes | Disposable git repo without `docs/flows/INDEX.md` (API + CLI `--json --fail-on-unupdated`) | `{ status: "no_flows", flowsDir: "docs/flows", docs: [], indexIssues: [], unupdatedImpactedDocs: [] }` and exit `0` | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | passed | `RED -> GREEN` (`node --test scripts/scan-flow-drift.test.mjs`, `6/6` pass) | `7632d13` (`HEAD`) |
+| T2 | Clean indexed flow doc with unchanged key files scores `0` and ignores non-path spans | yes | Indexed flow doc with `Entry points` (`/checkout`, `submitOrder`, `./gradlew test`, `n/a`), existing `keyFiles`, matching `Last verified`, and valid `Related flows` | `driftScore === 0`, `deadRefs: []`, `indexIssues: []`, `commitsTouchingKeyFiles === 0`, `diffStatus: "untouched"` | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | passed | `RED -> GREEN` (`node --test scripts/scan-flow-drift.test.mjs`, `6/6` pass) | `7632d13` (`HEAD`) |
+| T3 | Dead references, `Last verified` mismatch, `not yet` marker, missing indexed doc, and unindexed sibling doc compute exact `5 * issueCount` | yes | Repo with deleted key file + dead related flow + `Last verified` mismatch + unindexed `orphan.md` + missing indexed `ghost.md` | Exact `deadRefs`, `indexIssues`, `issues`, `driftScore` (`5 * issueCount`), and descending `driftScore` / ascending `docPath` sort | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | passed | `RED -> GREEN` (`node --test scripts/scan-flow-drift.test.mjs`, `6/6` pass) | `7632d13` (`HEAD`) |
+| T4 | Git ancestry churn counts commits after `docLastCommit` without storing SHAs in Markdown | yes | `4` commits modifying a key file after the flow doc's last commit (plus inherited `GIT_DIR` env test) | `commitsTouchingKeyFiles === 4`, `recentCommits.length === 4`, `driftScore === 6.0` (`3 * sqrt(4)`), untracked doc gets `docLastCommit: null` and `0` churn | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | passed | `RED -> GREEN` (`node --test scripts/scan-flow-drift.test.mjs`, `6/6` pass) | `7632d13` (`HEAD`) |
+| T5 | `--changed-from` diff-impact flags unupdated impacted docs (files, directories, deleted key files) and enforces `--fail-on-unupdated` | yes | Feature branch editing key file / directory child vs sibling prefix `src/auth-v2/`, with and without flow-doc edit, plus orphan two-dot fallback | `unupdatedImpactedDocs: ["docs/flows/auth.md"]` (`exit 0` default, `exit 1` with `--fail-on-unupdated`); becomes `[]` (`diffStatus: "impacted_updated"`) once `docs/flows/auth.md` is updated; falls back to `..` when needed | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | passed | `RED -> GREEN` (`node --test scripts/scan-flow-drift.test.mjs`, `6/6` pass) | `7632d13` (`HEAD`) |
+| T6 | Path-traversal, symlink escape, and CLI/ref validation guards | yes | Flow doc / `INDEX.md` containing `` `../../etc/passwd` ``, `../outside.md`, symlink outside `repoRoot`, unknown CLI flag, `--changed-from -bad`, and `--changed-from missing-ref` | Escaping paths never read outside `repoRoot` and are flagged safely; invalid flags/refs exit `1` | automated (TDD) | `scripts/scan-flow-drift.test.mjs` | passed | `RED -> GREEN` (`node --test scripts/scan-flow-drift.test.mjs`, `6/6` pass) | `7632d13` (`HEAD`) |
+| T7 | `writing-skills` `RED -> GREEN` consumer verification + structural contract (`SKILL_LINK_RE`, 17-row `infra-review` table, `Rule/check map`, `0.5.18` parity) | yes | 5 baseline (`RED`) vs 5 revised (`GREEN`) subagents + `check.mjs` + `testing-contract.test.mjs` + `portability-contract.test.mjs` + `release.test.mjs` | `0/5` RED -> `5/5` GREEN consumer compliance; `check.mjs` and all contract suites pass with `0` `core.mdc` diff lines | subagent + automated | `scripts/testing-contract.test.mjs`, `scripts/check.mjs`, `CHANGELOG.md` | passed | `red-skill-1..5` (`0/5` scanner, `5/5` controls) -> `green-skill-1..5` (`5/5` across `Q1`–`Q5`); `31/31` `testing-contract.test.mjs`, `10/10` `portability-contract.test.mjs` | `af91078` + `HEAD` |
+| T8 | Isolated `COPILOT_HOME` / Claude / Gemini smoke checks and independent `code-review` | yes | Temporary `COPILOT_HOME` install + `copilot instruction list` / `copilot skill list`, `claude plugin validate`, `gemini extensions validate`, and fresh `code-review` agent | Installed plugin discovers `v0.5.18` and bundles `skills/flow-docs/scripts/scan-flow-drift.mjs`; independent review clean | integration + review | CLI smoke + PR review | passed | `326` CI tests (`0` fail), `COPILOT_HOME` `v0.5.18` + bundled script run, `claude plugin validate --strict`, `GEMINI_CLI_HOME` `gemini extensions validate`, independent `code-review` | `HEAD` |
 
 - Category assessment:
   - `boundaries and invalid input` -> `T1`, `T2`, `T3`, `T6` (missing `INDEX.md`, malformed/non-path spans, `..` traversal, symlink escape, invalid CLI flags and `-` git refs).
@@ -73,9 +73,9 @@ This plan adds a zero-dependency Node ESM scanner (`skills/flow-docs/scripts/sca
   - `UI, accessibility, and device` -> excluded: `AGENTS.md` states this repository has no UI or app (`Device test: Not needed`).
   - `migration and compatibility` -> `T1`, `T7`, `T8` (repos without `docs/flows/INDEX.md` return `no_flows` and exit `0`; manual `git log` fallback preserved when Node is absent).
   - `performance` -> `T4` (bounded single `git log -1` and single `git log --oneline <sha>..HEAD` per flow doc; `< 1s` execution).
-- Required blockers: `T1`–`T8` pending implementation.
+- Required blockers: `none` (`T1`–`T8` passed).
 - Optional limits: Live GitHub Releases publish step runs only on push to `main` (`scripts/release.test.mjs` covers release payload locally).
-- Reassessment: Initial pre-implementation matrix at `0f7b6bf`.
+- Reassessment: Reassessed post-build against all consumers (`flow-docs`, `infra-review`, `check.mjs`, `testing-contract.test.mjs`, `portability-contract.test.mjs`, `release.mjs`, and Copilot/Claude/Gemini packaging); added orphan-branch two-dot fallback and non-JSON CLI text assertions to `T5`.
 
 ---
 
@@ -93,7 +93,7 @@ This plan adds a zero-dependency Node ESM scanner (`skills/flow-docs/scripts/sca
   - Named export `scanFlowDrift({ repoRoot = ".", flowsDir = "docs/flows", changedFrom = null, changedTo = "HEAD" } = {})` returning `{ status, flowsDir, changedFrom?, changedTo?, diffMode?, indexIssues, unupdatedImpactedDocs, docs }`.
   - CLI `node skills/flow-docs/scripts/scan-flow-drift.mjs [--repo-root <dir>] [--flows-dir <rel-path>] [--changed-from <git-ref>] [--changed-to <git-ref>] [--json] [--fail-on-unupdated]`.
 
-- [ ] **Step 1: Write the failing test suite in `scripts/scan-flow-drift.test.mjs`**
+- [x] **Step 1: Write the failing test suite in `scripts/scan-flow-drift.test.mjs`**
   Cover `T1`–`T6` using disposable `fs.mkdtempSync` + sanitized `git init` helpers (`GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`, stripped `GIT_*` and `NODE_TEST_CONTEXT` env vars):
   1. `T1`: Repo without `docs/flows/INDEX.md` -> `status: "no_flows"`, exit `0` even with `--fail-on-unupdated`.
   2. `T2`: Clean indexed flow doc (`Entry points`, `Sequence`, `Key files`, `Tests`, `Related flows`) with web route `` `/checkout` ``, function `` `submitOrder` ``, command `` `./gradlew test` ``, and `` `n/a` `` -> `driftScore === 0`, `deadRefs: []`, `diffStatus: "untouched"`.
@@ -102,18 +102,18 @@ This plan adds a zero-dependency Node ESM scanner (`skills/flow-docs/scripts/sca
   5. `T5`: `--changed-from main` on a branch editing a key file or directory child (`src/auth/Login.ts` under `src/auth`, vs untouched `src/auth-v2/Other.ts`) -> `unupdatedImpactedDocs: ["docs/flows/auth.md"]`, CLI exits `0` without `--fail-on-unupdated` and `1` with `--fail-on-unupdated`; updating `docs/flows/auth.md` clears `unupdatedImpactedDocs` to `[]` (`diffStatus: "impacted_updated"`).
   6. `T6`: Path-traversal (`../../etc/passwd`, `../secret.md`), symlink escaping `repoRoot`, unknown CLI flag, `--changed-from -bad`, and nonexistent `--changed-from` ref -> safe handling without reading outside `repoRoot` and exit `1` on invalid CLI/ref inputs.
 
-- [ ] **Step 2: Run test suite to verify it fails (`RED`)**
+- [x] **Step 2: Run test suite to verify it fails (`RED`)**
   Run: `node --test scripts/scan-flow-drift.test.mjs`
   Expected: FAIL (`ERR_MODULE_NOT_FOUND` for `skills/flow-docs/scripts/scan-flow-drift.mjs`).
 
-- [ ] **Step 3: Implement `scanFlowDrift` and CLI in `skills/flow-docs/scripts/scan-flow-drift.mjs` and add CI step to `.github/workflows/check.yml`**
+- [x] **Step 3: Implement `scanFlowDrift` and CLI in `skills/flow-docs/scripts/scan-flow-drift.mjs` and add CI step to `.github/workflows/check.yml`**
   Implement Markdown table/section parsing, `realpathSync` containment checks, `execFileSync("git", ...)` ancestry churn and three-dot/two-dot diff-impact detection, damped score math, JSON/text formatting, and `.github/workflows/check.yml` step `- run: node --test scripts/scan-flow-drift.test.mjs`.
 
-- [ ] **Step 4: Run tests to verify `GREEN`**
+- [x] **Step 4: Run tests to verify `GREEN`**
   Run: `node --test scripts/scan-flow-drift.test.mjs && node --test scripts/testing-contract.test.mjs`
   Expected: PASS (`0` failures).
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
   Commit `skills/flow-docs/scripts/scan-flow-drift.mjs`, `scripts/scan-flow-drift.test.mjs`, and `.github/workflows/check.yml`.
 
 ---
@@ -129,17 +129,17 @@ This plan adds a zero-dependency Node ESM scanner (`skills/flow-docs/scripts/sca
 - Consumes: `skills/flow-docs/scripts/scan-flow-drift.mjs` CLI flags and JSON output fields (`driftScore`, `deadRefs`, `commitsTouchingKeyFiles`, `unupdatedImpactedDocs`).
 - Produces: Updated `skills/flow-docs/SKILL.md` and `skills/infra-review/SKILL.md` validated by `5` baseline (`RED`) vs `5` revised (`GREEN`) fresh subagents and `scripts/check.mjs`.
 
-- [ ] **Step 1: Run 5 fresh baseline (`RED`) consumer subagents before editing skills and add failing contract test**
+- [x] **Step 1: Run 5 fresh baseline (`RED`) consumer subagents before editing skills and add failing contract test**
   Evaluate current `skills/flow-docs/SKILL.md` and `skills/infra-review/SKILL.md` across 5 fresh subagents on a scenario asking for pre-edit flow-doc verification, Step-4 pre-review unupdated-flow verification, and weekly shadow-mode flow-doc drift telemetry; add structural test in `scripts/testing-contract.test.mjs` and confirm `RED`.
 
-- [ ] **Step 2: Update `skills/flow-docs/SKILL.md` and `skills/infra-review/SKILL.md`**
-  - In `skills/flow-docs/SKILL.md`: instruct running `node <flow-docs-skill-dir>/scripts/scan-flow-drift.mjs --repo-root . --json` (referencing `` `scripts/scan-flow-drift.mjs` ``) in `## Before you change a flow` to inspect `driftScore`, `deadRefs`, and `commitsTouchingKeyFiles` (keeping manual `git log` fallback if Node is unavailable), and running `--changed-from <base>` in `## Update a flow doc` before Step 5 self-review to confirm `unupdatedImpactedDocs` is empty.
+- [x] **Step 2: Update `skills/flow-docs/SKILL.md` and `skills/infra-review/SKILL.md`**
+  - In `skills/flow-docs/SKILL.md`: instruct running `node <flow-docs-skill-dir>/scripts/scan-flow-drift.mjs --json` (referencing `` `scripts/scan-flow-drift.mjs` ``) in `## Before you change a flow` to inspect `driftScore`, `deadRefs`, and `commitsTouchingKeyFiles` (keeping manual `git log` fallback if Node is unavailable), and running `--changed-from <base>` in `## Update a flow doc` before Step 5 self-review to confirm `unupdatedImpactedDocs` is empty.
   - In `skills/infra-review/SKILL.md`: keep the 17-row main table untouched (`dataRows.length === 17`) and add shadow-mode `node <dev-loop-checkout>/skills/flow-docs/scripts/scan-flow-drift.mjs --repo-root <project-checkout> --json` plus merged-PR `--changed-from <mergeCommit>^1 --changed-to <mergeCommit>` checks under `### Shadow-mode objective telemetry`.
 
-- [ ] **Step 3: Verify `node scripts/check.mjs`, `scripts/testing-contract.test.mjs`, and 5 fresh revised (`GREEN`) consumer subagents**
+- [x] **Step 3: Verify `node scripts/check.mjs`, `scripts/testing-contract.test.mjs`, and 5 fresh revised (`GREEN`) consumer subagents**
   Run `node scripts/check.mjs && node --test scripts/testing-contract.test.mjs` and 5 fresh subagents confirming `5/5` compliance and `5/5` control preservation.
 
-- [ ] **Step 4: Commit Task 2**
+- [x] **Step 4: Commit Task 2**
   Commit `skills/flow-docs/SKILL.md`, `skills/infra-review/SKILL.md`, and `scripts/testing-contract.test.mjs`.
 
 ---
@@ -156,13 +156,13 @@ This plan adds a zero-dependency Node ESM scanner (`skills/flow-docs/scripts/sca
 - Consumes: Tasks 1–2 deliverables and `RED -> GREEN` evidence.
 - Produces: Version `0.5.18` across all 5 manifests + `CHANGELOG.md`, `README.md` `## Rule/check map` row, verified CI + isolated CLI smoke checks, independent `code-review`, and open PR against `main`.
 
-- [ ] **Step 1: Update `README.md` `## Rule/check map`, `CHANGELOG.md`, and the 5 version manifests (`0.5.18`)**
-  Add the 4-column `## Rule/check map` row linking `[Flow-doc drift scanner](skills/flow-docs/scripts/scan-flow-drift.mjs)`, `[Flow-docs skill](skills/flow-docs/SKILL.md)`, and `[Flow drift suite](scripts/scan-flow-drift.test.mjs)` with honest shadow-mode/advisory limitations; add `## 0.5.18 (2026-11-16)` to `CHANGELOG.md`; bump all 5 manifests to `0.5.18`.
+- [x] **Step 1: Update `README.md` `## Rule/check map`, `CHANGELOG.md`, and the 5 version manifests (`0.5.18`)**
+  Add the 4-column `## Rule/check map` row linking `[Flow drift scanner](skills/flow-docs/scripts/scan-flow-drift.mjs)`, `[Flow docs skill](skills/flow-docs/SKILL.md)`, and `[Flow drift suite](scripts/scan-flow-drift.test.mjs)` with honest shadow-mode/advisory limitations; add `## 0.5.18 (2026-11-16)` to `CHANGELOG.md`; bump all 5 manifests to `0.5.18`.
 
-- [ ] **Step 2: Run full repository checks and isolated CLI smoke tests**
+- [x] **Step 2: Run full repository checks and isolated CLI smoke tests**
   Run `node scripts/check.mjs`, `node --test scripts/*.test.mjs`, `node --test tools/work-ledger/*.test.mjs`, confirm `git diff origin/main -- com.github.copilot/rules/core.mdc GEMINI.md` is empty, and run isolated `COPILOT_HOME` (`copilot plugin install`, `copilot instruction list`, `copilot skill list`), `claude plugin validate`, and `gemini extensions validate` checks.
 
-- [ ] **Step 3: Commit, run independent `code-review` on `origin/main...HEAD`, address any confirmed findings, push, and open PR 1**
+- [x] **Step 3: Commit, run independent `code-review` on `origin/main...HEAD`, address any confirmed findings, push, and open PR 1**
   Record final evidence in `docs/superpowers/plans/2026-11-16-flow-drift-scanner-m1.md`, dispatch independent `code-review` subagent, push once, create PR against `main`, record `work_ledger_record` if available, wait for GitHub Actions `check` and `copilot-pull-request-reviewer`, and report to the coordinator session.
 
 ## Conclusion
