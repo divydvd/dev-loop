@@ -1469,7 +1469,7 @@ test("T-M3-3: Gemini CLI host guide is required by checkRepo, linked from hosts/
   assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
 });
 
-test("T-M5: multi-host README matrix, T-IR8, rule/check map, CHANGELOG, and 0.5.16 manifest sync", async () => {
+test("T-M5: multi-host README matrix, T-IR8, rule/check map, CHANGELOG, and manifest sync", async () => {
   const syncMod = await import("./sync-host-core.mjs");
   const plugin = JSON.parse(readFileSync(join(REPO_ROOT, "plugin.json"), "utf8"));
   const marketplace = JSON.parse(readFileSync(join(REPO_ROOT, ".github/plugin/marketplace.json"), "utf8"));
@@ -1477,13 +1477,12 @@ test("T-M5: multi-host README matrix, T-IR8, rule/check map, CHANGELOG, and 0.5.
   const claudeMarketplace = JSON.parse(readFileSync(join(REPO_ROOT, ".claude-plugin/marketplace.json"), "utf8"));
   const geminiExt = JSON.parse(readFileSync(join(REPO_ROOT, "gemini-extension.json"), "utf8"));
 
-  assert.equal(plugin.version, "0.5.16");
-  assert.equal(marketplace.metadata.version, "0.5.16");
-  assert.equal(marketplace.plugins[0].version, "0.5.16");
-  assert.equal(claudePlugin.version, "0.5.16");
-  assert.equal(claudeMarketplace.metadata.version, "0.5.16");
-  assert.equal(claudeMarketplace.plugins[0].version, "0.5.16");
-  assert.equal(geminiExt.version, "0.5.16");
+  assert.equal(marketplace.metadata.version, plugin.version);
+  assert.equal(marketplace.plugins[0].version, plugin.version);
+  assert.equal(claudePlugin.version, plugin.version);
+  assert.equal(claudeMarketplace.metadata.version, plugin.version);
+  assert.equal(claudeMarketplace.plugins[0].version, plugin.version);
+  assert.equal(geminiExt.version, plugin.version);
   assert.equal(syncMod.syncHostCore(REPO_ROOT, { check: true }).synced, true);
 
   const changelog = readFileSync(join(REPO_ROOT, "CHANGELOG.md"), "utf8");
@@ -1539,4 +1538,3 @@ test("T-M5: multi-host README matrix, T-IR8, rule/check map, CHANGELOG, and 0.5.
 
   assert.deepEqual(checkMod.checkRepo(REPO_ROOT), []);
 });
-

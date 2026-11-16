@@ -2,6 +2,12 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.17 (2026-11-15)
+- **Publish checked versions in GitHub Releases.**
+  - **What:** Add a main-only release job after the complete check job. Publish `v<version>` from `plugin.json` with matching changelog notes and GitHub source downloads. Preserve existing releases and conflicting tags. Queue pending jobs instead of replacing them. Keep write permission in the release job. Replace fixed version assertions in the host tests with cross-manifest parity checks.
+  - **Why:** GitHub had no releases or tags, although this repository had versioned manifests and changelog entries. The existing workflow only ran checks.
+  - **Check:** Run `node --test scripts/release.test.mjs` and `node scripts/check.mjs`. The CLI tests cover exact release data, repeat runs, matching annotated tags, conflicts, invalid metadata, and API failures. After merge, confirm that the main run publishes one release with ZIP/TAR downloads.
+
 ## 0.5.16 (2026-11-15)
 - **Add mixed-host `collect-metrics.mjs` attribution, host-aware `infra-review`, and multi-host documentation (Milestone M5).**
   - **What:** Update `scripts/collect-metrics.mjs` so merged PRs without a matched `~/.copilot/session-state/<id>` transcript (such as Claude Code or Gemini CLI PRs) still compute all Git and GitHub measures (`14-day` code survival, `14-day` fix-up PRs, `first-push green rate`, `medianProdLines`, route counts, and `Ledger + ancestry verified merges`) while marking per-PR session attribution as `unmatched_non_copilot_or_missing_session` with explicit `null` session fields, sorted `unmatchedPrNumbers`, and `n/a (unmatched_non_copilot_or_missing_session)` (never `0`) for `Owner repeat-rule messages (matched sessions)` and (once ledger and fix-up prerequisites pass) `Durable first-pass yield` when `~/.copilot/session-state` exists with `mappedCount === 0` and `mergedPrCount > 0`, while preserving `unavailable` / `sessions_unavailable` when `~/.copilot/session-state` is absent.
