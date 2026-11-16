@@ -45,10 +45,19 @@ function isOutsideRoot(rootReal, targetAbs) {
   return rel === ".." || rel.startsWith("../") || isAbsolute(rel);
 }
 
+function safeLstat(targetAbs) {
+  try {
+    return lstatSync(targetAbs);
+  } catch (err) {
+    if (err && (err.code === "ENOENT" || err.code === "ENOTDIR")) return null;
+    throw err;
+  }
+}
+
 function hasEscapingAncestor(repoRootReal, candidateAbs) {
   let cur = dirname(candidateAbs);
   while (!isOutsideRoot(repoRootReal, cur)) {
-    if (existsSync(cur)) {
+    if (safeLstat(cur)) {
       try {
         return isOutsideRoot(repoRootReal, realpathSync(cur));
       } catch {
@@ -67,16 +76,18 @@ function resolveContainedPath(repoRootReal, baseDirAbs, rawRef) {
     return { escaped: true, exists: false, isDir: false, repoRelPath: rawRef };
   }
   const candidateAbs = resolve(baseDirAbs, rawRef);
-  if (isOutsideRoot(repoRootReal, candidateAbs)) {
+  if (isOutsideRoot(repoRootReal, candidateAbs) || candidateAbs === repoRootReal) {
     return { escaped: true, exists: false, isDir: false, repoRelPath: rawRef };
   }
   const repoRelPath = toPosix(relative(repoRootReal, candidateAbs));
-  if (!lstatSync(candidateAbs, { throwIfNoEntry: false })) {
+  if (!safeLstat(candidateAbs)) {
     return { escaped: hasEscapingAncestor(repoRootReal, candidateAbs), exists: false, isDir: false, repoRelPath };
   }
   try {
     const realAbs = realpathSync(candidateAbs);
-    if (isOutsideRoot(repoRootReal, realAbs)) return { escaped: true, exists: false, isDir: false, repoRelPath };
+    if (isOutsideRoot(repoRootReal, realAbs) || realAbs === repoRootReal) {
+      return { escaped: true, exists: false, isDir: false, repoRelPath };
+    }
     return { escaped: false, exists: true, isDir: statSync(realAbs).isDirectory(), repoRelPath };
   } catch {
     return { escaped: false, exists: false, isDir: false, repoRelPath };
@@ -90,12 +101,23 @@ function validateFlowsDir(repoRootReal, flowsDirRaw) {
   if (isAbsolute(flowsDirRaw) || /^[A-Za-z]:[\\/]/.test(flowsDirRaw)) {
     throw new Error(`--flows-dir must stay inside repoRoot: ${flowsDirRaw}`);
   }
-  const normalized = toPosix(flowsDirRaw).replace(/^(?:\.\/)+/, "").replace(/\/+$/, "") || "docs/flows";
+  const normalized = toPosix(flowsDirRaw).replace(/^(?:\.\/)+/, "").replace(/\/+$/, "");
+  if (!normalized) throw new Error(`--flows-dir escapes repoRoot: ${flowsDirRaw}`);
   const flowsAbs = resolve(repoRootReal, normalized);
   if (isOutsideRoot(repoRootReal, flowsAbs) || flowsAbs === repoRootReal) {
     throw new Error(`--flows-dir escapes repoRoot: ${flowsDirRaw}`);
   }
-  if (existsSync(flowsAbs) && isOutsideRoot(repoRootReal, realpathSync(flowsAbs))) {
+  if (safeLstat(flowsAbs)) {
+    let realFlows;
+    try {
+      realFlows = realpathSync(flowsAbs);
+    } catch {
+      throw new Error(`--flows-dir symlink escapes repoRoot: ${flowsDirRaw}`);
+    }
+    if (isOutsideRoot(repoRootReal, realFlows) || realFlows === repoRootReal) {
+      throw new Error(`--flows-dir symlink escapes repoRoot: ${flowsDirRaw}`);
+    }
+  } else if (hasEscapingAncestor(repoRootReal, flowsAbs)) {
     throw new Error(`--flows-dir symlink escapes repoRoot: ${flowsDirRaw}`);
   }
   return { flowsDir: toPosix(relative(repoRootReal, flowsAbs)), flowsAbs };
@@ -179,7 +201,7 @@ function resolveDiffSet(repoRootReal, changedFrom, changedTo) {
   validateGitRef(changedTo, "--changed-to");
   for (const [diffMode, sep] of [["three_dot", "..."], ["two_dot", ".."]]) {
     try {
-      const out = runGit(repoRootReal, ["diff", "--name-only", `${changedFrom}${sep}${changedTo}`, "--"]);
+      const out = runGit(repoRootReal, ["diff", "--no-renames", "--name-only", `${changedFrom}${sep}${changedTo}`, "--"]);
       return { diffMode, changedFiles: new Set(out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)) };
     } catch (err) {
       if (diffMode === "two_dot") {
@@ -196,7 +218,7 @@ export function scanFlowDrift({ repoRoot = ".", flowsDir: flowsDirOption = "docs
   const { flowsDir, flowsAbs } = validateFlowsDir(repoRootReal, flowsDirOption);
 
   const indexAbs = join(flowsAbs, "INDEX.md");
-  if (!lstatSync(indexAbs, { throwIfNoEntry: false })) {
+  if (!safeLstat(indexAbs)) {
     return { status: "no_flows", flowsDir, docs: [], indexIssues: [], unupdatedImpactedDocs: [] };
   }
   const flowsReal = realpathSync(flowsAbs);

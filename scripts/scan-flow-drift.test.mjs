@@ -373,6 +373,17 @@ test("T5: --changed-from flags unupdated impacted docs for files, directories, a
   assert.equal(cleanStrict.status, 0, cleanStrict.stderr);
   assert.deepEqual(JSON.parse(cleanStrict.stdout).unupdatedImpactedDocs, []);
 
+  // git mv rename of a key file out of a flow directory without updating the doc -> impacted_unupdated
+  git(repoRoot, ["checkout", "-b", "feature/rename-login", "main"]);
+  writeRepoFile(repoRoot, "src/identity/.keep", "");
+  git(repoRoot, ["mv", "src/auth/Login.ts", "src/identity/Login.ts"]);
+  git(repoRoot, ["add", "-A"]);
+  git(repoRoot, ["commit", "-m", "move Login.ts out of src/auth"]);
+  const afterRename = scanFlowDrift({ repoRoot, changedFrom: "main" });
+  assert.equal(afterRename.docs.find((d) => d.docPath === "docs/flows/auth.md").diffStatus, "impacted_unupdated");
+  assert.deepEqual(afterRename.unupdatedImpactedDocs, ["docs/flows/auth.md"]);
+  git(repoRoot, ["checkout", "feature/oauth"]);
+
   // Human-readable output without --json
   const textCli = runCli(["--repo-root", repoRoot, "--changed-from", "main"]);
   assert.equal(textCli.status, 0, textCli.stderr);
@@ -423,6 +434,8 @@ test("T6: blocks path traversal, symlink escape, unknown CLI flags, and invalid 
       "| File | Role |",
       "| --- | --- |",
       "| `src/safe.ts` | Safe file |",
+      "| `README.md/CHANGELOG.md` | Slash pair under regular file (ENOTDIR) |",
+      "| `src/..` | Collapses to repoRoot |",
       "| `../outside.ts` | Parent escape |",
       "| `../../etc/passwd` | System escape |",
       "| `src/escape-link.ts` | Symlink escape |",
@@ -447,14 +460,21 @@ test("T6: blocks path traversal, symlink escape, unknown CLI flags, and invalid 
       "",
     ].join("\n"),
   );
+  symlinkSync(parent, join(repoRoot, "escape-dir-link"));
   git(repoRoot, ["add", "."]);
   git(repoRoot, ["commit", "-m", "security fixture"]);
+  writeRepoFile(repoRoot, "src/safe.ts", "export const safe = 2;\n");
+  git(repoRoot, ["add", "src/safe.ts"]);
+  git(repoRoot, ["commit", "-m", "touch safe.ts after security doc"]);
 
   const res = scanFlowDrift({ repoRoot });
   const sec = res.docs.find((d) => d.docPath === "docs/flows/security.md");
   assert.ok(sec);
   assert.equal(sec.lastVerifiedDoc, null);
   assert.ok(sec.issues.includes("unverified_marker"));
+  assert.equal(sec.commitsTouchingKeyFiles, 1);
+  assert.ok(!sec.keyFiles.includes(""));
+  assert.ok(sec.deadRefs.includes("README.md/CHANGELOG.md"));
   assert.equal(res.docs.find((d) => d.docPath.endsWith("readme-link.md")), undefined);
   // None of the escaping/symlink targets may be treated as valid existing repo files
   assert.ok(sec.deadRefs.includes("../outside.ts"));
@@ -462,9 +482,14 @@ test("T6: blocks path traversal, symlink escape, unknown CLI flags, and invalid 
   assert.ok(sec.deadRefs.includes("src/escape-link.ts"));
   assert.equal(res.indexIssues.filter((i) => i.kind === "missing_indexed_doc").length, 2);
 
+  // Regular file along --flows-dir returns no_flows rather than crashing with ENOTDIR
+  assert.equal(scanFlowDrift({ repoRoot, flowsDir: "README.md/flows" }).status, "no_flows");
+
   // Invalid CLI / ref arguments exit 1
   assert.equal(runCli(["--unknown-flag"]).status, 1);
+  assert.equal(runCli(["--repo-root", repoRoot, "--flows-dir", "./"]).status, 1);
   assert.equal(runCli(["--repo-root", repoRoot, "--flows-dir", "../escape"]).status, 1);
+  assert.equal(runCli(["--repo-root", repoRoot, "--flows-dir", "escape-dir-link/sub"]).status, 1);
   assert.equal(runCli(["--repo-root", repoRoot, "--changed-from", "--output=/tmp/evil"]).status, 1);
   assert.equal(runCli(["--repo-root", repoRoot, "--changed-from", "nonexistent-branch-ref"]).status, 1);
 });
