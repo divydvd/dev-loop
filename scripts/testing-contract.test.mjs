@@ -410,6 +410,8 @@ test("flow-docs and infra-review wire scan-flow-drift.mjs with manual fallback a
   );
   assert.match(shadow, /--changed-from <mergeCommit>\^1 --changed-to <mergeCommit> --json/);
   assert.match(shadow, /unupdatedImpactedDocs/);
+  assert.match(shadow, /explicitly approved worktree isolation/);
+  assert.match(shadow, /`n\/a`/);
 });
 
 

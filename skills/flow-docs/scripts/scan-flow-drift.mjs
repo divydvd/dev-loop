@@ -22,7 +22,7 @@ function sanitizedGitEnv() {
 }
 
 function runGit(repoRootReal, args) {
-  return execFileSync("git", ["-C", repoRootReal, ...args], { env: sanitizedGitEnv(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 16 * 1024 * 1024 });
+  return execFileSync("git", ["--literal-pathspecs", "-C", repoRootReal, ...args], { env: sanitizedGitEnv(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 16 * 1024 * 1024 });
 }
 
 function validateGitRef(ref, flagName) {
@@ -92,18 +92,19 @@ function validateFlowsDir(repoRootReal, flowsDirRaw) {
 
 function normalizeCodePathToken(rawToken, explicitEntry = false) {
   const trimmed = rawToken.trim();
-  if (!trimmed || /\s/.test(trimmed) || /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) return null;
-  if (/[<>]/.test(trimmed) || /^[-/~]/.test(trimmed) || /[*?[\]{}]/.test(trimmed)) return null;
+  if (!trimmed || /[\0\r\n<>]/.test(trimmed) || (!explicitEntry && /\s/.test(trimmed)) || /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) return null;
+  if (/^[-/~]/.test(trimmed) || /[*?]/.test(trimmed) || (!explicitEntry && (/^@/.test(trimmed) || /[{}]/.test(trimmed)))) return null;
   const rawPosix = toPosix(trimmed).replace(/(\.[A-Za-z0-9]+)(?:#[^/\s]+|:\d+(?::\d+)?)$/, "$1");
   const hadPathMarker = /^(?:\.\/)+|\/+$/.test(rawPosix);
   const cleaned = rawPosix.replace(/^(?:\.\/)+/, "").replace(/\/+$/, "");
   if (!cleaned || cleaned === "." || cleaned === ".." || !/\p{L}/u.test(cleaned)) return null;
   if (SLASH_SHORTHANDS.has(cleaned.toLowerCase()) || /^\d+(?:\/\d+)+$/.test(cleaned)) return null;
   if (MIME_PREFIX_RE.test(cleaned) || GIT_REF_PREFIX_RE.test(cleaned)) return null;
+  const segRe = /^(?:\[{1,2}(?:\.\.\.)?[\p{L}\p{N}._-]+\]{1,2}(?:\.[A-Za-z0-9]+)*|\([\p{L}\p{N}._-]+\)|[\p{L}\p{N}._+\-@]+)$/u;
   const segments = cleaned.split("/");
-  if (segments.some((seg) => !seg || (seg !== ".." && !/^[\p{L}\p{N}._-]+$/u.test(seg)))) return null;
+  if (segments.some((seg) => !seg || seg === "." || (!explicitEntry && seg !== ".." && !segRe.test(seg)))) return null;
   const base = segments[segments.length - 1];
-  if (!cleaned.includes("/") && !hadPathMarker && KNOWN_EXTENSIONS.has(cleaned.toLowerCase())) return null;
+  if (!cleaned.includes("/") && !hadPathMarker && (KNOWN_EXTENSIONS.has(cleaned.toLowerCase()) || /\([^)]*\)$/.test(cleaned))) return null;
   const isKnownFile = KNOWN_DOTFILES.has(base.toLowerCase()) || EXTENSIONLESS_FILES.has(base.toLowerCase()) || KNOWN_EXTENSIONS.has(extname(cleaned).toLowerCase());
   if (!isKnownFile && !cleaned.includes("/") && !hadPathMarker && (!explicitEntry || NON_PATH_WORDS.has(cleaned.toLowerCase()))) return null;
   return cleaned;

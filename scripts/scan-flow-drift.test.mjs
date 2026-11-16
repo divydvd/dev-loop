@@ -85,9 +85,12 @@ test("T2: clean indexed flow doc scores 0 and ignores routes, functions, command
   writeRepoFile(repoRoot, "Dockerfile", "FROM node:22-alpine\n");
   writeRepoFile(repoRoot, ".gitignore", "node_modules/\n");
   writeRepoFile(repoRoot, "lib/helper.ts", "export const h = 1;\n");
+  writeRepoFile(repoRoot, "src/app/[id]/page.tsx", "export const page = 1;\n");
+  writeRepoFile(repoRoot, "src/routes/+page.svelte", "<p>ok</p>\n");
   writeRepoFile(repoRoot, "src/checkout/Cart.ts", "export const cart = true;\n");
   writeRepoFile(repoRoot, "src/checkout/Pay.ts", "export const pay = true;\n");
   writeRepoFile(repoRoot, "tests/checkout.test.ts", "export const ok = true;\n");
+  writeRepoFile(repoRoot, "tests/[id].test.ts", "export const idOk = true;\n");
   writeRepoFile(
     repoRoot,
     "docs/flows/payment.md",
@@ -105,7 +108,7 @@ test("T2: clean indexed flow doc scores 0 and ignores routes, functions, command
       "- User opens `/checkout` → `./src/checkout/Cart.ts` `submitOrder` (`https://example.com/pay`)",
       "",
       "## Sequence",
-      "1. Validate cart (`src/checkout/Cart.ts:12`), `.export-btn`, and `./lib/`",
+      "1. Validate cart (`src/checkout/Cart.ts:12`), `items[0]`, `items[0]/total`, `.export-btn`, and `./lib/`",
       "2. Charge card (`src/checkout/Pay.ts`) and emit `notice`",
       "",
       "## Key files",
@@ -113,12 +116,14 @@ test("T2: clean indexed flow doc scores 0 and ignores routes, functions, command
       "| --- | --- |",
       "| `src/checkout/Cart.ts` | Cart state (`n/a`, `true/false`, `.csv`, `.length`, calls `validateCart`) |",
       "| `src/checkout/Pay.ts` | Payment capture |",
+      "| `src/app/[id]/page.tsx` | Dynamic Next.js route |",
+      "| `src/routes/+page.svelte` | SvelteKit route |",
       "| `Dockerfile` | Container build |",
       "| `.gitignore` | Ignore patterns |",
       "| `src` | Source root |",
       "",
       "## Tests",
-      "- Unit: `./gradlew test` and `tests/checkout.test.ts`",
+      "- Unit: `./gradlew test`, `@playwright/test`, `@/lib/auth`, `tests/checkout.test.ts`, and `tests/[id].test.ts`",
       "",
       "## Related flows",
       "- [Payment](payment.md)",
@@ -158,10 +163,13 @@ test("T2: clean indexed flow doc scores 0 and ignores routes, functions, command
     "src/checkout/Cart.ts",
     "lib",
     "src/checkout/Pay.ts",
+    "src/app/[id]/page.tsx",
+    "src/routes/+page.svelte",
     "Dockerfile",
     ".gitignore",
     "src",
     "tests/checkout.test.ts",
+    "tests/[id].test.ts",
   ]);
   assert.deepEqual(checkout.deadRefs, []);
   assert.deepEqual(checkout.issues, []);
@@ -262,10 +270,11 @@ test("T3: deleted key file, dead related flow, Last verified mismatch, missing i
 test("T4: counts Git ancestry commits touching key files after docLastCommit, handles untracked docs, and isolates GIT_DIR", (t) => {
   const { repoRoot } = initRepo(t);
   writeRepoFile(repoRoot, "src/auth/Login.ts", "export let v = 0;\n");
+  writeRepoFile(repoRoot, "src/app/[id]/page.tsx", "export let p = 0;\n");
   writeRepoFile(
     repoRoot,
     "docs/flows/auth.md",
-    "# Auth\n\nLast verified: 2026-10-01.\n\n## Key files\n| File | Role |\n| --- | --- |\n| `src/auth/Login.ts` | Login |\n",
+    "# Auth\n\nLast verified: 2026-10-01.\n\n## Key files\n| File | Role |\n| --- | --- |\n| `src/auth/Login.ts` | Login |\n| `src/app/[id]/page.tsx` | Dynamic route |\n",
   );
   writeRepoFile(
     repoRoot,
@@ -276,11 +285,14 @@ test("T4: counts Git ancestry commits touching key files after docLastCommit, ha
   git(repoRoot, ["commit", "-m", "add auth flow"]);
   const docCommit = git(repoRoot, ["rev-parse", "HEAD"]);
 
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= 3; i++) {
     writeRepoFile(repoRoot, "src/auth/Login.ts", `export let v = ${i};\n`);
     git(repoRoot, ["add", "src/auth/Login.ts"]);
     git(repoRoot, ["commit", "-m", `auth change ${i}`]);
   }
+  writeRepoFile(repoRoot, "src/app/[id]/page.tsx", "export let p = 1;\n");
+  git(repoRoot, ["add", "--", ":(literal)src/app/[id]/page.tsx"]);
+  git(repoRoot, ["commit", "-m", "route [id] change 4"]);
   writeRepoFile(repoRoot, "README.md", "unrelated\n");
   git(repoRoot, ["add", "README.md"]);
   git(repoRoot, ["commit", "-m", "unrelated readme edit"]);
