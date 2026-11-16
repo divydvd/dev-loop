@@ -243,9 +243,14 @@ test("failed session.send preserves retrying state for onSessionStart fallback, 
     const startRes = await host.options.hooks.onSessionStart();
     assert.match(startRes.additionalContext, /Away-mode transient outage recovery \\(attempt 1\\/3/);
     assert.match(startRes.additionalContext, /docs\\/superpowers\\/plans\\/m5\\.md/);
-    const saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
-    assert.equal(saved.outageRecovery["owner-runtime"].status, "resumed");
+    let saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+    assert.equal(saved.outageRecovery["owner-runtime"].status, "dispatching");
+    assert.ok(saved.outageRecovery["owner-runtime"].pendingPrompt);
     assert.equal(saved.outageRecovery["owner-runtime"].attemptsUsed, 1);
+
+    await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "true" }, workingDirectory: process.cwd() }, { sessionId: host.session.sessionId });
+    saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+    assert.equal(saved.outageRecovery["owner-runtime"].status, "resumed");
 
     await host.options.hooks.onErrorOccurred({
       error: "HTTP 503 Service Unavailable",
@@ -603,5 +608,131 @@ test("copilot review runtime regressions: gitHead race on send and hydration, an
   assert.equal(hydrateRaceRes.status, 0, `${hydrateRaceRes.stdout}\n${hydrateRaceRes.stderr}`);
   assert.match(hydrateRaceRes.stdout, /hydrate-race-cancelled-ok/);
 });
+
+test("round 2 runtime regressions: unacknowledged send/hydration recovery and historical getEvents owner return", (t) => {
+  const { ledgerDir, repoDir, env } = makeSandbox(t, { withRemote: true });
+  fs.writeFileSync(
+    path.join(ledgerDir, "config.json"),
+    JSON.stringify({ outageRetryCap: 3, outageBackoffSec: [1, 2, 2] })
+  );
+  const sddDir = path.join(repoDir, ".superpowers/sdd/m5");
+  fs.mkdirSync(sddDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sddDir, "progress.md"),
+    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n| Scope | session: owner-runtime, plan: docs/superpowers/plans/m5.md |\n| Owner activation | Direct 'away mode' instruction (msg-1) at 2026-11-16T10:00:00Z |\n"
+  );
+
+  // 1. Process 1 hangs inside session.send (unacknowledged delivery) and exits -> prompt remains recoverable!
+  const crashMidSend = runInlineDriver(
+    `
+      import assert from "node:assert/strict";
+      import fs from "node:fs";
+      import path from "node:path";
+      import { pathToFileURL } from "node:url";
+      await import(pathToFileURL(${JSON.stringify(extensionPath)}).href);
+      const host = globalThis.ledgerTestHost;
+      host.hangNextSend = true;
+      await host.options.hooks.onErrorOccurred({ error: "HTTP 503 Service Unavailable", workingDirectory: process.cwd() });
+      await new Promise((r) => setTimeout(r, 1250));
+      const saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+      assert.ok(saved.outageRecovery["owner-runtime"].pendingPrompt, "pendingPrompt must remain saved while session.send is unacknowledged");
+      assert.notEqual(saved.outageRecovery["owner-runtime"].status, "resumed", "must not mark resumed before session.send resolves");
+      console.log("mid-send-claim-preserved");
+      process.exit(0);
+    `,
+    { cwd: repoDir, env }
+  );
+  assert.equal(crashMidSend.status, 0, `${crashMidSend.stdout}\n${crashMidSend.stderr}`);
+  assert.match(crashMidSend.stdout, /mid-send-claim-preserved/);
+
+  // 2. Process 2 reloads after Process 1 died mid-send, calls onSessionStart(), and exits BEFORE turn execution acknowledges delivery ->
+  // prompt must be hydrated on startup AND remain recoverable until acknowledged!
+  const crashAfterHydrate = runInlineDriver(
+    `
+      import assert from "node:assert/strict";
+      import fs from "node:fs";
+      import path from "node:path";
+      import { pathToFileURL } from "node:url";
+      await import(pathToFileURL(${JSON.stringify(extensionPath)}).href);
+      const host = globalThis.ledgerTestHost;
+      const startRes = await host.options.hooks.onSessionStart();
+      assert.match(startRes.additionalContext, /Away-mode transient outage recovery \\(attempt 1\\/3/);
+      const saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+      assert.ok(saved.outageRecovery["owner-runtime"].pendingPrompt, "pendingPrompt must remain saved until turn activity acknowledges hydration");
+      assert.notEqual(saved.outageRecovery["owner-runtime"].status, "resumed");
+      console.log("unacked-hydrate-preserved");
+      process.exit(0);
+    `,
+    { cwd: repoDir, env }
+  );
+  assert.equal(crashAfterHydrate.status, 0, `${crashAfterHydrate.stdout}\n${crashAfterHydrate.stderr}`);
+  assert.match(crashAfterHydrate.stdout, /unacked-hydrate-preserved/);
+
+  // 3. Process 3 reloads, hydrates attempt 1/3 again, and runs a turn hook (preToolUse) acknowledging delivery -> finalized as resumed!
+  const ackHydrate = runInlineDriver(
+    `
+      import assert from "node:assert/strict";
+      import fs from "node:fs";
+      import path from "node:path";
+      import { pathToFileURL } from "node:url";
+      await import(pathToFileURL(${JSON.stringify(extensionPath)}).href);
+      const host = globalThis.ledgerTestHost;
+      const startRes = await host.options.hooks.onSessionStart();
+      assert.match(startRes.additionalContext, /Away-mode transient outage recovery \\(attempt 1\\/3/);
+      await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "git status" }, workingDirectory: process.cwd() }, { sessionId: host.session.sessionId });
+      const saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+      assert.equal(saved.outageRecovery["owner-runtime"].status, "resumed");
+      assert.equal(saved.outageRecovery["owner-runtime"].pendingPrompt, null);
+      console.log("acked-hydrate-finalized");
+    `,
+    { cwd: repoDir, env }
+  );
+  assert.equal(ackHydrate.status, 0, `${ackHydrate.stdout}\n${ackHydrate.stderr}`);
+  assert.match(ackHydrate.stdout, /acked-hydrate-finalized/);
+
+  // 4. Historical "I'm back" in session.getEvents() (sent while extension was disconnected) cancels pending retry on startup
+  // WITHOUT replaying historical merge approvals from getEvents().
+  const ledgerFile = path.join(ledgerDir, "ledger.json");
+  const seeded = JSON.parse(fs.readFileSync(ledgerFile, "utf8"));
+  seeded.outageRecovery["owner-runtime"] = {
+    sessionId: "owner-runtime",
+    planPath: "docs/superpowers/plans/m5.md",
+    progressPath: ".superpowers/sdd/m5/progress.md",
+    attemptsUsed: 1,
+    nextDelaySec: 30,
+    pendingPrompt: "[work-ledger] Away-mode transient outage recovery (attempt 1/3, cause: http_503).",
+    ownerActivatedAt: "2026-11-16T10:00:00.000Z",
+    lastOutageAt: "2026-11-16T10:02:00.000Z",
+    status: "retrying",
+  };
+  fs.writeFileSync(ledgerFile, JSON.stringify(seeded));
+
+  const historyEvents = [
+    { id: "initial", type: "user.message", timestamp: "2026-11-16T09:59:00.000Z", data: { content: "start task" } },
+    { id: "hist-merge", type: "user.message", timestamp: "2026-11-16T10:01:00.000Z", data: { content: "merge example/project#12" } },
+    { id: "hist-back", type: "user.message", timestamp: "2026-11-16T10:03:00.000Z", data: { content: "I'm back" } },
+  ];
+  const histReturnRes = runInlineDriver(
+    `
+      import assert from "node:assert/strict";
+      import fs from "node:fs";
+      import path from "node:path";
+      import { pathToFileURL } from "node:url";
+      await import(pathToFileURL(${JSON.stringify(extensionPath)}).href);
+      const host = globalThis.ledgerTestHost;
+      const startRes = await host.options.hooks.onSessionStart();
+      assert.doesNotMatch(startRes.additionalContext, /Away-mode transient outage recovery/);
+      const saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+      assert.equal(saved.outageRecovery["owner-runtime"].status, "cancelled");
+      assert.equal((saved.approvals || []).length, 0, "must not replay historical merge approvals from getEvents");
+      assert.equal((saved.pending || []).length, 0, "must not replay historical pending approvals from getEvents");
+      console.log("history-return-reconciled-ok");
+    `,
+    { cwd: repoDir, env: { ...env, TEST_HISTORY_EVENTS_JSON: JSON.stringify(historyEvents) } }
+  );
+  assert.equal(histReturnRes.status, 0, `${histReturnRes.stdout}\n${histReturnRes.stderr}`);
+  assert.match(histReturnRes.stdout, /history-return-reconciled-ok/);
+});
+
 
 

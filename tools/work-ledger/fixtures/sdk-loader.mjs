@@ -16,6 +16,10 @@ export async function resolve(specifier, context, nextResolve) {
         logEntries,
         sentPrompts,
         failNextSend: false,
+        hangNextSend: false,
+        historyEvents: process.env.TEST_HISTORY_EVENTS_JSON
+          ? JSON.parse(process.env.TEST_HISTORY_EVENTS_JSON)
+          : [{ id: "initial", type: "user.message", data: { content: "guard rebase off" } }],
         session: null,
         nextLog: () => new Promise((resolve) => { notify = resolve; }),
         nextPrompt: () => new Promise((resolve) => {
@@ -34,6 +38,9 @@ export async function resolve(specifier, context, nextResolve) {
           if (notify) { const fn = notify; notify = null; fn(text); }
         },
         send: async (payload) => {
+          if (host.hangNextSend) {
+            return new Promise(() => {});
+          }
           if (host.failNextSend) {
             host.failNextSend = false;
             throw new Error("simulated session.send transport disconnect");
@@ -42,7 +49,7 @@ export async function resolve(specifier, context, nextResolve) {
           if (notifyPrompt) { const fn = notifyPrompt; notifyPrompt = null; fn(payload); }
         },
         on: (name, callback) => callbacks.set(name, callback),
-        getEvents: async () => [{ id: "initial", type: "user.message", data: { content: "guard rebase off" } }],
+        getEvents: async () => host.historyEvents,
       };
       host.session = session;
       globalThis.ledgerTestHost = host;

@@ -10,7 +10,9 @@ import {
   markOutagePromptSent,
   planOutageResume,
   progressFingerprint,
+  reconcileAwayHistory,
   recordOutageProgress,
+  recordOwnerAwayMessage,
 } from "./lib/outage-resume.mjs";
 import { DEFAULT_CONFIG } from "./lib/policy.mjs";
 import { emptyLedger, prune } from "./lib/store.mjs";
@@ -574,5 +576,117 @@ test("copilot review regressions: session-scoped progress.md, confirmed activati
   assert.equal(claimed, null);
   assert.equal(raceData.outageRecovery["sess-A"].status, "cancelled");
 });
+
+test("round 2 review regressions: progress.md/note edits after return require new activation, and eviction does not reset budget", (t) => {
+  // 1. Editing a still-Active progress.md or adding an away_mode note after "I'm back" without a new owner activation must NOT re-enable retries.
+  const ws = makeWorkspace(t);
+  writeAwayProgress(ws, "2026-11-16-stale-edit", true, {
+    sessionId: "sess-ret",
+    activation: "Direct 'away mode' instruction (msg-1) at 2026-11-16T10:00:00Z",
+  });
+  const progFile = path.join(ws, ".superpowers/sdd/2026-11-16-stale-edit/progress.md");
+  const tAct = Date.parse("2026-11-16T10:00:00Z");
+  const tRet = Date.parse("2026-11-16T10:05:00Z");
+  const tEdit = Date.parse("2026-11-16T10:10:00Z");
+  fs.utimesSync(progFile, new Date(tAct), new Date(tAct));
+
+  const data = emptyLedger();
+  data.outageRecovery["sess-ret"] = {
+    sessionId: "sess-ret",
+    attemptsUsed: 0,
+    status: "cancelled",
+    ownerActivatedAt: new Date(tAct).toISOString(),
+    ownerReturnedAt: new Date(tRet).toISOString(),
+    lastOutageAt: new Date(tRet).toISOString(),
+  };
+
+  // Touching progress.md after ownerReturnedAt (still referencing old msg-1 activation) must stay inactive!
+  fs.utimesSync(progFile, new Date(tEdit), new Date(tEdit));
+  assert.equal(detectAwayMode({ cwd: ws, data, sessionId: "sess-ret" }).active, false);
+
+  // Appending an away_mode ledger note after ownerReturnedAt without a newer ownerActivatedAt must ALSO stay inactive!
+  recordEvidence(data, {
+    repo: "acme/widget",
+    pr: 77,
+    kind: "note",
+    text: "away_mode: active=true plan=docs/superpowers/plans/m5.md activation=msg-1",
+    sessionId: "sess-ret",
+    now: new Date(tEdit + 1000),
+  });
+  assert.equal(detectAwayMode({ cwd: ws, data, sessionId: "sess-ret" }).active, false);
+
+  // Only a newer explicit owner activation (> ownerReturnedAt) re-enables away mode.
+  data.outageRecovery["sess-ret"].ownerActivatedAt = new Date(tEdit + 5000).toISOString();
+  assert.equal(detectAwayMode({ cwd: ws, data, sessionId: "sess-ret" }).active, true);
+
+  // 2. Bounded validation/unit eviction in prune() must NOT reset attemptsUsed in recordOutageProgress.
+  const evictWs = makeWorkspace(t);
+  writeAwayProgress(evictWs, "2026-11-16-evict", true, { sessionId: "sess-evict" });
+  const evictData = emptyLedger();
+  const sha = "c".repeat(40);
+  const t0 = Date.parse("2026-11-16T12:00:00Z");
+  evictData.validations.push({
+    sha,
+    dirty: false,
+    tasks: ":app:testDebugUnitTest",
+    exit: 0,
+    at: new Date(t0).toISOString(),
+    sessionId: "sess-evict",
+  });
+
+  const p1 = planOutageResume(evictData, {
+    sessionId: "sess-evict",
+    cwd: evictWs,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha,
+    config: DEFAULT_CONFIG,
+    now: t0 + 1000,
+  });
+  assert.equal(p1.resume, true);
+  markOutagePromptSent(evictData, "sess-evict", t0 + 2000, sha);
+  assert.equal(evictData.outageRecovery["sess-evict"].attemptsUsed, 1);
+
+  // Another session appends 305 validations, causing prune() to evict sess-evict's validation from the 300-entry window.
+  for (let i = 0; i < 305; i++) {
+    evictData.validations.push({
+      sha: "d".repeat(40),
+      dirty: false,
+      tasks: `:other:task${i}`,
+      exit: 0,
+      at: new Date(t0 + 3000 + i).toISOString(),
+      sessionId: "other-noisy-session",
+    });
+  }
+  prune(evictData, t0 + 10000);
+  assert.equal(evictData.validations.some((v) => v.sessionId === "sess-evict"), false);
+
+  // Eviction of prior evidence is NOT new progress and must NOT reset attemptsUsed!
+  assert.equal(recordOutageProgress(evictData, { sessionId: "sess-evict", headSha: sha, now: t0 + 11000 }), false);
+  assert.equal(evictData.outageRecovery["sess-evict"].attemptsUsed, 1);
+
+  // 3. reconcileAwayHistory must NOT replay an older unseen "away mode" event after a newer seen "I'm back".
+  const histWs = makeWorkspace(t);
+  writeAwayProgress(histWs, "2026-11-16-hist", true, { sessionId: "sess-hist" });
+  const histData = emptyLedger();
+  const tEarly = Date.parse("2026-11-16T09:01:00Z");
+  const tBack = Date.parse("2026-11-16T09:32:00Z");
+  // Suppose getEvents() initially failed so m-1 ("away mode") was never added to seenAwayIds, then live onUserMessage recorded m-2 ("I'm back").
+  recordOwnerAwayMessage(histData, "sess-hist", "return", "m-2", tBack);
+  assert.equal(detectAwayMode({ cwd: histWs, data: histData, sessionId: "sess-hist" }).active, false);
+
+  const transcript = [
+    { id: "m-0", type: "user.message", timestamp: "2026-11-16T09:00:00Z", data: { content: "Initial kickoff" } },
+    { id: "m-1", type: "user.message", timestamp: new Date(tEarly).toISOString(), data: { content: "away mode" } },
+    { id: "m-2", type: "user.message", timestamp: new Date(tBack).toISOString(), data: { content: "I'm back" } },
+  ];
+  reconcileAwayHistory(histData, "sess-hist", transcript, null, undefined, tBack + 5000);
+  assert.equal(detectAwayMode({ cwd: histWs, data: histData, sessionId: "sess-hist" }).active, false);
+
+  // Also if seenAwayIds has no matching IDs at all, stale events with timestamp <= ownerReturnedAt must be skipped.
+  histData.outageRecovery["sess-hist"].seenAwayIds = [];
+  reconcileAwayHistory(histData, "sess-hist", transcript, null, undefined, tBack + 6000);
+  assert.equal(detectAwayMode({ cwd: histWs, data: histData, sessionId: "sess-hist" }).active, false);
+});
+
 
 

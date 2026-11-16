@@ -5,28 +5,21 @@ import os from "node:os";
 import path from "node:path";
 import { DEFAULT_DEPLOY_WORKFLOWS } from "./classify.mjs";
 import { DEFAULT_CONFIG } from "./policy.mjs";
-
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, DANGEROUS = new Set(["__proto__", "constructor", "prototype"]);
-const INT_BOUNDS = { reviewCap: [1, 50], mergeApprovalHours: [1, 720], deployApprovalHours: [1, 720], reviewGrantHours: [1, 720], gradleLockTimeoutSec: [1, 86400] };
-const BOOL_DEFAULTS = { gradleLane: true, gradleCache: true, protectExtensionDir: true, debug: false };
-const isPlain = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
-const validRepo = (v) => typeof v === "string" && REPO_RE.test(v) && v.split("/").every((p) => p !== "." && p !== "..");
-
+const INT_BOUNDS = { reviewCap: [1, 50], mergeApprovalHours: [1, 720], deployApprovalHours: [1, 720], reviewGrantHours: [1, 720], gradleLockTimeoutSec: [1, 86400] }, BOOL_DEFAULTS = { gradleLane: true, gradleCache: true, protectExtensionDir: true, debug: false };
+const isPlain = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v), validRepo = (v) => typeof v === "string" && REPO_RE.test(v) && v.split("/").every((p) => p !== "." && p !== "..");
+const canonical = (v) => Array.isArray(v) ? v.map(canonical) : isPlain(v) ? Object.fromEntries(Object.keys(v).sort().filter((k) => !DANGEROUS.has(k) && v[k] !== undefined).map((k) => [k, canonical(v[k])])) : v;
 function readConfigObject(filePath, warnings) {
   if (!filePath) return {};
   try {
-    const st = fs.lstatSync(filePath);
-    if (st.isSymbolicLink() || !st.isFile()) return (warnings.push(`Refusing ${filePath}: expected a regular file (not a symlink); using safe defaults.`), {});
+    const st = fs.lstatSync(filePath); if (st.isSymbolicLink() || !st.isFile()) return (warnings.push(`Refusing ${filePath}: expected a regular file (not a symlink); using safe defaults.`), {});
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (!isPlain(parsed)) return (warnings.push(`Invalid config root in ${filePath}: expected a JSON object; using safe defaults.`), {});
-    return Object.fromEntries(Object.entries(parsed).filter(([k]) => !DANGEROUS.has(k)));
+    return isPlain(parsed) ? Object.fromEntries(Object.entries(parsed).filter(([k]) => !DANGEROUS.has(k))) : (warnings.push(`Invalid config root in ${filePath}: expected a JSON object; using safe defaults.`), {});
   } catch (err) { if (err?.code !== "ENOENT") warnings.push(`Cannot load ${filePath} (${err?.message || err}); using safe defaults.`); return {}; }
 }
-
 function validateDataDir(raw, label, homeDir, fallback, warnings, allowTilde = false) {
   if (typeof raw !== "string" || !raw.trim() || (!allowTilde && raw !== raw.trim())) return (warnings.push(`Invalid ${label}: expected a non-empty absolute path; using ${fallback}.`), null);
-  const expanded = allowTilde ? raw.trim().replace(/^~(?=\/|$)/, path.resolve(homeDir)) : raw, trimmed = expanded.length > 1 ? expanded.replace(/[\\/]+$/, "") : expanded;
-  const norm = path.isAbsolute(trimmed) && path.resolve(trimmed) === trimmed ? trimmed : "";
+  const expanded = allowTilde ? raw.trim().replace(/^~(?=\/|$)/, path.resolve(homeDir)) : raw, trimmed = expanded.length > 1 ? expanded.replace(/[\\/]+$/, "") : expanded, norm = path.isAbsolute(trimmed) && path.resolve(trimmed) === trimmed ? trimmed : "";
   if (!norm || norm === path.parse(norm).root) return (warnings.push(`Invalid ${label} ${JSON.stringify(raw)}: expected a canonical absolute path; using ${fallback}.`), null);
   const stop = new Set([path.resolve(os.tmpdir()), path.parse(norm).root]);
   for (let cur = norm; !stop.has(cur) && path.dirname(cur) !== cur; cur = path.dirname(cur)) {
@@ -35,33 +28,20 @@ function validateDataDir(raw, label, homeDir, fallback, warnings, allowTilde = f
   }
   return norm;
 }
-
-const canonical = (v) => Array.isArray(v) ? v.map(canonical) : isPlain(v) ? Object.fromEntries(Object.keys(v).sort().filter((k) => !DANGEROUS.has(k) && v[k] !== undefined).map((k, _) => [k, canonical(v[k])])) : v;
-
 export function resolveDataDir({ envDir = process.env.WORK_LEDGER_DIR, extDir, homeDir = os.homedir() } = {}) {
   const bootstrapWarnings = [], fallback = path.join(homeDir, ".copilot", "work-ledger");
   if (envDir !== undefined && envDir !== "") return { dataDir: validateDataDir(String(envDir), "WORK_LEDGER_DIR", homeDir, fallback, bootstrapWarnings, false) || fallback, bootstrapWarnings };
   const extFile = extDir ? path.join(extDir, "config.json") : null, extCfg = readConfigObject(extFile, bootstrapWarnings);
-  if (extCfg.dataDir !== undefined) return { dataDir: validateDataDir(extCfg.dataDir, `dataDir in ${extFile}`, homeDir, fallback, bootstrapWarnings, true) || fallback, bootstrapWarnings };
-  return { dataDir: fallback, bootstrapWarnings };
+  return { dataDir: extCfg.dataDir !== undefined ? (validateDataDir(extCfg.dataDir, `dataDir in ${extFile}`, homeDir, fallback, bootstrapWarnings, true) || fallback) : fallback, bootstrapWarnings };
 }
-
 export function loadPreferences({ dataDir, extDir, defaults = DEFAULT_CONFIG } = {}) {
-  const configWarnings = [], dataFile = dataDir ? path.join(dataDir, "config.json") : null, extFile = extDir ? path.join(extDir, "config.json") : null;
-  const same = Boolean(dataFile && extFile && path.resolve(dataFile) === path.resolve(extFile));
+  const configWarnings = [], dataFile = dataDir ? path.join(dataDir, "config.json") : null, extFile = extDir ? path.join(extDir, "config.json") : null, same = Boolean(dataFile && extFile && path.resolve(dataFile) === path.resolve(extFile));
   const m = { ...readConfigObject(dataFile, configWarnings), ...(same ? {} : readConfigObject(extFile, configWarnings)) };
   const config = { ...defaults, outageBackoffSec: [...(defaults.outageBackoffSec || [30, 120, 300])], localMavenScopes: [...(defaults.localMavenScopes || [])], readOnlyMonitors: [...(defaults.readOnlyMonitors || [])] };
   if ("defaultRepo" in m) (m.defaultRepo === null || validRepo(m.defaultRepo)) ? (config.defaultRepo = m.defaultRepo) : configWarnings.push(`Invalid defaultRepo ${JSON.stringify(m.defaultRepo)}; falling back to ${JSON.stringify(defaults.defaultRepo)}.`);
   for (const [f, [min, max]] of Object.entries(INT_BOUNDS)) if (f in m) (Number.isInteger(m[f]) && m[f] >= min && m[f] <= max) ? (config[f] = m[f]) : configWarnings.push(`Invalid ${f} ${JSON.stringify(m[f])}; falling back to ${defaults[f]}.`);
-  if ("outageRetryCap" in m) {
-    const v = m.outageRetryCap;
-    if (Number.isInteger(v) && v >= 0) config.outageRetryCap = v > 5 ? (configWarnings.push(`outageRetryCap ${v} clamped to 5.`), 5) : v;
-    else { config.outageRetryCap = defaults.outageRetryCap ?? 3; configWarnings.push(`Invalid outageRetryCap ${JSON.stringify(v)}; falling back to ${config.outageRetryCap}.`); }
-  }
-  if ("outageBackoffSec" in m) {
-    const v = m.outageBackoffSec;
-    (Array.isArray(v) && v.length >= 1 && v.length <= 10 && v.every((n) => Number.isInteger(n) && n >= 1 && n <= 3600)) ? (config.outageBackoffSec = [...v]) : configWarnings.push(`Invalid outageBackoffSec ${JSON.stringify(v)}; falling back to ${JSON.stringify(config.outageBackoffSec)}.`);
-  }
+  if ("outageRetryCap" in m) (Number.isInteger(m.outageRetryCap) && m.outageRetryCap >= 0) ? (config.outageRetryCap = m.outageRetryCap > 5 ? (configWarnings.push(`outageRetryCap ${m.outageRetryCap} clamped to 5.`), 5) : m.outageRetryCap) : (config.outageRetryCap = defaults.outageRetryCap ?? 3, configWarnings.push(`Invalid outageRetryCap ${JSON.stringify(m.outageRetryCap)}; falling back to ${config.outageRetryCap}.`));
+  if ("outageBackoffSec" in m) (Array.isArray(m.outageBackoffSec) && m.outageBackoffSec.length >= 1 && m.outageBackoffSec.length <= 10 && m.outageBackoffSec.every((n) => Number.isInteger(n) && n >= 1 && n <= 3600)) ? (config.outageBackoffSec = [...m.outageBackoffSec]) : configWarnings.push(`Invalid outageBackoffSec ${JSON.stringify(m.outageBackoffSec)}; falling back to ${JSON.stringify(config.outageBackoffSec)}.`);
   for (const [f, fb] of Object.entries(BOOL_DEFAULTS)) if (f in m) typeof m[f] === "boolean" ? (config[f] = m[f]) : (config[f] = f in defaults ? defaults[f] : fb, configWarnings.push(`Invalid ${f} ${JSON.stringify(m[f])}; falling back to ${config[f]}.`));
   if ("deployWorkflows" in m) {
     const v = m.deployWorkflows, entries = isPlain(v) ? Object.entries(v).filter(([k]) => !DANGEROUS.has(k)) : [];
