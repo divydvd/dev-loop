@@ -159,21 +159,21 @@ The expected result is fast 1-reviewer turnaround on `<= 120`-line single-domain
 - Consumes: `skills/dev-loop/scripts/prepare-review-panel.mjs` CLI and packet format from Task 2; baseline `RED` findings from Task 1
 - Produces: `skills/dev-loop/references/review-panel.md` and updated `SKILL.md`, `testing.md`, `pr-body.md` passing `scripts/independent-review.test.mjs`, `scripts/testing-contract.test.mjs`, and `scripts/check.mjs`
 
-- [ ] **Step 1 (`RED`): Add failing contract assertions to `scripts/independent-review.test.mjs`**
+- [x] **Step 1 (`RED`): Add failing contract assertions to `scripts/independent-review.test.mjs`**
   Assert that:
   - `skills/dev-loop/SKILL.md` `## 5. Self-review` references `scripts/prepare-review-panel.mjs` and `references/review-panel.md` while preserving all existing assertions.
   - `skills/dev-loop/references/review-panel.md` defines the 4 specialist roles (`arch-correctness`, `concurrency-state`, `security-privacy`, `ui-a11y`), the JSON finding schema (`id`, `severity`, `domain`, `file`, `lines`, `symptom`, `evidence`, `suggestedFix`), parallel dispatch + `dispatch: sequential` fallback, retry-once failure handling (`Not reviewed` + `"open, not ready: independent review unavailable"`), `skeptic-judge` advocate filter + skeptic cross-domain/matrix gap check, and focused `single` re-review on small follow-up fixes.
   - `skills/dev-loop/assets/pr-body.md` documents `single (<agent>)` and `panel (<roles> -> skeptic-judge)` in `### Independent agent review` while preserving all 6 required rows.
   - `skills/dev-loop/references/testing.md` connects `## Review coverage` to `references/review-panel.md` while preserving `"Extend the existing independent review; add no separate reviewer for each small non-risky task"`.
 
-- [ ] **Step 2: Run `node --test scripts/independent-review.test.mjs` and confirm `RED` failure**
+- [x] **Step 2: Run `node --test scripts/independent-review.test.mjs` and confirm `RED` failure**
 
-- [ ] **Step 3 (`GREEN`): Create `skills/dev-loop/references/review-panel.md` and update `SKILL.md`, `testing.md`, and `pr-body.md`**
+- [x] **Step 3 (`GREEN`): Create `skills/dev-loop/references/review-panel.md` and update `SKILL.md`, `testing.md`, and `pr-body.md`**
   Use ASD-STE100 prose (`Abstract` at top, `Conclusion` at bottom in `review-panel.md`) and positive output contracts (`writing-skills` "Match the Form to the Failure"). Invoke bundled scripts via `node` (`node <skill-dir>/scripts/prepare-review-panel.mjs` while keeping inline backtick paths `scripts/prepare-review-panel.mjs` and `references/review-panel.md` valid under `SKILL_LINK_RE`).
 
-- [ ] **Step 4: Run `node --test scripts/independent-review.test.mjs scripts/testing-contract.test.mjs && node scripts/check.mjs` and confirm `GREEN`**
+- [x] **Step 4: Run `node --test scripts/independent-review.test.mjs scripts/testing-contract.test.mjs && node scripts/check.mjs` and confirm `GREEN`**
 
-- [ ] **Step 5: Commit Task 3**
+- [x] **Step 5: Commit Task 3**
 
 ---
 

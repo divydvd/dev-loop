@@ -103,9 +103,10 @@ When an unchanged check remains useful, label it historical evidence and explain
 Historical evidence does not replace required final-head checks.
 
 ## Review coverage
-Extend the existing independent review; add no separate reviewer for each small task.
-Give the reviewer requirements, the matrix, source, relevant consumers, and the reviewed identity.
-Ask the reviewer to find missing cases from source and interactions, not only inspect table completeness.
+Extend the existing independent review; add no separate reviewer for each small non-risky task.
+Scale Step-5 diff review proportionally (`single` reviewer or `2`–`4` domain specialists plus `skeptic-judge`) under `references/review-panel.md`.
+Give each reviewer requirements, the matrix, source, relevant consumers, and the reviewed identity from its frozen role packet.
+Ask each specialist and `skeptic-judge` to find missing cases in its domain from source and interactions, not only inspect table completeness.
 Check acceptance links, important risks, expected results, exclusions, required/optional decisions, and execution evidence.
 Review omitted existing flows, permanent case selection, inventory changes, and real test references against source and consumers.
 Keep the existing independent review requirements and later-change coverage.
