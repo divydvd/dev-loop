@@ -6,192 +6,72 @@ import path from "node:path";
 import { DEFAULT_DEPLOY_WORKFLOWS } from "./classify.mjs";
 import { DEFAULT_CONFIG } from "./policy.mjs";
 
-const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-const INT_BOUNDS = {
-  reviewCap: [1, 50],
-  mergeApprovalHours: [1, 720],
-  deployApprovalHours: [1, 720],
-  reviewGrantHours: [1, 720],
-  gradleLockTimeoutSec: [1, 86400],
-};
-const BOOL_DEFAULTS = {
-  gradleLane: true,
-  gradleCache: true,
-  protectExtensionDir: true,
-  debug: false,
-};
-
-function isPlainObject(v) {
-  return Boolean(v) && typeof v === "object" && !Array.isArray(v);
-}
-
-function stripDangerousKeys(obj) {
-  const clean = {};
-  for (const k of Object.keys(obj)) {
-    if (!DANGEROUS_KEYS.has(k)) clean[k] = obj[k];
-  }
-  return clean;
-}
+const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, DANGEROUS = new Set(["__proto__", "constructor", "prototype"]);
+const INT_BOUNDS = { reviewCap: [1, 50], mergeApprovalHours: [1, 720], deployApprovalHours: [1, 720], reviewGrantHours: [1, 720], gradleLockTimeoutSec: [1, 86400] };
+const BOOL_DEFAULTS = { gradleLane: true, gradleCache: true, protectExtensionDir: true, debug: false };
+const isPlain = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
+const validRepo = (v) => typeof v === "string" && REPO_RE.test(v) && v.split("/").every((p) => p !== "." && p !== "..");
 
 function readConfigObject(filePath, warnings) {
   if (!filePath) return {};
-  let stat;
   try {
-    stat = fs.lstatSync(filePath);
-  } catch (err) {
-    if (err?.code === "ENOENT") return {};
-    warnings.push(`Cannot stat ${filePath} (${err?.message || err}); using safe defaults.`);
-    return {};
-  }
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    warnings.push(`Refusing ${filePath}: expected a regular file (not a symlink or special file); using safe defaults.`);
-    return {};
-  }
-  try {
+    const st = fs.lstatSync(filePath);
+    if (st.isSymbolicLink() || !st.isFile()) return (warnings.push(`Refusing ${filePath}: expected a regular file (not a symlink); using safe defaults.`), {});
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (!isPlainObject(parsed)) {
-      warnings.push(`Invalid config root in ${filePath}: expected a JSON object; using safe defaults.`);
-      return {};
-    }
-    return stripDangerousKeys(parsed);
-  } catch (err) {
-    warnings.push(`Cannot parse ${filePath} (${err?.message || err}); using safe defaults.`);
-    return {};
-  }
+    if (!isPlain(parsed)) return (warnings.push(`Invalid config root in ${filePath}: expected a JSON object; using safe defaults.`), {});
+    return Object.fromEntries(Object.entries(parsed).filter(([k]) => !DANGEROUS.has(k)));
+  } catch (err) { if (err?.code !== "ENOENT") warnings.push(`Cannot load ${filePath} (${err?.message || err}); using safe defaults.`); return {}; }
 }
 
-function validRepoSlug(v) {
-  if (typeof v !== "string" || !REPO_RE.test(v)) return false;
-  const [owner, repo] = v.split("/");
-  return owner !== "." && owner !== ".." && repo !== "." && repo !== "..";
+function validateDataDir(raw, label, homeDir, fallback, warnings) {
+  if (typeof raw !== "string" || !raw.trim()) return (warnings.push(`Invalid ${label}: expected a non-empty absolute path; using ${fallback}.`), null);
+  const expanded = raw.trim().replace(/^~(?=\/|$)/, homeDir);
+  if (!path.isAbsolute(expanded) || /(?:^|[\\/])\.\.(?:[\\/]|$)/.test(expanded)) return (warnings.push(`Invalid ${label} ${JSON.stringify(raw)}: expected a canonical absolute path; using ${fallback}.`), null);
+  const norm = path.normalize(expanded), stop = new Set([path.normalize(homeDir), path.normalize(os.tmpdir()), "/"]);
+  for (let cur = norm; !stop.has(cur) && path.dirname(cur) !== "/"; cur = path.dirname(cur)) {
+    try { const st = fs.lstatSync(cur); if (st.isSymbolicLink() || !st.isDirectory()) return (warnings.push(`Refusing ${label} ${JSON.stringify(raw)}: symlink or non-directory; using ${fallback}.`), null); }
+    catch (err) { if (err?.code !== "ENOENT") return (warnings.push(`Cannot stat ${label} ${cur} (${err?.message || err}); using ${fallback}.`), null); }
+  }
+  return norm;
 }
 
-function canonicalValue(v) {
-  if (Array.isArray(v)) return v.map(canonicalValue);
-  if (isPlainObject(v)) {
-    const out = Object.create(null);
-    for (const k of Object.keys(v).sort()) {
-      if (!DANGEROUS_KEYS.has(k) && v[k] !== undefined) out[k] = canonicalValue(v[k]);
-    }
-    return out;
-  }
-  return v;
-}
+const canonical = (v) => Array.isArray(v) ? v.map(canonical) : isPlain(v) ? Object.fromEntries(Object.keys(v).sort().filter((k) => !DANGEROUS.has(k) && v[k] !== undefined).map((k) => [k, canonical(v[k])])) : v;
 
 export function resolveDataDir({ envDir = process.env.WORK_LEDGER_DIR, extDir, homeDir = os.homedir() } = {}) {
-  const bootstrapWarnings = [];
-  if (envDir) return { dataDir: String(envDir), bootstrapWarnings };
-  const extCfg = extDir ? readConfigObject(path.join(extDir, "config.json"), bootstrapWarnings) : {};
-  if (extCfg.dataDir !== undefined) {
-    if (typeof extCfg.dataDir === "string" && extCfg.dataDir.trim()) {
-      return {
-        dataDir: extCfg.dataDir.trim().replace(/^~(?=\/|$)/, homeDir),
-        bootstrapWarnings,
-      };
-    }
-    bootstrapWarnings.push(`Invalid dataDir in ${path.join(extDir, "config.json")}: expected a non-empty string; using ~/.copilot/work-ledger.`);
-  }
-  return { dataDir: path.join(homeDir, ".copilot", "work-ledger"), bootstrapWarnings };
+  const bootstrapWarnings = [], fallback = path.join(homeDir, ".copilot", "work-ledger");
+  if (envDir !== undefined && envDir !== "") return { dataDir: validateDataDir(String(envDir), "WORK_LEDGER_DIR", homeDir, fallback, bootstrapWarnings) || fallback, bootstrapWarnings };
+  const extFile = extDir ? path.join(extDir, "config.json") : null, extCfg = readConfigObject(extFile, bootstrapWarnings);
+  if (extCfg.dataDir !== undefined) return { dataDir: validateDataDir(extCfg.dataDir, `dataDir in ${extFile}`, homeDir, fallback, bootstrapWarnings) || fallback, bootstrapWarnings };
+  return { dataDir: fallback, bootstrapWarnings };
 }
 
 export function loadPreferences({ dataDir, extDir, defaults = DEFAULT_CONFIG } = {}) {
-  const configWarnings = [];
-  const dataFile = dataDir ? path.join(dataDir, "config.json") : null;
-  const extFile = extDir ? path.join(extDir, "config.json") : null;
-  const sameFile = Boolean(dataFile && extFile && path.resolve(dataFile) === path.resolve(extFile));
-
-  const rawData = readConfigObject(dataFile, configWarnings);
-  const rawExt = sameFile ? {} : readConfigObject(extFile, configWarnings);
-  const merged = { ...rawData, ...rawExt };
-
-  const config = {
-    ...defaults,
-    outageBackoffSec: [...(defaults.outageBackoffSec || [30, 120, 300])],
-    localMavenScopes: [...(defaults.localMavenScopes || [])],
-    readOnlyMonitors: [...(defaults.readOnlyMonitors || [])],
-  };
-
-  if ("defaultRepo" in merged) {
-    if (merged.defaultRepo === null || validRepoSlug(merged.defaultRepo)) {
-      config.defaultRepo = merged.defaultRepo;
-    } else {
-      configWarnings.push(`Invalid defaultRepo ${JSON.stringify(merged.defaultRepo)}; falling back to ${JSON.stringify(defaults.defaultRepo)}.`);
-    }
+  const configWarnings = [], dataFile = dataDir ? path.join(dataDir, "config.json") : null, extFile = extDir ? path.join(extDir, "config.json") : null;
+  const same = Boolean(dataFile && extFile && path.resolve(dataFile) === path.resolve(extFile));
+  const m = { ...readConfigObject(dataFile, configWarnings), ...(same ? {} : readConfigObject(extFile, configWarnings)) };
+  const config = { ...defaults, outageBackoffSec: [...(defaults.outageBackoffSec || [30, 120, 300])], localMavenScopes: [...(defaults.localMavenScopes || [])], readOnlyMonitors: [...(defaults.readOnlyMonitors || [])] };
+  if ("defaultRepo" in m) (m.defaultRepo === null || validRepo(m.defaultRepo)) ? (config.defaultRepo = m.defaultRepo) : configWarnings.push(`Invalid defaultRepo ${JSON.stringify(m.defaultRepo)}; falling back to ${JSON.stringify(defaults.defaultRepo)}.`);
+  for (const [f, [min, max]] of Object.entries(INT_BOUNDS)) if (f in m) (Number.isInteger(m[f]) && m[f] >= min && m[f] <= max) ? (config[f] = m[f]) : configWarnings.push(`Invalid ${f} ${JSON.stringify(m[f])}; falling back to ${defaults[f]}.`);
+  if ("outageRetryCap" in m) {
+    if (Number.isInteger(m.outageRetryCap) && m.outageRetryCap >= 0 && m.outageRetryCap <= 5) config.outageRetryCap = m.outageRetryCap;
+    else if (Number.isInteger(m.outageRetryCap) && m.outageRetryCap > 5) { config.outageRetryCap = 5; configWarnings.push(`outageRetryCap ${m.outageRetryCap} clamped to 5.`); }
+    else { config.outageRetryCap = defaults.outageRetryCap ?? 3; configWarnings.push(`Invalid outageRetryCap ${JSON.stringify(m.outageRetryCap)}; falling back to ${config.outageRetryCap}.`); }
   }
-
-  for (const [field, [min, max]] of Object.entries(INT_BOUNDS)) {
-    if (!(field in merged)) continue;
-    const val = merged[field];
-    if (Number.isInteger(val) && val >= min && val <= max) {
-      config[field] = val;
-    } else {
-      configWarnings.push(`Invalid ${field} ${JSON.stringify(val)} (expected integer ${min}..${max}); falling back to ${defaults[field]}.`);
-    }
+  if ("outageBackoffSec" in m) {
+    const v = m.outageBackoffSec;
+    (Array.isArray(v) && v.length >= 1 && v.length <= 10 && v.every((n) => Number.isInteger(n) && n >= 1 && n <= 3600)) ? (config.outageBackoffSec = [...v]) : configWarnings.push(`Invalid outageBackoffSec ${JSON.stringify(v)}; falling back to ${JSON.stringify(config.outageBackoffSec)}.`);
   }
-
-  if ("outageRetryCap" in merged) {
-    const val = merged.outageRetryCap;
-    if (Number.isInteger(val) && val >= 0 && val <= 5) {
-      config.outageRetryCap = val;
-    } else if (Number.isInteger(val) && val > 5) {
-      config.outageRetryCap = 5;
-      configWarnings.push(`outageRetryCap ${val} exceeds maximum 5; clamped to 5.`);
-    } else {
-      config.outageRetryCap = defaults.outageRetryCap ?? 3;
-      configWarnings.push(`Invalid outageRetryCap ${JSON.stringify(val)} (expected integer 0..5); falling back to ${config.outageRetryCap}.`);
-    }
+  for (const [f, fb] of Object.entries(BOOL_DEFAULTS)) if (f in m) typeof m[f] === "boolean" ? (config[f] = m[f]) : (config[f] = f in defaults ? defaults[f] : fb, configWarnings.push(`Invalid ${f} ${JSON.stringify(m[f])}; falling back to ${config[f]}.`));
+  if ("deployWorkflows" in m) {
+    const v = m.deployWorkflows, entries = isPlain(v) ? Object.entries(v).filter(([k]) => !DANGEROUS.has(k)) : [];
+    if (v === null) config.deployWorkflows = null;
+    else if (isPlain(v) && entries.length && entries.every(([, s]) => typeof s === "string" && s.trim())) config.deployWorkflows = { ...DEFAULT_DEPLOY_WORKFLOWS, ...Object.fromEntries(entries) };
+    else configWarnings.push(`Invalid deployWorkflows; falling back to null.`);
   }
-
-  if ("outageBackoffSec" in merged) {
-    const val = merged.outageBackoffSec;
-    if (Array.isArray(val) && val.length >= 1 && val.length <= 10 && val.every((n) => Number.isInteger(n) && n >= 1 && n <= 3600)) {
-      config.outageBackoffSec = [...val];
-    } else {
-      configWarnings.push(`Invalid outageBackoffSec ${JSON.stringify(val)}; falling back to ${JSON.stringify(config.outageBackoffSec)}.`);
-    }
-  }
-
-  for (const [field, fallback] of Object.entries(BOOL_DEFAULTS)) {
-    if (!(field in merged)) continue;
-    if (typeof merged[field] === "boolean") {
-      config[field] = merged[field];
-    } else {
-      config[field] = field in defaults ? defaults[field] : fallback;
-      configWarnings.push(`Invalid ${field} ${JSON.stringify(merged[field])} (expected boolean); falling back to ${config[field]}.`);
-    }
-  }
-
-  if ("deployWorkflows" in merged) {
-    const val = merged.deployWorkflows;
-    if (val === null) {
-      config.deployWorkflows = null;
-    } else if (isPlainObject(val)) {
-      const entries = Object.entries(val).filter(([k]) => !DANGEROUS_KEYS.has(k));
-      if (entries.length > 0 && entries.every(([, v]) => typeof v === "string" && v.trim().length > 0)) {
-        config.deployWorkflows = { ...DEFAULT_DEPLOY_WORKFLOWS, ...Object.fromEntries(entries) };
-      } else {
-        configWarnings.push(`Invalid deployWorkflows (expected a non-empty workflow map or null); falling back to null.`);
-      }
-    } else {
-      configWarnings.push(`Invalid deployWorkflows; falling back to null.`);
-    }
-  }
-
-  for (const field of ["localMavenScopes", "readOnlyMonitors"]) {
-    if (!(field in merged)) continue;
-    if (Array.isArray(merged[field])) {
-      config[field] = [...merged[field]];
-    } else {
-      configWarnings.push(`Invalid ${field} (expected array); falling back to [].`);
-    }
-  }
-
-  if ("dataDir" in merged && merged.dataDir !== undefined && (typeof merged.dataDir !== "string" || !merged.dataDir.trim())) {
-    configWarnings.push(`Invalid dataDir ${JSON.stringify(merged.dataDir)}; expected a non-empty string.`);
-  }
-
-  const digestPayload = JSON.stringify(canonicalValue(config));
-  const configDigest = crypto.createHash("sha256").update(digestPayload).digest("hex").slice(0, 12);
-  return { config, configWarnings, configDigest };
+  for (const f of ["localMavenScopes", "readOnlyMonitors"]) if (f in m) Array.isArray(m[f]) ? (config[f] = [...m[f]]) : configWarnings.push(`Invalid ${f}; falling back to [].`);
+  if ("dataDir" in m && m.dataDir !== undefined) validateDataDir(m.dataDir, "dataDir", os.homedir(), path.join(os.homedir(), ".copilot", "work-ledger"), configWarnings);
+  return { config, configWarnings, configDigest: crypto.createHash("sha256").update(JSON.stringify(canonical(config))).digest("hex").slice(0, 12) };
 }
+
+
+

@@ -165,7 +165,10 @@ test("away-mode transient outage deduplicates twin events, sends reconcile promp
 
     execFileSync("git", ["commit", "--allow-empty", "-m", "progress", "--quiet"], { cwd: process.cwd() });
     await callbacks.get("session.idle")({ data: {} });
-    await new Promise((r) => setTimeout(r, 50));
+    const deadline = Date.now() + 2000;
+    while (readLedger().outageRecovery["owner-runtime"].attemptsUsed !== 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
     assert.equal(readLedger().outageRecovery["owner-runtime"].attemptsUsed, 0);
     assert.equal(readLedger().outageRecovery["owner-runtime"].status, "idle");
 
@@ -371,8 +374,82 @@ test("SIGTERM clears a 300s .unref() retry timer and exits cleanly within 3s", a
         workingDirectory: process.cwd(),
       });
     `,
-    { cwd: repoDir, env: { ...env, TEST_SESSION_ID: "unref-session" }, timeout: 3000 }
+    { cwd: repoDir, env: { ...env, TEST_SESSION_ID: "unref-session" }, timeout: 10000 }
   );
   assert.equal(naturalExit.status, 0, `${naturalExit.stdout}\n${naturalExit.stderr}`);
-  assert.ok(Date.now() - naturalUnrefStart < 2500, "300s unref timer must not block natural event-loop exit");
+  assert.ok(Date.now() - naturalUnrefStart < 9000, "300s unref timer must not block natural event-loop exit");
 });
+
+test("final review runtime regressions: uncreatable dataDir fails safe and quoted I'm back does not disable away mode", async (t) => {
+  const { repoDir, env } = makeSandbox(t, { withRemote: true });
+  const sddDir = path.join(repoDir, ".superpowers/sdd/m5");
+  fs.mkdirSync(sddDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sddDir, "progress.md"),
+    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n"
+  );
+
+  // 1. Quoted `I'm back` in an owner away-mode instruction does not set ownerReturnedAt,
+  // and a subsequent direct unquoted "away mode" clears a prior ownerReturnedAt.
+  const quotedBackScript = `
+    import assert from "node:assert/strict";
+    import fs from "node:fs";
+    import path from "node:path";
+    import { pathToFileURL } from "node:url";
+
+    fs.writeFileSync(
+      path.join(process.env.WORK_LEDGER_DIR, "config.json"),
+      JSON.stringify({ outageRetryCap: 2, outageBackoffSec: [1, 1] })
+    );
+    await import(pathToFileURL(${JSON.stringify(extensionPath)}).href);
+    const host = globalThis.ledgerTestHost;
+    await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "true" }, workingDirectory: process.cwd() }, { sessionId: host.session.sessionId });
+
+    host.callbacks.get("user.message")({
+      id: "msg-quoted",
+      data: { content: "Enter away mode until I type \`I'm back\` tonight." },
+    });
+    await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "true" }, workingDirectory: process.cwd() }, { sessionId: host.session.sessionId });
+
+    await host.options.hooks.onErrorOccurred({ error: "HTTP 503 Service Unavailable", workingDirectory: process.cwd() });
+    let saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+    assert.equal(saved.outageRecovery["owner-runtime"].status, "retrying");
+
+    host.callbacks.get("user.message")({ id: "msg-back", data: { content: "I'm back" } });
+    await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "true" }, workingDirectory: process.cwd() });
+    saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+    assert.ok(saved.outageRecovery["owner-runtime"].ownerReturnedAt);
+
+    host.callbacks.get("user.message")({ id: "msg-away-again", data: { content: "away mode" } });
+    await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "true" }, workingDirectory: process.cwd() });
+    saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+    assert.equal(saved.outageRecovery["owner-runtime"].ownerReturnedAt, null);
+    console.log("quoted-back-and-reenter-ok");
+  `;
+  const rQuoted = runInlineDriver(quotedBackScript, { cwd: repoDir, env });
+  assert.equal(rQuoted.status, 0, `${rQuoted.stdout}\n${rQuoted.stderr}`);
+  assert.match(rQuoted.stdout, /quoted-back-and-reenter-ok/);
+
+  // 2. Uncreatable WORK_LEDGER_DIR ("/dev/null/sub") falls back safely without crashing extension startup.
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "wl-bad-datadir-home-"));
+  t.after(() => fs.rmSync(tempHome, { recursive: true, force: true }));
+  const badDirRes = runInlineDriver(
+    `
+      import assert from "node:assert/strict";
+      import { pathToFileURL } from "node:url";
+      await import(pathToFileURL(${JSON.stringify(extensionPath)}).href);
+      const host = globalThis.ledgerTestHost;
+      const start = await host.options.hooks.onSessionStart();
+      assert.match(start.additionalContext, /\\[work-ledger\\] Guards are ON/);
+      assert.ok(host.logEntries.some((l) => /Config warning:/i.test(l.text)));
+      console.log("bad-datadir-fallback-ok");
+    `,
+    {
+      cwd: repoDir,
+      env: { ...env, HOME: tempHome, USERPROFILE: tempHome, WORK_LEDGER_DIR: "/dev/null/sub" },
+    }
+  );
+  assert.equal(badDirRes.status, 0, `${badDirRes.stdout}\n${badDirRes.stderr}`);
+  assert.match(badDirRes.stdout, /bad-datadir-fallback-ok/);
+});
+

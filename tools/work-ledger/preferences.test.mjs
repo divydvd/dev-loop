@@ -239,3 +239,57 @@ test("run-rerun deploy guard stays fail-closed when defaultRepo is null, and adv
   }
   assert.deepEqual(seenRepos, ["acme/prod-app", "acme/prod-app"]);
 });
+
+test("final review regressions: canonical absolute dataDir validation and repo-less same-message revoke", (t) => {
+  const { root, extDir } = tempDirs(t);
+  const homeDir = path.join(root, "home");
+  fs.mkdirSync(homeDir, { recursive: true });
+  const expectedFallback = path.join(homeDir, ".copilot", "work-ledger");
+
+  // 1. Relative, traversal, or symlinked dataDir in <extDir>/config.json or envDir must warn and fall back.
+  const realTarget = path.join(root, "real-data");
+  fs.mkdirSync(realTarget, { recursive: true });
+  const linkPath = path.join(root, "symlink-data");
+  fs.symlinkSync(realTarget, linkPath);
+
+  for (const badDir of ["../escape", "state", `${root}/sub/../escape`, linkPath]) {
+    fs.writeFileSync(path.join(extDir, "config.json"), JSON.stringify({ dataDir: badDir }));
+    const fromExt = resolveDataDir({ envDir: "", extDir, homeDir });
+    assert.equal(fromExt.dataDir, expectedFallback, `extDir dataDir ${badDir} must fall back`);
+    assert.ok(fromExt.bootstrapWarnings.length > 0, `extDir dataDir ${badDir} must emit warning`);
+
+    const fromEnv = resolveDataDir({ envDir: badDir, extDir, homeDir });
+    assert.equal(fromEnv.dataDir, expectedFallback, `envDir ${badDir} must fall back`);
+    assert.ok(fromEnv.bootstrapWarnings.length > 0, `envDir ${badDir} must emit warning`);
+  }
+
+  // 2. When defaultRepo is null, "merge acme/widget#12 and don't merge #12" cancels in the same message,
+  // and standalone "don't merge #12" revokes a single unambiguous active #12 merge approval in that session.
+  const data = emptyLedger();
+  const sameMsg = planOwnerMessage("merge acme/widget#12 and don't merge #12", { sessionId: "s1", defaultRepo: null });
+  assert.deepEqual(sameMsg.merges, []);
+
+  const grantPlan = planOwnerMessage("merge acme/widget#12", { sessionId: "s1", defaultRepo: null });
+  applyPlan(data, grantPlan, {
+    heads: new Map([["acme/widget#12", { sha: "a".repeat(40), state: "OPEN" }]]),
+    sessionId: "s1",
+    text: "merge acme/widget#12",
+    config: DEFAULT_CONFIG,
+  });
+  assert.equal(data.approvals.filter((a) => !a.usedAt).length, 1);
+
+  const revokePlan = planOwnerMessage("don't merge #12", {
+    sessionId: "s1",
+    approvals: data.approvals,
+    defaultRepo: null,
+  });
+  const revokeNotes = applyPlan(data, revokePlan, {
+    heads: new Map(),
+    sessionId: "s1",
+    text: "don't merge #12",
+    config: DEFAULT_CONFIG,
+  });
+  assert.equal(data.approvals.filter((a) => !a.usedAt).length, 0);
+  assert.ok(revokeNotes.some((n) => /acme\/widget#12 cancelled/i.test(n)));
+});
+

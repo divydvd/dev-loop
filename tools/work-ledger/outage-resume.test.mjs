@@ -377,3 +377,89 @@ test("reviewer regressions: classifier exclusions, strict away-mode markers, new
   assert.equal(recordOutageProgress(data, { sessionId: "sess-a", headSha: sha, now: t0 + 3000 }), false);
   assert.equal(data.outageRecovery["sess-a"].attemptsUsed, 1);
 });
+
+test("final review regressions: failing Gradle, null initial HEAD, mid-turn commits, and unified away timeline", (t) => {
+  const ws = makeWorkspace(t);
+  writeAwayProgress(ws, "2026-11-16-final", true);
+  const progressFile = path.join(ws, ".superpowers/sdd/2026-11-16-final/progress.md");
+  const t0 = Date.parse("2026-11-16T16:00:00Z");
+  fs.utimesSync(progressFile, new Date(t0), new Date(t0));
+
+  // 1. Failing Gradle runs, dirty runs, or duplicate passing runs on the same (sha, tasks) must NOT reset attemptsUsed,
+  // and a null initial lastHeadSha must backfill on prompt send rather than falsely resetting on unchanged HEAD.
+  const data = emptyLedger();
+  const sha1 = "1".repeat(40);
+  const sha2 = "2".repeat(40);
+  data.validations.push({ sha: sha1, dirty: false, tasks: ":app:testDebugUnitTest", exit: 0, at: new Date(t0).toISOString(), sessionId: "s1" });
+
+  planOutageResume(data, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: null,
+    config: DEFAULT_CONFIG,
+    now: t0 + 1000,
+  });
+  markOutagePromptSent(data, "s1", t0 + 2000, sha1);
+  assert.equal(data.outageRecovery.s1.lastHeadSha, sha1);
+
+  // Failing Gradle run and re-run of the already-recorded clean (sha1, tasks) must NOT reset attemptsUsed.
+  data.validations.push({ sha: sha1, dirty: false, tasks: ":app:lintDebug", exit: 1, at: new Date(t0 + 3000).toISOString(), sessionId: "s1" });
+  data.validations.push({ sha: sha1, dirty: true, tasks: ":app:lintDebug", exit: 0, at: new Date(t0 + 3500).toISOString(), sessionId: "s1" });
+  data.validations.push({ sha: sha1, dirty: false, tasks: ":app:testDebugUnitTest", exit: 0, at: new Date(t0 + 4000).toISOString(), sessionId: "s1" });
+  assert.equal(recordOutageProgress(data, { sessionId: "s1", headSha: sha1, now: t0 + 5000 }), false);
+  assert.equal(data.outageRecovery.s1.attemptsUsed, 1);
+
+  // Also check when markOutagePromptSent had null headSha: observing sha1 later backfills lastHeadSha without resetting.
+  const dataNullHead = emptyLedger();
+  planOutageResume(dataNullHead, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: null,
+    config: DEFAULT_CONFIG,
+    now: t0 + 1000,
+  });
+  markOutagePromptSent(dataNullHead, "s1", t0 + 2000, null);
+  assert.equal(recordOutageProgress(dataNullHead, { sessionId: "s1", headSha: sha1, now: t0 + 3000 }), false);
+  assert.equal(dataNullHead.outageRecovery.s1.attemptsUsed, 1);
+  assert.equal(dataNullHead.outageRecovery.s1.lastHeadSha, sha1);
+
+  // 2. Mid-turn Git commit (sha1 -> sha2) before a new outage strikes in the same turn MUST reset attemptsUsed inside planOutageResume.
+  const cap1Config = { ...DEFAULT_CONFIG, outageRetryCap: 1, outageBackoffSec: [30] };
+  const dataMidTurn = emptyLedger();
+  const r1 = planOutageResume(dataMidTurn, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha1,
+    config: cap1Config,
+    now: t0 + 1000,
+  });
+  assert.equal(r1.resume, true);
+  assert.equal(r1.attempt, 1);
+  markOutagePromptSent(dataMidTurn, "s1", t0 + 2000, sha1);
+  // Mid-turn commit advances HEAD to sha2 before another 503 occurs without an intervening postToolUse reset.
+  const r2 = planOutageResume(dataMidTurn, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha2,
+    config: cap1Config,
+    now: t0 + 5000,
+  });
+  assert.equal(r2.resume, true);
+  assert.equal(r2.attempt, 1);
+
+  // 3. Newer ledger note "away_mode: active=false" overrides an older progress.md with active: true.
+  recordEvidence(data, {
+    repo: "acme/widget",
+    pr: 99,
+    kind: "note",
+    text: "away_mode: active=false (completed)",
+    sessionId: "s1",
+    now: new Date(t0 + 10000),
+  });
+  assert.equal(detectAwayMode({ cwd: ws, data, sessionId: "s1" }).active, false);
+});
+

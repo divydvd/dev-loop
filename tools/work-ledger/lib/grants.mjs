@@ -82,7 +82,7 @@ export function planOwnerMessage(text, { sessionId, pending = [], approvals = []
     mine("merge", 24 * HOUR).forEach((p) => add(plan.revoke, { repo: p.repo, pr: p.pr }));
     lastNamed.forEach((r) => add(plan.revoke, r));
   }
-  plan.merges = plan.merges.filter((m) => !plan.revoke.some((r) => samePr(r, m)));
+  plan.merges = plan.merges.filter((m) => !plan.revoke.some((r) => r.pr === m.pr && (!r.repo || !m.repo || samePr(r, m))));
   return plan;
 }
 
@@ -104,8 +104,13 @@ export function applyPlan(data, plan, { heads, sessionId, text, config, now = Da
   data.approvals ||= [];
   data.pending ||= [];
 
-  for (const r of plan.revoke) {
-    if (!r.repo) { notes.push(`Cannot resolve a GitHub repository for #${r.pr} here. Type "don't merge owner/repo#${r.pr}".`); continue; }
+  for (const rawRevoke of plan.revoke) {
+    let r = rawRevoke;
+    if (!r.repo) {
+      const repos = [...new Set(data.approvals.filter((a) => a.kind === "merge" && active(a) && a.pr === r.pr && (!sessionId || !a.sessionId || a.sessionId === sessionId)).map((a) => a.repo).filter(Boolean))];
+      if (repos.length === 1) r = { ...r, repo: repos[0] };
+      else { notes.push(`Cannot resolve a GitHub repository for #${r.pr} here. Type "don't merge owner/repo#${r.pr}".`); continue; }
+    }
     let n = 0;
     for (const a of data.approvals) if (a.kind === "merge" && active(a) && samePr(a, r)) { a.usedAt = at; a.revoked = true; n++; }
     if (n) notes.push(`Merge approval for ${r.repo}#${r.pr} cancelled.`);

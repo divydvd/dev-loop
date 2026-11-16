@@ -36,9 +36,7 @@ export class Ledger {
   read() {
     try {
       const d = JSON.parse(fs.readFileSync(this.file, "utf8"));
-      const outageRecovery = d?.outageRecovery && typeof d.outageRecovery === "object" && !Array.isArray(d.outageRecovery)
-        ? d.outageRecovery
-        : {};
+      const outageRecovery = d?.outageRecovery && typeof d.outageRecovery === "object" && !Array.isArray(d.outageRecovery) ? d.outageRecovery : {};
       return { ...emptyLedger(), ...d, outageRecovery };
     } catch (e) {
       if (e.code !== "ENOENT") this.error(`ledger read failed: ${e.message}`);
@@ -113,13 +111,9 @@ export function prune(data, now = Date.now()) {
     u.reviews = (u.reviews || []).slice(-30);
     u.merges = (u.merges || []).slice(-10);
   }
-  if (data.outageRecovery && typeof data.outageRecovery === "object") {
-    for (const [sid, rec] of Object.entries(data.outageRecovery)) {
-      const ts = Date.parse(rec?.lastOutageAt || rec?.ownerReturnedAt);
-      if (!rec || typeof rec !== "object" || !Number.isFinite(ts) || ts < now - 14 * day) {
-        delete data.outageRecovery[sid];
-      }
-    }
+  for (const [sid, rec] of Object.entries(data.outageRecovery || {})) {
+    const ts = Date.parse(rec?.lastOutageAt || rec?.ownerReturnedAt);
+    if (!rec || typeof rec !== "object" || !Number.isFinite(ts) || ts < now - 14 * day) delete data.outageRecovery[sid];
   }
 }
 
