@@ -3,9 +3,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DEFAULT_DEPLOY_WORKFLOWS } from "./classify.mjs";
 import { DEFAULT_CONFIG } from "./policy.mjs";
 
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const INT_BOUNDS = {
   reviewCap: [1, 50],
   mergeApprovalHours: [1, 720],
@@ -24,15 +26,35 @@ function isPlainObject(v) {
   return Boolean(v) && typeof v === "object" && !Array.isArray(v);
 }
 
+function stripDangerousKeys(obj) {
+  const clean = {};
+  for (const k of Object.keys(obj)) {
+    if (!DANGEROUS_KEYS.has(k)) clean[k] = obj[k];
+  }
+  return clean;
+}
+
 function readConfigObject(filePath, warnings) {
-  if (!filePath || !fs.existsSync(filePath)) return {};
+  if (!filePath) return {};
+  let stat;
+  try {
+    stat = fs.lstatSync(filePath);
+  } catch (err) {
+    if (err?.code === "ENOENT") return {};
+    warnings.push(`Cannot stat ${filePath} (${err?.message || err}); using safe defaults.`);
+    return {};
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    warnings.push(`Refusing ${filePath}: expected a regular file (not a symlink or special file); using safe defaults.`);
+    return {};
+  }
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
     if (!isPlainObject(parsed)) {
       warnings.push(`Invalid config root in ${filePath}: expected a JSON object; using safe defaults.`);
       return {};
     }
-    return parsed;
+    return stripDangerousKeys(parsed);
   } catch (err) {
     warnings.push(`Cannot parse ${filePath} (${err?.message || err}); using safe defaults.`);
     return {};
@@ -48,9 +70,9 @@ function validRepoSlug(v) {
 function canonicalValue(v) {
   if (Array.isArray(v)) return v.map(canonicalValue);
   if (isPlainObject(v)) {
-    const out = {};
+    const out = Object.create(null);
     for (const k of Object.keys(v).sort()) {
-      if (v[k] !== undefined) out[k] = canonicalValue(v[k]);
+      if (!DANGEROUS_KEYS.has(k) && v[k] !== undefined) out[k] = canonicalValue(v[k]);
     }
     return out;
   }
@@ -144,8 +166,13 @@ export function loadPreferences({ dataDir, extDir, defaults = DEFAULT_CONFIG } =
     const val = merged.deployWorkflows;
     if (val === null) {
       config.deployWorkflows = null;
-    } else if (isPlainObject(val) && Object.values(val).every((v) => typeof v === "string" && v.trim().length > 0)) {
-      config.deployWorkflows = { ...val };
+    } else if (isPlainObject(val)) {
+      const entries = Object.entries(val).filter(([k]) => !DANGEROUS_KEYS.has(k));
+      if (entries.length > 0 && entries.every(([, v]) => typeof v === "string" && v.trim().length > 0)) {
+        config.deployWorkflows = { ...DEFAULT_DEPLOY_WORKFLOWS, ...Object.fromEntries(entries) };
+      } else {
+        configWarnings.push(`Invalid deployWorkflows (expected a non-empty workflow map or null); falling back to null.`);
+      }
     } else {
       configWarnings.push(`Invalid deployWorkflows; falling back to null.`);
     }

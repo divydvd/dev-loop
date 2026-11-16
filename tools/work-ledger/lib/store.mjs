@@ -115,7 +115,10 @@ export function prune(data, now = Date.now()) {
   }
   if (data.outageRecovery && typeof data.outageRecovery === "object") {
     for (const [sid, rec] of Object.entries(data.outageRecovery)) {
-      if (!rec || Date.parse(rec.lastOutageAt) < now - 14 * day) delete data.outageRecovery[sid];
+      const ts = Date.parse(rec?.lastOutageAt || rec?.ownerReturnedAt);
+      if (!rec || typeof rec !== "object" || !Number.isFinite(ts) || ts < now - 14 * day) {
+        delete data.outageRecovery[sid];
+      }
     }
   }
 }

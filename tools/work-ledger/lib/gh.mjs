@@ -83,8 +83,8 @@ export function makeLookups({ gh = findGh(), git = findBinary("git") || "/usr/bi
       if (!existingDir(cwd)) return null;
       return pr(await ghJson(["pr", "view", "--json", FIELDS], cwd));
     },
-    async runWorkflow(repo, runId) {
-      const d = await ghJson(["run", "view", String(runId), ...(repo ? ["-R", repo] : []), "--json", "workflowName,name"]);
+    async runWorkflow(repo, runId, cwd) {
+      const d = await ghJson(["run", "view", String(runId), ...(repo ? ["-R", repo] : []), "--json", "workflowName,name"], cwd);
       return d ? d.workflowName || d.name || null : null;
     },
     async jobWorkflow(repo, jobId) {

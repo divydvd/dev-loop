@@ -187,3 +187,55 @@ test("Git remote resolves unqualified PR commands when config.json is absent, an
     assert.doesNotMatch(notes[0], /null#|SmarType/i);
   }
 });
+
+test("run-rerun deploy guard stays fail-closed when defaultRepo is null, and adversarial config.json inputs are rejected", async (t) => {
+  const { root, dataDir, extDir } = tempDirs(t);
+
+  // 1. Symlink at config.json must be rejected with a warning.
+  const outsideCfg = path.join(root, "outside.json");
+  fs.writeFileSync(outsideCfg, JSON.stringify({ defaultRepo: "evil/repo" }));
+  fs.symlinkSync(outsideCfg, path.join(extDir, "config.json"));
+  const symlinkRes = loadPreferences({ dataDir, extDir });
+  assert.equal(symlinkRes.config.defaultRepo, null);
+  assert.ok(symlinkRes.configWarnings.some((w) => /symlink|regular file/i.test(w)));
+  fs.unlinkSync(path.join(extDir, "config.json"));
+
+  // 2. Empty deployWorkflows {} must warn and preserve DEFAULT_DEPLOY_WORKFLOWS, and __proto__ must not collide or pollute.
+  fs.writeFileSync(path.join(dataDir, "config.json"), '{"deployWorkflows":{}}');
+  const emptyDw = loadPreferences({ dataDir, extDir });
+  assert.equal(emptyDw.config.deployWorkflows, null);
+  assert.ok(emptyDw.configWarnings.some((w) => /deployWorkflows/i.test(w)));
+
+  fs.writeFileSync(path.join(dataDir, "config.json"), '{"deployWorkflows":{"__proto__":"play","custom-deploy.yml":"firebase"}}');
+  const customDw = loadPreferences({ dataDir, extDir });
+  assert.equal(Object.getPrototypeOf(customDw.config.deployWorkflows), Object.prototype);
+  assert.equal(Object.prototype.hasOwnProperty.call(customDw.config.deployWorkflows, "__proto__"), false);
+  assert.equal(customDw.config.deployWorkflows["custom-deploy.yml"], "firebase");
+  assert.equal(customDw.config.deployWorkflows["firebase-production-approve.yml"], "firebase");
+
+  // 3. run-rerun resolves repo from git remote when defaultRepo is null and denies unapproved deploy workflow re-runs.
+  const data = emptyLedger();
+  const seenRepos = [];
+  const deps = {
+    data,
+    config: emptyDw.config,
+    now: Date.now(),
+    protectedDirs: [dataDir, extDir],
+    lockFile: path.join(dataDir, "gradle.lock"),
+    lookups: {
+      ...makeLookups({ gh: null }),
+      remoteRepo: async () => "acme/prod-app",
+      runWorkflow: async (repo) => { seenRepos.push(repo); return repo ? "firebase-production-approve.yml" : null; },
+      jobWorkflow: async (repo) => { seenRepos.push(repo); return repo ? "firebase-production-approve.yml" : null; },
+    },
+  };
+  for (const cmd of [
+    "gh run rerun 67890",
+    "gh api -X POST repos/{owner}/{repo}/actions/jobs/12345/rerun",
+    "gh workflow run firebase-production-approve.yml",
+  ]) {
+    const res = await decide({ toolName: "bash", args: { command: cmd }, cwd: root, sessionId: "s1" }, deps);
+    assert.ok(res.deny, `expected deploy denial for: ${cmd}`);
+  }
+  assert.deepEqual(seenRepos, ["acme/prod-app", "acme/prod-app"]);
+});

@@ -43,6 +43,9 @@ export function classifyTransientOutage(errOrEvent) {
   if (typeof raw !== "object") return { transient: false, code: "empty" };
 
   if (raw.permissionDecision === "deny") return { transient: false, code: "guard_denied" };
+  if (raw.errorContext === "tool_execution" || raw.errorContext === "user_input") {
+    return { transient: false, code: "non_session_context" };
+  }
 
   const names = collectStrings(raw, "name");
   const codes = collectStrings(raw, "code");
@@ -63,7 +66,13 @@ export function classifyTransientOutage(errOrEvent) {
   ) {
     return { transient: false, code: "user_cancelled" };
   }
-  if (codes.includes("ERR_ASSERTION")) return { transient: false, code: "assertion_error" };
+  if (
+    names.includes("AssertionError") ||
+    codes.includes("ERR_ASSERTION") ||
+    /\b(?:AssertionError|ERR_ASSERTION)\b/.test(combined)
+  ) {
+    return { transient: false, code: "assertion_error" };
+  }
   if (
     /\b(context_length_exceeded|context_window_exceeded|max_tokens_exceeded)\b/i.test(combined) ||
     /prompt is too long|context (?:length|window) exceeded|maximum context length/i.test(combined)
@@ -72,15 +81,15 @@ export function classifyTransientOutage(errOrEvent) {
   }
 
   const numericStatus = extractNumericStatus(raw);
-  if (numericStatus !== null && PERMANENT_HTTP.has(numericStatus)) {
-    return { transient: false, code: `http_${numericStatus}` };
+  if (numericStatus !== null) {
+    if (TRANSIENT_HTTP.has(numericStatus)) return { transient: true, code: `http_${numericStatus}` };
+    if (PERMANENT_HTTP.has(numericStatus) || numericStatus >= 400) {
+      return { transient: false, code: `http_${numericStatus}` };
+    }
   }
-  const permHttpMatch = /\b(?:HTTP(?:\/[0-9.]+)?\s*|status(?:\s+code)?[:=\s]+)(400|401|403|404|422)\b/i.exec(combined);
+  const permHttpMatch = /\b(?:HTTP(?:\/[0-9.]+)?\s*|status(?:\s+code)?[:=\s]+)(400|401|403|404|409|413|422)\b/i.exec(combined);
   if (permHttpMatch) return { transient: false, code: `http_${permHttpMatch[1]}` };
 
-  if (numericStatus !== null && TRANSIENT_HTTP.has(numericStatus)) {
-    return { transient: true, code: `http_${numericStatus}` };
-  }
   const transHttpMatch = /\b(?:HTTP(?:\/[0-9.]+)?\s*|status(?:\s+code)?[:=\s]+)(429|502|503|504)\b/i.exec(combined);
   if (transHttpMatch) return { transient: true, code: `http_${transHttpMatch[1]}` };
 
@@ -117,16 +126,21 @@ function findCheckoutRoots(cwd) {
 }
 
 function parseAwayStateFromProgress(content) {
-  let active = null;
+  let state = null;
   for (const line of String(content || "").split("\n")) {
-    if (/\bactive\s*:\s*true\b/i.test(line) || /\|\s*Mode\s*\|\s*Active\b/i.test(line)) active = true;
-    if (/\bactive\s*:\s*false\b/i.test(line) || /\|\s*Mode\s*\|\s*(?:Ended|Inactive)\b/i.test(line)) active = false;
+    if (/^\s*(?:[-*]\s*)?active\s*:\s*true\s*$/i.test(line) || /^\s*\|\s*Mode\s*\|\s*Active\b/i.test(line)) state = true;
+    if (/^\s*(?:[-*]\s*)?active\s*:\s*false\s*$/i.test(line) || /^\s*\|\s*Mode\s*\|\s*(?:Ended|Inactive)\b/i.test(line)) state = false;
   }
-  return active === true;
+  return state;
 }
 
 export function detectAwayMode({ cwd, data, sessionId } = {}) {
+  const rawReturned = Date.parse(sessionId ? data?.outageRecovery?.[sessionId]?.ownerReturnedAt || "" : "");
+  let endedCutoffMs = Number.isFinite(rawReturned) ? rawReturned : 0;
+
+  let decidedByProgress = false;
   for (const root of findCheckoutRoots(cwd)) {
+    if (decidedByProgress) break;
     const sddDir = path.join(root, ".superpowers", "sdd");
     if (!fs.existsSync(sddDir)) continue;
     let entries = [];
@@ -147,8 +161,15 @@ export function detectAwayMode({ cwd, data, sessionId } = {}) {
     for (const item of entries) {
       let text = "";
       try { text = fs.readFileSync(item.progressAbs, "utf8"); } catch { continue; }
-      if (!parseAwayStateFromProgress(text)) continue;
-      const headerMatch = /^#\s*SDD ledger\s*[—-]\s*plan:\s*(.+)$/m.exec(text) || /\bplan\s*[:=]\s*([^\s|]+)/i.exec(text);
+      const state = parseAwayStateFromProgress(text);
+      if (state === null) continue;
+      decidedByProgress = true;
+      if (state === false) {
+        endedCutoffMs = Math.max(endedCutoffMs, item.mtimeMs);
+        break;
+      }
+      if (item.mtimeMs <= endedCutoffMs) break;
+      const headerMatch = /^#\s*SDD ledger\s*[—-]\s*plan:\s*(.+)$/m.exec(text) || /^\s*plan\s*[:=]\s*([^\s|]+)\s*$/im.exec(text);
       const planPath = headerMatch ? headerMatch[1].trim() : `docs/superpowers/plans/${item.slug}.md`;
       const progressPath = path.relative(root, item.progressAbs).split(path.sep).join("/");
       return { active: true, planPath, progressPath };
@@ -158,40 +179,47 @@ export function detectAwayMode({ cwd, data, sessionId } = {}) {
   const notes = [];
   for (const unit of Object.values(data?.units || {})) {
     for (const n of unit?.notes || []) {
-      if (sessionId && n.sessionId && n.sessionId !== sessionId) continue;
-      if (/\baway[_ -]mode\b/i.test(n.text || "")) notes.push(n);
+      if (sessionId ? n.sessionId !== sessionId : false) continue;
+      if (/^\s*away[_ -]mode\s*[:=]/i.test(n.text || "")) notes.push(n);
     }
   }
-  notes.sort((a, b) => Date.parse(a.at || 0) - Date.parse(b.at || 0));
+  notes.sort((a, b) => (Date.parse(a.at || "") || 0) - (Date.parse(b.at || "") || 0));
   const latest = notes.at(-1);
   if (latest) {
-    const txt = String(latest.text || "");
-    const ended = /\b(active\s*[:=]\s*false|inactive|ended|off|returned)\b/i.test(txt);
-    const started = /\b(active(?:\s*[:=]\s*true)?|enabled|on)\b/i.test(txt);
-    if (started && !ended) {
-      const planMatch = /\bplan\s*[:=]\s*([^\s,;]+)/i.exec(txt);
+    const noteMs = Date.parse(latest.at || "") || 0;
+    const body = String(latest.text || "").replace(/^\s*away[_ -]mode\s*[:=]\s*/i, "");
+    const ended = /^(?:active\s*[:=]\s*false|inactive|ended|off|returned)\b/i.test(body);
+    const started = /^(?:active(?:\s*[:=]\s*true)?|enabled|on)\b/i.test(body);
+    if (started && !ended && noteMs > endedCutoffMs) {
+      const planMatch = /\bplan\s*[:=]\s*([^\s,;]+)/i.exec(body);
       return { active: true, planPath: planMatch ? planMatch[1] : null, progressPath: null };
     }
   }
   return { active: false, planPath: null, progressPath: null };
 }
 
-export function progressFingerprint(data) {
-  const validations = (data?.validations || []).map((v) => `${v.sha || ""}:${v.tasks || ""}:${v.exit ?? ""}:${v.at || ""}`);
+export function progressFingerprint(data, sessionId = null) {
+  const matchSession = (item) => !sessionId || item?.sessionId === sessionId;
+  const validations = (data?.validations || []).filter(matchSession).map((v) => `${v.sha || ""}:${v.tasks || ""}:${v.exit ?? ""}:${v.at || ""}`);
   const units = Object.keys(data?.units || {}).sort().map((k) => {
     const u = data.units[k] || {};
-    const lastEv = (u.evidence || []).at(-1);
-    const lastNote = (u.notes || []).at(-1);
-    const lastRev = (u.reviews || []).at(-1);
-    const lastMerge = (u.merges || []).at(-1);
+    const evs = (u.evidence || []).filter(matchSession);
+    const notes = (u.notes || []).filter(matchSession);
+    const revs = (u.reviews || []).filter(matchSession);
+    const merges = (u.merges || []).filter(matchSession);
+    if (sessionId && !evs.length && !notes.length && !revs.length && !merges.length) return null;
+    const lastEv = evs.at(-1);
+    const lastNote = notes.at(-1);
+    const lastRev = revs.at(-1);
+    const lastMerge = merges.at(-1);
     return [
       k,
-      (u.evidence || []).length, lastEv?.at || "", lastEv?.sha || "", lastEv?.kind || "",
-      (u.notes || []).length, lastNote?.at || "",
-      (u.reviews || []).length, lastRev?.at || "",
-      (u.merges || []).length, lastMerge?.at || "",
+      evs.length, lastEv?.at || "", lastEv?.sha || "", lastEv?.kind || "",
+      notes.length, lastNote?.at || "",
+      revs.length, lastRev?.at || "",
+      merges.length, lastMerge?.at || "",
     ].join("|");
-  });
+  }).filter(Boolean);
   return crypto.createHash("sha256").update(JSON.stringify({ validations, units })).digest("hex").slice(0, 12);
 }
 
@@ -271,10 +299,11 @@ export function planOutageResume(data, {
 
   const used = existing?.attemptsUsed || 0;
   const isoNow = new Date(now).toISOString();
-  const fp = progressFingerprint(data);
+  const fp = progressFingerprint(data, sid);
 
   if (used >= maxAttempts) {
     const exhausted = {
+      ...existing,
       sessionId: sid,
       planPath: away.planPath || existing?.planPath || null,
       progressPath: away.progressPath || existing?.progressPath || null,
@@ -314,6 +343,7 @@ export function planOutageResume(data, {
     code: classification.code,
   });
   const record = {
+    ...existing,
     sessionId: sid,
     planPath,
     progressPath,
@@ -347,15 +377,25 @@ export function markOutagePromptSent(data, sessionId, now = Date.now()) {
   rec.nextDelaySec = null;
   rec.pendingPrompt = null;
   rec.resumedAt = new Date(now).toISOString();
-  rec.lastProgressFingerprint = progressFingerprint(data);
+  rec.lastProgressFingerprint = progressFingerprint(data, sid);
+  return rec;
+}
+
+export function revertOutagePromptSend(data, sessionId, { attempt, prompt, delaySec } = {}) {
+  const sid = sessionId || "default";
+  const rec = data?.outageRecovery?.[sid];
+  if (!rec || rec.status !== "resumed" || rec.attemptsUsed !== attempt) return null;
+  rec.status = "retrying";
+  rec.pendingPrompt = prompt || null;
+  rec.nextDelaySec = delaySec ?? null;
   return rec;
 }
 
 export function recordOutageProgress(data, { sessionId, headSha = null, now = Date.now() } = {}) {
   const sid = sessionId || "default";
   const rec = data?.outageRecovery?.[sid];
-  if (!rec || rec.attemptsUsed === 0) return false;
-  const currentFp = progressFingerprint(data);
+  if (!rec || rec.attemptsUsed === 0 || rec.status !== "resumed") return false;
+  const currentFp = progressFingerprint(data, sid);
   const shaAdvanced = Boolean(headSha && rec.lastHeadSha && headSha !== rec.lastHeadSha) || Boolean(headSha && !rec.lastHeadSha);
   const ledgerAdvanced = currentFp !== rec.lastProgressFingerprint;
   if (!shaAdvanced && !ledgerAdvanced) return false;

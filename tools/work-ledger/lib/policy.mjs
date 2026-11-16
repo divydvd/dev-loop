@@ -425,7 +425,8 @@ export async function decide(call, deps) {
         else onDeploy(f.target, f.detail, ctx, res);
         break;
       case "run-rerun": {
-        const wf = f.runId ? await deps.lookups.runWorkflow(f.repo, f.runId) : await deps.lookups.jobWorkflow(f.repo || deps.config.defaultRepo, f.jobId);
+        const repo = await resolveRepo(f, cwd, deps);
+        const wf = f.runId ? await deps.lookups.runWorkflow(repo, f.runId, f.cwd || cwd) : await deps.lookups.jobWorkflow(repo, f.jobId);
         const t = wf ? deployTargetForWorkflow(wf, deps.config.deployWorkflows || undefined) : null;
         if (t) onDeploy(t, `re-run of "${wf}"`, ctx, res);
         else if (!wf) res.notes.push(`re-run not checked: cannot read run ${f.runId || f.jobId}`);
