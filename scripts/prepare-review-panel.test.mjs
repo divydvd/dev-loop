@@ -537,12 +537,21 @@ test("13. AC-2 & AC-3: concept-based risky areas and zero-segment globstars ('sr
 
   // Concept risky-area match on changed section touching 'finish rules'
   const conceptBase = globHead;
-  writeAndCommit(repoDir, {
+  const conceptHead = writeAndCommit(repoDir, {
     "skills/dev-loop/SKILL.md": "# Skill\n\n## Finish\nUpdate the finish rules and approval points.\n",
   });
   const conceptRes = JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", conceptBase, "--json"]).stdout);
   assert.equal(conceptRes.touchesRiskyArea, true);
   assert.equal(conceptRes.mode, "panel");
+
+  // Concept phrase appearing ONLY inside a test file alongside a benign prod edit must NOT trigger touchesRiskyArea
+  writeAndCommit(repoDir, {
+    "src/math.js": "export const sum = (a, b) => a + b;\n",
+    "scripts/router.test.mjs": "// fixture mentioning approval points and finish rules\n",
+  });
+  const nonRiskyRes = JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", conceptHead, "--json"]).stdout);
+  assert.equal(nonRiskyRes.touchesRiskyArea, false);
+  assert.equal(nonRiskyRes.mode, "single");
 });
 
 test("14. AC-4: operational skills/** references and assets count toward prodLinesChanged and 120 vs 121 threshold", (t) => {

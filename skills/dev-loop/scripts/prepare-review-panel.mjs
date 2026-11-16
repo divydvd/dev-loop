@@ -187,6 +187,7 @@ function parseNumstatZ(raw) {
   return stats;
 }
 const extractChangedHunkLines = (diff) => diff.split(/\r?\n/).filter((l) => (l.startsWith("+") && !l.startsWith("+++ ")) || (l.startsWith("-") && !l.startsWith("--- "))).map((l) => l.slice(1)).join("\n");
+const extractProdDiffSections = (diff) => diff.split(/^diff --git /m).slice(1).filter((sec) => { const m = sec.match(/^(?:a\/.*? b\/|"a\/.*?" "b\/)(.+?)"?\r?\n/); return m ? isProductionFile(m[1]) : true; }).join("\n");
 
 function renderRolePacket({ role, result, fileStats, agentsBullets, checklistRules }) {
   const applicable = checklistRules.filter((r) => (role === "single-reviewer" || r.domain === role || r.domain === "all") && (!r.triggers.length || !result.changedFiles.length || r.triggers.some((t) => result.changedFiles.some((f) => globToRegExp(t).test(f.replaceAll("\\", "/"))))));
@@ -265,9 +266,11 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
   if (head === "WORKTREE") {
     mergeBaseSha = resolveMergeBase(currentHeadSha);
     fileStats = parseNumstatZ(runGit(realRepoRoot, ["diff", "--numstat", "--no-renames", "-z", mergeBaseSha]));
-    diffContextText = runGit(realRepoRoot, ["diff", "--no-renames", "-U3", mergeBaseSha]);
+    const rawCtx = runGit(realRepoRoot, ["diff", "--no-renames", "-U3", mergeBaseSha]);
+    diffContextText = extractProdDiffSections(rawCtx);
     const hash = createHash("sha256").update(`mergeBase:${mergeBaseSha}\n`).update(runGit(realRepoRoot, ["diff", "--binary", "--no-renames", mergeBaseSha], "buffer"));
-    const extraHunks = [extractChangedHunkLines(diffContextText)];
+    const extraHunks = [extractChangedHunkLines(rawCtx)];
+    const prodExtra = [];
     for (const rel of runGit(realRepoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean).sort()) {
       const full = join(realRepoRoot, rel);
       let st;
@@ -277,6 +280,7 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
         hash.update(`\0symlink:${rel}:${st.mode}:${target}\0`);
         fileStats.set(rel, { added: 1, deleted: 0 });
         extraHunks.push(target);
+        if (isProductionFile(rel)) prodExtra.push(target);
       } else if (st.isFile()) {
         const bytes = readFileSync(full);
         hash.update(`\0file:${rel}:${st.mode}\0`).update(bytes);
@@ -284,17 +288,19 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
         fileStats.set(rel, { added: utf8 === "" ? 0 : utf8.replace(/\r?\n$/, "").split(/\r?\n/).length, deleted: 0 });
         untrackedTextByPath.set(rel, utf8);
         extraHunks.push(utf8);
+        if (isProductionFile(rel)) prodExtra.push(utf8);
       }
     }
     diffHunkText = extraHunks.filter(Boolean).join("\n");
-    diffContextText = `${diffContextText}\n${diffHunkText}`;
+    diffContextText = [diffContextText, ...prodExtra].filter(Boolean).join("\n");
     resolvedHead = `WORKTREE:${hash.digest("hex")}`;
   } else {
     resolvedHead = runGit(realRepoRoot, ["rev-parse", "--verify", `${head}^{commit}`]).trim();
     mergeBaseSha = resolveMergeBase(resolvedHead);
     fileStats = parseNumstatZ(runGit(realRepoRoot, ["diff", "--numstat", "--no-renames", "-z", mergeBaseSha, resolvedHead]));
-    diffContextText = runGit(realRepoRoot, ["diff", "--no-renames", "-U3", mergeBaseSha, resolvedHead]);
-    diffHunkText = extractChangedHunkLines(diffContextText);
+    const rawCtx = runGit(realRepoRoot, ["diff", "--no-renames", "-U3", mergeBaseSha, resolvedHead]);
+    diffContextText = extractProdDiffSections(rawCtx);
+    diffHunkText = extractChangedHunkLines(rawCtx);
   }
 
   const changedFiles = [...fileStats.keys()].sort();
