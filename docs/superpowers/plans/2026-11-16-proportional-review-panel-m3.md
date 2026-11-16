@@ -205,10 +205,10 @@ The expected result is fast 1-reviewer turnaround on `<= 120`-line single-domain
 - Consumes: verified Task 2–4 artifacts and `GREEN` consumer evidence
 - Produces: `0.5.18` release-ready branch passing all CI suites, `scripts/check.mjs`, temporary `COPILOT_HOME` smoke test, and Step-5 independent review panel
 
-- [ ] **Step 1: Wire `node --test scripts/prepare-review-panel.test.mjs` into `.github/workflows/check.yml` and assert CI wiring in `scripts/independent-review.test.mjs`**
-- [ ] **Step 2: Update `README.md` (`## Rule/check map` row for proportional review routing + `## Independent PR review`), bump all 5 manifests to `0.5.18`, and add `## 0.5.18 (2026-11-16)` to `CHANGELOG.md`**
-- [ ] **Step 3: Run `node scripts/check.mjs` and all 10 test commands from `.github/workflows/check.yml`**
-- [ ] **Step 4: Run isolated temporary `COPILOT_HOME` plugin install + `copilot instruction list` + `copilot skill list` smoke test (plus `claude plugin validate --strict .` and `gemini extensions validate .` if installed), verifying `core.mdc` and `GEMINI.md` have `0` diff lines**
+- [x] **Step 1: Wire `node --test scripts/prepare-review-panel.test.mjs` into `.github/workflows/check.yml` and assert CI wiring in `scripts/independent-review.test.mjs`**
+- [x] **Step 2: Update `README.md` (`## Rule/check map` row for proportional review routing + `## Independent PR review`), bump all 5 manifests to `0.5.18`, and add `## 0.5.18 (2026-11-16)` to `CHANGELOG.md`**
+- [x] **Step 3: Run `node scripts/check.mjs` and all 10 test commands from `.github/workflows/check.yml`**
+- [x] **Step 4: Run isolated temporary `COPILOT_HOME` plugin install + `copilot instruction list` + `copilot skill list` smoke test (plus `claude plugin validate --strict .` and `gemini extensions validate .` if installed), verifying `core.mdc` and `GEMINI.md` have `0` diff lines**
 - [ ] **Step 5: Commit all changes, run `prepare-review-panel.mjs` on `origin/main...HEAD` into a temp `--out-dir` outside the repo, execute the Step-5 independent review panel (`specialists -> skeptic-judge`), fix any confirmed Critical/Important findings, re-verify at final `HEAD`, open PR against `main`, record `work_ledger_record`, and verify CI + `copilot-pull-request-reviewer`**
 
 ## Conclusion

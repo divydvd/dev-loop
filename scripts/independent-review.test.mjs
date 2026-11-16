@@ -76,5 +76,7 @@ test("step 5 wires the deterministic review panel router and reference", () => {
 });
 
 test("CI runs the independent review regression suite", () => {
-  assert.match(read(".github/workflows/check.yml"), /node --test scripts\/independent-review\.test\.mjs/);
+  const workflow = read(".github/workflows/check.yml");
+  assert.match(workflow, /node --test scripts\/independent-review\.test\.mjs/);
+  assert.match(workflow, /node --test scripts\/prepare-review-panel\.test\.mjs/);
 });
