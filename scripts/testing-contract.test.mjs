@@ -418,6 +418,11 @@ test("T-IR9: PR evidence rule miner, review checklist template, and Step-5 check
   assert.match(ruleMiner, /"untrusted":\s*true|untrusted/i);
   assert.match(ruleMiner, /Retired or automated rules/);
   assert.match(ruleMiner, /Safety\?.*yes|never.*retire/i);
+  assert.match(
+    ruleMiner,
+    /after updating.*counters.*re-run.*--checklist|recompute.*staleRules.*after.*counter/is,
+    "rule-miner.md must recompute staleRules after weekly counter updates",
+  );
 
   // Checklist template + project profile + Step-5-only loading (+0 startup bytes)
   assert.ok(checklistTemplate.includes("## Active rules"));

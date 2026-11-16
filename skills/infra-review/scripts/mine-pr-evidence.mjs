@@ -4,7 +4,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MAX_ACTIVE_RULES = 25, MAX_FIXUP_DIFF_LINES = 160, MAX_COMMENT_HUNK_LINES = 80, FIXUP_WINDOW_MS = 14 * 86_400_000;
+const MAX_ACTIVE_RULES = 25, MAX_FIXUP_DIFF_LINES = 160, MAX_COMMENT_HUNK_LINES = 80, DEFAULT_PR_LIMIT = 200, FIXUP_WINDOW_MS = 14 * 86_400_000;
 const REPO_SLUG_RE = /^[\w.-]+\/[\w.-]+$/;
 const DOC_EXT_RE = /\.(md|mdc|txt|rst|adoc)$/i;
 const DOC_PATH_RE = /^docs\/|(?:^|\/)(README|CHANGELOG|LICENSE|AGENTS|GEMINI)(\.[^/]+)?$/i;
@@ -14,7 +14,8 @@ const GENERATED_PATH_RE = /(?:^|\/)(dist|build|out|coverage|generated|vendor|nod
 const NOISY_BOT_LOGIN_RE = /^(?:codecov|coveralls|sonarcloud|sonarqubecloud|dependabot|renovate|github-actions|netlify|vercel|changeset-bot|claassistant|mergify|snyk-bot)(?:\[bot\]|-bot)?$/i;
 const NOISY_BOT_BODY_RE = /^(?:!\[coverage\]|##\s*codecov\b)|codecov\.io\/gh\/|sonarcloud\.io\/dashboard/i;
 const POSITIVE_FIX_REPLY_RE = /\b(?:fixed|addressed|done|updated|resolved)\b/i;
-const NEGATED_FIX_REPLY_RE = /\b(?:not|never|won't|wont|cannot|can't|will\s+not|did\s+not|didn't)\s+(?:be\s+)?(?:fixed|addressed|done|updated|resolved)\b/i;
+const NEGATED_FIX_REPLY_RE = /\b(?:not|never|no\s+longer|won['’]?t|can['’]?t|cannot|didn['’]?t|did\s+not|will\s+not|isn['’]?t|is\s+not|aren['’]?t|are\s+not|wasn['’]?t|was\s+not|weren['’]?t|were\s+not|hasn['’]?t|has\s+not|haven['’]?t|have\s+not|shouldn['’]?t|should\s+not)(?:\s+(?:yet|still|currently|fully|completely|actually|going\s+to|be|been|being)){0,4}\s+(?:fixed|addressed|done|updated|resolved|fix|address|update|resolve)\b/i;
+const UNRESOLVED_REPLY_RE = /\b(?:defer(?:red|ring)?|wontfix|won['’]?t\s+fix|out\s+of\s+scope|leav(?:e|ing)\b[^.\n]{0,40}\bfor\s+(?:another|a\s+follow[- ]?up|follow[- ]?up|later))\b/i;
 const EXPLICIT_FIXUP_RE = /\b(?:fix(?:es|ed|up)?|fix-up|revert(?:s|ed|ing)?(?:\s+of)?|regress(?:ion|ed)\s+(?:in|from|after)|broke\s+in|broken\s+by|introduced\s+(?:by|in)|after\s+regression\s+in)(?:\s+\w+){0,3}\s+(?:PR\s+)?(?:https?:\/\/[^\s/]+\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)|([\w.-]+\/[\w.-]+)?#(\d+))/gi;
 const PR_TEMPLATE_META_LINE_RE = /^\s*[-*]\s*(?:Regression selection|Fixed findings|Findings that are not fixed)\s*:[^\r\n]*/gim;
 const DIRECTIVE_TAG_RE = /<\/?(?:system(?:[-_][\w-]+)?|hard[-_]gate|extremely[-_]important|subagent[-_]stop|developer(?:[-_][\w-]+)?|assistant(?:[-_][\w-]+)?|user(?:[-_][\w-]+)?|instruction(?:s|[-_][\w-]+)?|prompt(?:[-_][\w-]+)?|override(?:[-_][\w-]+)?|rule[-_]miner(?:[-_][\w-]+)?)\b[^>]*>/gi;
@@ -120,29 +121,31 @@ function fileChangedBetweenCommits(checkoutDir, fromSha, toSha, filePath, execGi
   catch { return false; }
 }
 
-function loadMergedPrs({ repo, fromIso, toIso, prs, prsFile, execGh }) {
+function loadMergedPrs({ repo, fromIso, toIso, prs, prsFile, prLimit = DEFAULT_PR_LIMIT, execGh }) {
   const fromMs = Date.parse(fromIso), toMs = Date.parse(toIso);
-  let rawPrs = prs;
+  let rawPrs = prs, truncated = Boolean(prs?.truncated);
   if (!rawPrs && prsFile) {
     const parsed = readJsonOptionFile(prsFile, "--prs-file");
+    truncated = Boolean(parsed?.prsTruncated || parsed?.truncated);
     rawPrs = Array.isArray(parsed) ? parsed : parsed.prs || [];
   }
   if (!rawPrs) {
     if (!repo) throw new Error("Pass --repo <owner/repo> or --prs-file <json>.");
     const lookbackIso = new Date(fromMs - FIXUP_WINDOW_MS).toISOString();
     const out = execGh([
-      "pr", "list", "--repo", repo, "--state", "merged", "--limit", "200",
+      "pr", "list", "--repo", repo, "--state", "merged", "--limit", String(prLimit),
       "--search", `merged:${lookbackIso}..${toIso}`,
       "--json", "number,title,body,mergedAt,mergeCommit,headRefOid,files",
     ]);
     rawPrs = JSON.parse(out || "[]");
+    truncated = rawPrs.length >= prLimit;
   }
   const allPrsByNum = new Map(rawPrs.filter((pr) => Number.isFinite(Number(pr?.number))).map((pr) => [Number(pr.number), pr]));
   const prsInWindow = rawPrs.filter((pr) => {
     const mergedMs = Date.parse(pr?.mergedAt || "");
     return Number.isFinite(mergedMs) && mergedMs >= fromMs && mergedMs <= toMs;
   });
-  return { prsInWindow, allPrsByNum };
+  return { prsInWindow, allPrsByNum, truncated };
 }
 
 function normalizeCommentsMap({ prsInWindow, repo, commentsByPr, parsedCommentsFile, execGh }) {
@@ -169,16 +172,18 @@ function normalizeCommentsMap({ prsInWindow, repo, commentsByPr, parsedCommentsF
   return fetched;
 }
 
-function findFixConfirmationReply(replies, mergedMs) {
-  let latestResolution = null;
-  for (const reply of replies) {
+function classifyThreadReplies(replies, mergedMs) {
+  let state = "none", matchedReply = null;
+  const ordered = [...replies].sort((a, b) => (Date.parse(a.created_at || "") || 0) - (Date.parse(b.created_at || "") || 0) || (Number(a.id) || 0) - (Number(b.id) || 0));
+  for (const reply of ordered) {
     const replyMs = Date.parse(reply.created_at || "");
     if (Number.isFinite(mergedMs) && Number.isFinite(replyMs) && replyMs > mergedMs) continue;
     const body = String(reply.body || "");
-    if (!POSITIVE_FIX_REPLY_RE.test(body)) continue;
-    latestResolution = NEGATED_FIX_REPLY_RE.test(body) ? null : reply;
+    if (NEGATED_FIX_REPLY_RE.test(body)) { state = "unresolved"; matchedReply = reply; }
+    else if (POSITIVE_FIX_REPLY_RE.test(body)) { state = "confirmed"; matchedReply = reply; }
+    else if (UNRESOLVED_REPLY_RE.test(body)) { state = "unresolved"; matchedReply = reply; }
   }
-  return latestResolution;
+  return { state, reply: state === "confirmed" ? matchedReply : null };
 }
 
 function extractAddressedThreads({ prsInWindow, commentsMap, checkoutDir, execGit }) {
@@ -200,7 +205,8 @@ function extractAddressedThreads({ prsInWindow, commentsMap, checkoutDir, execGi
       const createdMs = Date.parse(root.created_at || "");
       if (Number.isFinite(mergedMs) && Number.isFinite(createdMs) && createdMs > mergedMs) continue;
 
-      const fixReply = findFixConfirmationReply(repliesByRoot.get(root.id) || [], mergedMs);
+      const { state: replyState, reply: fixReply } = classifyThreadReplies(repliesByRoot.get(root.id) || [], mergedMs);
+      if (replyState === "unresolved") continue;
       const originalSha = String(root.original_commit_id || "").trim();
       const headSha = String(pr.headRefOid || "").trim();
       const modifiedAfterComment =
@@ -313,16 +319,18 @@ export function minePrEvidence(options = {}) {
   const metrics = options.metrics || (options.metricsFile ? readJsonOptionFile(options.metricsFile, "--metrics-file") : null);
   const parsedCommentsFile = options.commentsFile ? readJsonOptionFile(options.commentsFile, "--comments-file") : undefined;
   const checklistText = options.checklistText ?? (options.checklistPath && existsSync(options.checklistPath) ? readFileSync(options.checklistPath, "utf8") : null);
-  const { prsInWindow, allPrsByNum } = loadMergedPrs({ repo, fromIso, toIso, prs: options.prs, prsFile: options.prsFile, execGh });
-  const commentsMap = normalizeCommentsMap({ prsInWindow, repo, commentsByPr: options.commentsByPr, parsedCommentsFile, execGh });
-  const addressedThreads = extractAddressedThreads({ prsInWindow, commentsMap, checkoutDir, execGit });
-  const fixupSignals = extractFixupSignals({ prsInWindow, allPrsByNum, repo, metrics, checkoutDir, execGit });
+  const { prsInWindow, allPrsByNum, truncated } = loadMergedPrs({ repo, fromIso, toIso, prs: options.prs, prsFile: options.prsFile, prLimit: options.prLimit, execGh });
+  const prsTruncated = Boolean(truncated || options.prsTruncated || metrics?.prsTruncated);
+  const commentsMap = prsTruncated ? {} : normalizeCommentsMap({ prsInWindow, repo, commentsByPr: options.commentsByPr, parsedCommentsFile, execGh });
+  const addressedThreads = prsTruncated ? [] : extractAddressedThreads({ prsInWindow, commentsMap, checkoutDir, execGit });
+  const fixupSignals = prsTruncated ? [] : extractFixupSignals({ prsInWindow, allPrsByNum, repo, metrics, checkoutDir, execGit });
   const checklist = parseChecklist(checklistText);
-  const eligibleForMining = fixupSignals.length >= 1 || addressedThreads.length >= 2;
+  const status = prsTruncated ? "unavailable" : "ok";
+  const eligibleForMining = !prsTruncated && (fixupSignals.length >= 1 || addressedThreads.length >= 2);
   return {
-    repo, window: { from: fromIso, to: toIso }, untrusted: true, eligibleForMining,
+    repo, status, prsTruncated, window: { from: fromIso, to: toIso }, untrusted: true, eligibleForMining,
     summary: {
-      mergedPrCount: prsInWindow.length, addressedThreadCount: addressedThreads.length, fixupSignalCount: fixupSignals.length,
+      mergedPrCount: prsTruncated ? null : prsInWindow.length, addressedThreadCount: prsTruncated ? null : addressedThreads.length, fixupSignalCount: prsTruncated ? null : fixupSignals.length,
       activeRuleCount: checklist.activeRuleCount, remainingSlots: checklist.remainingSlots, staleRuleCount: checklist.staleRules.length,
     },
     addressedThreads, fixupSignals, checklist,
@@ -330,8 +338,8 @@ export function minePrEvidence(options = {}) {
 }
 
 export function formatEvidenceSummary(p) {
-  const s = p.summary;
-  return `# PR Evidence Packet (${p.repo || "local-fixtures"})\n- Window: ${p.window.from} .. ${p.window.to}\n- Merged PRs: ${s.mergedPrCount} | Addressed threads: ${s.addressedThreadCount} | 14-day fix-ups: ${s.fixupSignalCount}\n- Eligible for mining: ${p.eligibleForMining} | Checklist: ${s.activeRuleCount}/${p.checklist.maxRules} active (${s.remainingSlots} remaining, ${s.staleRuleCount} stale)\n`;
+  const s = p.summary, counts = p.prsTruncated ? "Merged PRs: n/a (prs_truncated) | Addressed threads: n/a | 14-day fix-ups: n/a" : `Merged PRs: ${s.mergedPrCount} | Addressed threads: ${s.addressedThreadCount} | 14-day fix-ups: ${s.fixupSignalCount}`;
+  return `# PR Evidence Packet (${p.repo || "local-fixtures"})\n- Status: ${p.prsTruncated ? "unavailable (prs_truncated)" : p.status}\n- Window: ${p.window.from} .. ${p.window.to}\n- ${counts}\n- Eligible for mining: ${p.eligibleForMining} | Checklist: ${s.activeRuleCount}/${p.checklist.maxRules} active (${s.remainingSlots} remaining, ${s.staleRuleCount} stale)\n`;
 }
 
 function parseCliArgs(argv) {

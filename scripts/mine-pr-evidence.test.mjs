@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  formatEvidenceSummary,
   isProductionPath,
   minePrEvidence,
   parseChecklist,
@@ -185,6 +186,60 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, missing-git, and negat
             user: { login: "reviewer-c", type: "User" },
             body: "Unreplied comment with unavailable git commit SHA must not count.",
             diff_hunk: "@@ -30,2 +30,3 @@",
+          },
+          {
+            id: 11,
+            path: "src/sync.js",
+            line: 34,
+            original_commit_id: headSha,
+            created_at: "2026-11-12T08:45:00Z",
+            user: { login: "reviewer-d", type: "User" },
+            body: "Intervening negation reply must stay unfixed.",
+            diff_hunk: "@@ -32,2 +32,3 @@",
+          },
+          {
+            id: 12,
+            in_reply_to_id: 11,
+            path: "src/sync.js",
+            created_at: "2026-11-12T08:50:00Z",
+            user: { login: "author", type: "User" },
+            body: "Not yet fixed.",
+          },
+          {
+            id: 13,
+            path: "src/sync.js",
+            line: 36,
+            original_commit_id: headSha,
+            created_at: "2026-11-12T08:46:00Z",
+            user: { login: "reviewer-e", type: "User" },
+            body: "Contraction negation reply must stay unfixed.",
+            diff_hunk: "@@ -34,2 +34,3 @@",
+          },
+          {
+            id: 14,
+            in_reply_to_id: 13,
+            path: "src/sync.js",
+            created_at: "2026-11-12T08:51:00Z",
+            user: { login: "author", type: "User" },
+            body: "This isn't fixed yet.",
+          },
+          {
+            id: 15,
+            path: "src/sync.js",
+            line: 20,
+            original_commit_id: firstSha,
+            created_at: "2026-11-12T08:35:00Z",
+            user: { login: "reviewer-f", type: "User" },
+            body: "Explicitly deferred thread on a file with unrelated later edits.",
+            diff_hunk: "@@ -18,2 +18,3 @@",
+          },
+          {
+            id: 16,
+            in_reply_to_id: 15,
+            path: "src/sync.js",
+            created_at: "2026-11-12T09:10:00Z",
+            user: { login: "author", type: "User" },
+            body: "Not fixed; leaving this for another PR.",
           },
         ],
       }),
@@ -966,6 +1021,44 @@ test("T9: online gh queries include 14d target lookback in UTC, exclude unmerged
     } finally {
       rmSync(mergeRepo, { recursive: true, force: true });
     }
+
+    const cappedPrs = Array.from({ length: 200 }, (_, idx) => ({
+      number: 1000 + idx,
+      title: `fix: item ${idx}`,
+      body: idx === 1 ? "Fixes #1000." : "",
+      mergedAt: "2026-11-12T10:00:00Z",
+      files: [{ path: "src/app.js", additions: 2, deletions: 1 }],
+    }));
+    let commentApiCalls = 0;
+    const cappedPacket = minePrEvidence({
+      repo: "owner/repo",
+      from: "2026-11-10",
+      to: "2026-11-16",
+      execGh: (args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify(cappedPrs);
+        commentApiCalls += 1;
+        return "[]";
+      },
+    });
+    assert.equal(cappedPacket.status, "unavailable");
+    assert.equal(cappedPacket.prsTruncated, true);
+    assert.equal(cappedPacket.eligibleForMining, false);
+    assert.equal(cappedPacket.summary.mergedPrCount, null);
+    assert.equal(cappedPacket.addressedThreads.length, 0);
+    assert.equal(cappedPacket.fixupSignals.length, 0);
+    assert.equal(commentApiCalls, 0, "must not fetch per-PR comments when PR list is truncated");
+    assert.match(formatEvidenceSummary(cappedPacket), /unavailable \(prs_truncated\)/);
+
+    const truncatedMetricsPacket = minePrEvidence({
+      repo: "owner/repo",
+      from: "2026-11-10",
+      to: "2026-11-16",
+      prs: [],
+      metrics: { prsTruncated: true },
+    });
+    assert.equal(truncatedMetricsPacket.status, "unavailable");
+    assert.equal(truncatedMetricsPacket.prsTruncated, true);
+    assert.equal(truncatedMetricsPacket.eligibleForMining, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

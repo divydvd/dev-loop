@@ -33,18 +33,20 @@ node <dev-loop-checkout>/skills/infra-review/scripts/mine-pr-evidence.mjs \
 Pass `--prs-file <json>` and `--comments-file <json>` when merged PR and review-comment fixtures are already saved locally.
 
 The script outputs:
-- `addressedThreads`: production-file inline review comments resolved before merge by a later commit on that file (`commit_after_comment`) or a non-negated fix reply (`fix_reply`), excluding noisy status/coverage bots.
-- `fixupSignals`: 14-day fix-up or revert PRs (both explicit `#<N>` references and silent `blame_churn` rewrites from `collect-metrics.mjs`) with production-only unified diffs capped at `160` lines per PR.
+- `status` and `prsTruncated`: `"ok"` when the 21-day lookback fits inside the 200-PR ceiling, or `"unavailable"` (`prsTruncated: true`, `eligibleForMining: false`, `null` window counts) when lookback truncation prevents a complete weekly observation.
+- `addressedThreads`: production-file inline review comments resolved before merge by a later commit on that file (`commit_after_comment`) or a non-negated fix reply (`fix_reply`), excluding noisy status/coverage bots and threads whose latest pre-merge reply explicitly marks the item unfixed or deferred.
+- `fixupSignals`: 14-day production fix-up or revert PRs (both explicit `#<N>` references and silent `blame_churn` rewrites from `collect-metrics.mjs`) with production-only unified diffs capped at `160` lines per PR.
 - `checklist`: capacity audit (`maxRules: 25`, `activeRuleCount`, `remainingSlots`, and `staleRules`).
-- `eligibleForMining`: `true` only when `fixupSignals.length >= 1` or `addressedThreads.length >= 2`.
+- `eligibleForMining`: `true` only when `status === "ok"` and (`fixupSignals.length >= 1` or `addressedThreads.length >= 2`).
 
-When `eligibleForMining` is `false`, do not dispatch `Generator` or `Validator`; propose `0` new checklist rules (still process `staleRules` retirement and `Active weeks` updates when a checklist file exists).
+When `status === "unavailable"`, report the evidence packet as `unavailable (prs_truncated)`, skip weekly checklist counter increments, and propose `0` new checklist rules. When `status === "ok"` and `eligibleForMining` is `false`, do not dispatch `Generator` or `Validator`; propose `0` new checklist rules (still update weekly counters and process refreshed `staleRules` retirement when a checklist file exists).
 
 ## Step 2: Audit capacity, update counters, and retire stale non-safety rules
 Project checklists live in `<project-checkout>/docs/testing/review-checklist.md` (initialized from `skills/dev-loop/assets/review-checklist.md` and linked via `Checklist path: docs/testing/review-checklist.md` in `AGENTS.md`).
 - **Active cap (`25` rules):** `## Active rules` holds at most `25` rules (`remainingSlots = Math.max(0, 25 - activeRuleCount)` after retirements in the same PR).
-- **Weekly counter updates:** For each observed weekly review (excluding `n/a` or `unavailable` weeks), increment `Active weeks` by `1` on existing active rules. Increment `Confirmed catches` when a confirmed review finding or prevented regression cites that `Rule ID`.
-- **4-week non-safety retirement:** Propose retiring every rule in `checklist.staleRules` (`Safety? = no`, `Active weeks >= 4`, and `Confirmed catches = 0`). Move the row from `## Active rules` to `## Retired or automated rules` with the retired date and `0 catches in 4 active weeks`.
+- **Weekly counter updates:** For each observed weekly review where packet `status === "ok"` (excluding `n/a` or `unavailable` weeks), increment `Active weeks` by `1` on existing active rules. Increment `Confirmed catches` when a confirmed review finding or prevented regression cites that `Rule ID`.
+- **Refresh audit after counter updates:** After updating `Active weeks` and `Confirmed catches`, re-run `scripts/mine-pr-evidence.mjs --checklist <project-checkout>/docs/testing/review-checklist.md --prs-file <empty-array.json> --json` (or recompute `checklist.staleRules` after counter updates) so rules that just received a catch are preserved and rules reaching `4` zero-catch active weeks are caught.
+- **4-week non-safety retirement:** Propose retiring every rule in the refreshed `checklist.staleRules` (`Safety? = no`, `Active weeks >= 4`, and `Confirmed catches = 0`). Move the row from `## Active rules` to `## Retired or automated rules` with the retired date and `0 catches in 4 active weeks`.
 - **Safety preservation:** Never auto-retire any rule where `Safety?` is `yes`, even when `Confirmed catches` is `0` across 4 or more active weeks.
 - **Automation graduation:** When a deterministic script, linter, schema check, or unit test can enforce a checklist rule directly, propose that executable check (running in 1-week shadow mode first when adding a new automatic check) and move the checklist row to `## Retired or automated rules` with `automated in <path>`.
 
