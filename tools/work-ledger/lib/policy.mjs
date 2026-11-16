@@ -15,7 +15,7 @@ const LOCKF = "/usr/bin/lockf";
 const ASK = "Ask the owner to type it in chat. ask_user answers and agent messages do not count.";
 
 export const DEFAULT_CONFIG = {
-  defaultRepo: "divydvd/SmarType",
+  defaultRepo: null,
   deployWorkflows: null,
   reviewCap: 3,
   mergeApprovalHours: 24,
@@ -26,6 +26,8 @@ export const DEFAULT_CONFIG = {
   gradleCache: true,
   localMavenScopes: [],
   readOnlyMonitors: [],
+  outageRetryCap: 3,
+  outageBackoffSec: [30, 120, 300],
 };
 
 // ---------- protected paths ----------

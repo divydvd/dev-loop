@@ -105,11 +105,13 @@ export function applyPlan(data, plan, { heads, sessionId, text, config, now = Da
   data.pending ||= [];
 
   for (const r of plan.revoke) {
+    if (!r.repo) { notes.push(`Cannot resolve a GitHub repository for #${r.pr} here. Type "don't merge owner/repo#${r.pr}".`); continue; }
     let n = 0;
     for (const a of data.approvals) if (a.kind === "merge" && active(a) && samePr(a, r)) { a.usedAt = at; a.revoked = true; n++; }
     if (n) notes.push(`Merge approval for ${r.repo}#${r.pr} cancelled.`);
   }
   for (const m of plan.merges) {
+    if (!m.repo) { notes.push(`Cannot resolve a GitHub repository for #${m.pr} here. Type "merge owner/repo#${m.pr}".`); continue; }
     const h = heads.get(`${m.repo}#${m.pr}`);
     if (!h) { notes.push(`Could not read ${m.repo}#${m.pr} from GitHub, so no approval was saved. Type it again in a minute.`); continue; }
     if (h.state && h.state !== "OPEN") { notes.push(`${m.repo}#${m.pr} is ${h.state.toLowerCase()}; nothing to approve.`); continue; }
@@ -123,6 +125,7 @@ export function applyPlan(data, plan, { heads, sessionId, text, config, now = Da
     notes.push(`Deploy approved: ${t}. Valid ${config.deployApprovalHours ?? 2} h.`);
   }
   for (const r of plan.reviews) {
+    if (!r.repo) { notes.push(`Cannot resolve a GitHub repository for #${r.pr} here. Type "review again owner/repo#${r.pr}".`); continue; }
     data.approvals.push({ id: id(), kind: "review", repo: r.repo, pr: r.pr, at, expiresAt: exp(config.reviewGrantHours ?? 24), sessionId, text: quote });
     data.pending = data.pending.filter((p) => !(p.kind === "review" && samePr(p, r)));
     notes.push(`One more Copilot review allowed for ${r.repo}#${r.pr}.`);
