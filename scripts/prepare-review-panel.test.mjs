@@ -775,3 +775,111 @@ test("18. F-1..F-8: negating prose prefixes, exact PR-2 checklist header + token
   assert.equal(readFileSync(join(repoDir, "AGENTS.md"), "utf8"), originalAgents);
 });
 
+test("19. R3-F1..F3: 1-char word substitutions, fenced '# comment' under risky heading, and in-repo symlinked profile/checklist", (t) => {
+  const { repoDir, outRoot } = makeFixtureRepo(t);
+
+  // Positive control: doubled-letter typo ('formating' -> 'formatting') in README.md remains exempt
+  const fmtBase = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nCheck formating before saving notes.\n",
+  });
+  const fmtHead = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nCheck formatting before saving notes.\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", fmtBase, "--head", fmtHead, "--json"]).stdout).mode,
+    "exempt"
+  );
+
+  // R3-F1: 1-char word substitution ('prevent errors' -> 'present errors') is NOT a harmless typo
+  const prevBase = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nThis check helps prevent errors in output.\n",
+  });
+  const presHead = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nThis check helps present errors in output.\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", prevBase, "--head", presHead, "--json"]).stdout).mode,
+    "single"
+  );
+
+  // R3-F2: fenced '# Example' comment under '## Finish rules' must not clobber enclosing risky heading
+  const fenceBase = writeAndCommit(repoDir, {
+    "AGENTS.md": `${readFileSync(join(repoDir, "AGENTS.md"), "utf8").replace("### Review checklist", "- The approval points and the finish rules: they decide when an agent stops or merges.\n\n### Review checklist")}`,
+    "skills/dev-loop/SKILL.md": [
+      "# Dev loop",
+      "",
+      "## Finish rules",
+      "```bash",
+      "# Example shell comment",
+      "echo ok",
+      "```",
+      ...Array.from({ length: 10 }, (_, i) => `Line ${i}: steady text.`),
+      "Target line: baseline wording.",
+      "",
+    ].join("\n"),
+  });
+  const fenceHead = writeAndCommit(repoDir, {
+    "skills/dev-loop/SKILL.md": [
+      "# Dev loop",
+      "",
+      "## Finish rules",
+      "```bash",
+      "# Example shell comment",
+      "echo ok",
+      "```",
+      ...Array.from({ length: 10 }, (_, i) => `Line ${i}: steady text.`),
+      "Target line: updated wording.",
+      "",
+    ].join("\n"),
+  });
+  const fenceRes = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", fenceBase, "--head", fenceHead, "--json"]).stdout
+  );
+  assert.equal(fenceRes.touchesRiskyArea, true);
+  assert.equal(fenceRes.mode, "panel");
+
+  // R3-F3: in-repository symlinked AGENTS.md and review-checklist.md resolve in both commit and WORKTREE modes
+  mkdirSync(join(repoDir, "config"), { recursive: true });
+  writeFileSync(join(repoDir, "config/real-agents.md"), readFileSync(join(repoDir, "AGENTS.md"), "utf8"), "utf8");
+  writeFileSync(
+    join(repoDir, "config/real-checklist.md"),
+    [
+      "# Project review checklist",
+      "",
+      "| Rule ID | Domain | Trigger paths or tokens | Check (observable defect to verify) | Source PRs |",
+      "| --- | --- | --- | --- | --- |",
+      "| R-SYM | arch-correctness | `com.github.copilot/**` | Verify symlinked checklist rule loads cleanly. | #201 |",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  unlinkSync(join(repoDir, "AGENTS.md"));
+  symlinkSync("config/real-agents.md", join(repoDir, "AGENTS.md"));
+  mkdirSync(join(repoDir, "docs/testing"), { recursive: true });
+  symlinkSync("../../config/real-checklist.md", join(repoDir, "docs/testing/review-checklist.md"));
+  git(repoDir, ["add", "-A"]);
+  git(repoDir, ["commit", "-m", "symlink profile and checklist"]);
+  const symSetupSha = git(repoDir, ["rev-parse", "HEAD"]);
+
+  // Edit risky file in commit mode
+  const symEditSha = writeAndCommit(repoDir, {
+    "com.github.copilot/rules/core.mdc": "# Core rules\nUpdated rule line.\n",
+  });
+  const symCommitOut = join(outRoot, "sym-commit");
+  const symCommitRes = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", symSetupSha, "--head", symEditSha, "--out-dir", symCommitOut, "--json"]).stdout
+  );
+  assert.equal(symCommitRes.touchesRiskyArea, true);
+  assert.equal(symCommitRes.checklistLoaded, true);
+  assert.ok(readFileSync(join(symCommitOut, "arch-correctness-packet.md"), "utf8").includes("Verify symlinked checklist rule loads cleanly."));
+
+  // Also check WORKTREE mode with symlinked AGENTS.md and checklist
+  writeFileSync(join(repoDir, "com.github.copilot/rules/core.mdc"), "# Core rules\nWorktree edit.\n", "utf8");
+  const symWtRes = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", symSetupSha, "--head", "WORKTREE", "--out-dir", join(outRoot, "sym-wt"), "--json"]).stdout
+  );
+  assert.equal(symWtRes.touchesRiskyArea, true);
+  assert.equal(symWtRes.checklistLoaded, true);
+});
+
+

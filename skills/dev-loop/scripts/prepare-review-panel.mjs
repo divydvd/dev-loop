@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -11,8 +11,7 @@ const KNOWN_OUT_FILES = new Set(["routing.json", "single-reviewer-packet.md", "a
 const FENCE_RE = /^(?:```|~~~)[^\n]*\n[\s\S]*?^(?:```|~~~)[ \t]*$/gm;
 const MODAL_RE = /\b(?:must|never|always|required|shall|forbidden)\b|\bdo\s+not\b/gi;
 const CMD_LINE_RE = /^\s*(?:\$\s*)?(?:node|npm|npx|pnpm|yarn|git|gh|copilot|claude|gemini|cargo|go|python3?|pytest|gradle|\.\/gradlew|sh|bash|curl)\b/;
-const SEMANTIC_WORDS = new Set("before after enable disable enabled disabled allow allowed deny denied true false yes no on off in out up down with without only all none not never always must should may can cannot sync async read write open close push pull add remove delete keep drop pass fail from form".split(" "));
-const PREFIX_FLIP_RE = /^(?:un|in|im|ir|il|non|dis|de|en|mis|re|pre|post)/;
+const SEMANTIC_WORDS = new Set("before after enable disable enabled disabled allow allowed deny denied true false yes no on off in out up down with without only all none not never always must should may can cannot sync async read write open close push pull add remove delete keep drop pass fail from form unite untie causal casual".split(" "));
 const ROLE_FOCUS = {
   "single-reviewer": "Check requirements, source, affected callers, error handling, domain risks, and missing test-matrix cases across the full diff.",
   "arch-correctness": "Check acceptance requirements, caller contracts, error paths, migrations/configuration, and missing test-matrix cases.",
@@ -32,6 +31,19 @@ const gitBlobOrNull = (cwd, rev, rel) => {
     const treeLine = runGit(cwd, ["ls-tree", rev, "--", rel]).trim();
     return !treeLine || treeLine.startsWith("120000 ") ? null : runGit(cwd, ["show", `${rev}:${rel}`]);
   } catch { return null; }
+};
+const gitConfigOrNull = (cwd, rev, rel, depth = 0) => {
+  if (depth > 8) throw new Error(`Symlink loop reading ${rel} at ${rev}`);
+  let treeLine = "";
+  try { treeLine = runGit(cwd, ["ls-tree", rev, "--", rel]).trim(); } catch { return null; }
+  if (!treeLine) return null;
+  const body = runGit(cwd, ["show", `${rev}:${rel}`]);
+  if (!treeLine.startsWith("120000 ")) return body;
+  const next = posix.normalize(posix.join(posix.dirname(rel), body.trim().replaceAll("\\", "/")));
+  if (!next || next === "." || next.startsWith("..") || posix.isAbsolute(next)) throw new Error(`Symlinked config escapes --repo-root: ${rel}`);
+  const resolved = gitConfigOrNull(cwd, rev, next, depth + 1);
+  if (resolved === null) throw new Error(`Broken symlinked config: ${rel} -> ${next}`);
+  return resolved;
 };
 const isInsideOrEqual = (baseDir, target) => { const r = relative(baseDir, target); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); };
 function resolveRealTarget(targetPath) {
@@ -60,18 +72,12 @@ export function isProductionFile(relPath) {
   return !(/\.md$/i.test(p) || /^docs\//.test(p));
 }
 
-function editDistanceAtMost1(a, b) {
-  if (Math.abs(a.length - b.length) > 1) return false;
-  let [i, j, edits] = [0, 0, 0];
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) { i += 1; j += 1; continue; }
-    if (++edits > 1) return false;
-    if (a.length > b.length) i += 1; else if (b.length > a.length) j += 1; else { i += 1; j += 1; }
-  }
-  return edits + (a.length - i) + (b.length - j) <= 1;
-}
 const isAdjacentSwap = (a, b) => a.length >= 3 && a.length === b.length && [...a].some((_, i) => i + 1 < a.length && a[i] !== b[i] && a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(0, i) + a.slice(i + 2) === b.slice(0, i) + b.slice(i + 2));
-const isSimpleTypoWord = (a, b) => !SEMANTIC_WORDS.has(a) && !SEMANTIC_WORDS.has(b) && (isAdjacentSwap(a, b) || (((PREFIX_FLIP_RE.exec(a)?.[0] ?? "") === (PREFIX_FLIP_RE.exec(b)?.[0] ?? "")) && a.length >= 5 && b.length >= 5 && a[0] === b[0] && a.at(-1) === b.at(-1) && editDistanceAtMost1(a, b)));
+const isRepeatedCharFix = (a, b) => {
+  const [s, l] = a.length < b.length ? [a, b] : [b, a];
+  return s.length >= 3 && l.length === s.length + 1 && [...l].some((c, i) => (c === l[i - 1] || c === l[i + 1]) && l.slice(0, i) + l.slice(i + 1) === s);
+};
+const isSimpleTypoWord = (a, b) => !SEMANTIC_WORDS.has(a) && !SEMANTIC_WORDS.has(b) && (isAdjacentSwap(a, b) || isRepeatedCharFix(a, b));
 const matchTokens = (text, re, norm = (s) => s) => JSON.stringify([...text.matchAll(re)].map((m) => norm(m[1] ?? m[0])));
 const proseWords = (text) => text.replace(/`[^`\n]+`/g, " ").replace(/\]\([^)]+\)|https?:\/\/\S+/g, " ").toLowerCase().match(/[a-z]+/g) ?? [];
 
@@ -188,8 +194,11 @@ const extractChangedHunkLines = (diff) => diff.split(/\r?\n/).filter((l) => (l.s
 function extractEnclosingHeadings(fileText, lineNums) {
   if (!fileText || !lineNums.length) return "";
   const [lines, targets, stack, out] = [fileText.split(/\r?\n/), new Set(lineNums), [], []];
+  let fence = null;
   for (let i = 1, max = Math.min(lines.length, Math.max(...lineNums)); i <= max; i += 1) {
-    const m = lines[i - 1].match(/^(#{1,6})\s+(.+?)\s*$/);
+    const fm = lines[i - 1].match(/^\s*(`{3,}|~{3,})/);
+    if (fm) { if (!fence) fence = fm[1]; else if (fm[1][0] === fence[0] && fm[1].length >= fence.length) fence = null; }
+    const m = !fence && lines[i - 1].match(/^(#{1,6})\s+(.+?)\s*$/);
     if (m) { stack.length = m[1].length - 1; stack[m[1].length - 1] = m[2]; }
     if (targets.has(i)) out.push(...stack.filter(Boolean));
   }
@@ -315,8 +324,16 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
     if (isProductionFile(rel)) prodLinesChanged += delta;
   }
 
-  const rawAgentsText = head === "WORKTREE" ? readWorktreeFile(lexicalAgents) : gitBlobOrNull(realRepoRoot, resolvedHead, agentsRel);
-  const rawChecklistText = head === "WORKTREE" ? readWorktreeFile(lexicalChecklist) : gitBlobOrNull(realRepoRoot, resolvedHead, checklistRel);
+  const readWorktreeConfig = (absPath, flag) => {
+    let lst;
+    try { lst = lstatSync(absPath); } catch { return null; }
+    if (!existsSync(absPath)) throw new Error(`Broken symlink for ${flag}`);
+    const real = realpathSync(absPath);
+    if (!isInsideOrEqual(realRepoRoot, real)) throw new Error(`${flag} must stay inside --repo-root`);
+    return lstatSync(real).isFile() ? readFileSync(real, "utf8") : null;
+  };
+  const rawAgentsText = head === "WORKTREE" ? readWorktreeConfig(lexicalAgents, "--agents-file") : gitConfigOrNull(realRepoRoot, resolvedHead, agentsRel);
+  const rawChecklistText = head === "WORKTREE" ? readWorktreeConfig(lexicalChecklist, "--checklist") : gitConfigOrNull(realRepoRoot, resolvedHead, checklistRel);
   const { riskyPatterns, riskyConcepts, checklistBullets } = parseAgentsProfile(rawAgentsText ?? "");
   const lowerCtx = diffContextText.toLowerCase();
   const matchedRiskyAreas = [...riskyPatterns.filter((pat) => changedFiles.some((f) => globToRegExp(pat).test(f.replaceAll("\\", "/")))), ...riskyConcepts.filter((phrase) => changedFiles.some((f) => isProductionFile(f)) && lowerCtx.includes(phrase))];
