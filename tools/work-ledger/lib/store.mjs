@@ -11,7 +11,7 @@ function sleepSync(ms) {
 }
 
 export function emptyLedger() {
-  return { v: 1, units: {}, approvals: [], pending: [], validations: [], updatedAt: null };
+  return { v: 1, units: {}, approvals: [], pending: [], validations: [], outageRecovery: {}, updatedAt: null };
 }
 
 export class Ledger {
@@ -36,7 +36,10 @@ export class Ledger {
   read() {
     try {
       const d = JSON.parse(fs.readFileSync(this.file, "utf8"));
-      return { ...emptyLedger(), ...d };
+      const outageRecovery = d?.outageRecovery && typeof d.outageRecovery === "object" && !Array.isArray(d.outageRecovery)
+        ? d.outageRecovery
+        : {};
+      return { ...emptyLedger(), ...d, outageRecovery };
     } catch (e) {
       if (e.code !== "ENOENT") this.error(`ledger read failed: ${e.message}`);
       return emptyLedger();
@@ -109,6 +112,11 @@ export function prune(data, now = Date.now()) {
     u.notes = (u.notes || []).slice(-20);
     u.reviews = (u.reviews || []).slice(-30);
     u.merges = (u.merges || []).slice(-10);
+  }
+  if (data.outageRecovery && typeof data.outageRecovery === "object") {
+    for (const [sid, rec] of Object.entries(data.outageRecovery)) {
+      if (!rec || Date.parse(rec.lastOutageAt) < now - 14 * day) delete data.outageRecovery[sid];
+    }
   }
 }
 
