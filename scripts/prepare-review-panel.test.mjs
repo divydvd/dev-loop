@@ -971,5 +971,76 @@ test("20. Copilot PR review: indented/4-backtick/4-space code blocks, list-prefi
   assert.equal(docRiskRes.mode, "panel");
 });
 
+test("21. Copilot PR review Round 2: reference-style link destinations, numeric signs/operators, and escaped pipes in review-checklist.md", (t) => {
+  const { repoDir } = makeFixtureRepo(t, {});
+  const outDir = join(mkdtempSync(join(tmpdir(), "review-panel-out-")), "packets");
+  t.after(() => rmSync(join(outDir, ".."), { recursive: true, force: true }));
+
+  // 1. Reference-style link destination changes (path separator, multiline, and case-only) must NOT be exempt
+  const refBase = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nSee [setup] and [api].\n\n[setup]: docs/getting-started.md\n[api]:\n  Docs/Api.md\n",
+  });
+  const refPathHead = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nSee [setup] and [api].\n\n[setup]: docs/getting/started.md\n[api]:\n  Docs/Api.md\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", refBase, "--head", refPathHead, "--json"]).stdout).mode,
+    "single"
+  );
+  const refCaseHead = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nSee [setup] and [api].\n\n[setup]: docs/getting/started.md\n[api]:\n  docs/api.md\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", refPathHead, "--head", refCaseHead, "--json"]).stdout).mode,
+    "single"
+  );
+
+  // 2. Numeric sign ('-1' -> '1') and comparison operator ('<' -> '>') edits must NOT be exempt
+  const signBase = writeAndCommit(repoDir, {
+    "README.md": "# Limits\n\nMinimum offset: -1.\n",
+  });
+  const signHead = writeAndCommit(repoDir, {
+    "README.md": "# Limits\n\nMinimum offset: 1.\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", signBase, "--head", signHead, "--json"]).stdout).mode,
+    "single"
+  );
+  const opBase = writeAndCommit(repoDir, {
+    "README.md": "# Limits\n\nAccepted values: x < 10.\n",
+  });
+  const opHead = writeAndCommit(repoDir, {
+    "README.md": "# Limits\n\nAccepted values: x > 10.\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", opBase, "--head", opHead, "--json"]).stdout).mode,
+    "single"
+  );
+
+  // 3. Escaped pipes ('\\|') inside docs/testing/review-checklist.md cells preserve full Check text and Status column
+  const pipeBase = writeAndCommit(repoDir, {
+    "docs/testing/review-checklist.md": [
+      "# Review Checklist",
+      "",
+      "## Active rules",
+      "",
+      "| Rule ID | Domain | Trigger | Check | Example | Source PRs | Hit count | Last seen | Status |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| R-PIPE-ACTIVE | security-privacy | openFile | Verify read \\| write permissions before opening the file | openFile(p) | #12 | 2 | 2026-11-01 | active |",
+      "| R-PIPE-RETIRED | security-privacy | openFile | Deprecated a \\| b check | openFile(p) | #9 | 1 | 2026-10-01 | retired |",
+      "",
+    ].join("\n"),
+    "src/file.js": "export const x = 1;\n",
+  });
+  const pipeHead = writeAndCommit(repoDir, {
+    "src/file.js": "export function openFile(authToken) {\n  return authToken;\n}\n",
+  });
+  runRouterCli(["--repo-root", repoDir, "--base", pipeBase, "--head", pipeHead, "--out-dir", outDir, "--json"]);
+  const singlePacket = readFileSync(join(outDir, "single-reviewer-packet.md"), "utf8");
+  assert.match(singlePacket, /R-PIPE-ACTIVE[\s\S]*Verify read \| write permissions before opening the file \[#12\]/);
+  assert.doesNotMatch(singlePacket, /R-PIPE-RETIRED/);
+});
+
+
 
 

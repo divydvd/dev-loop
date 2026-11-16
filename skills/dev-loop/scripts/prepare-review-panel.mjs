@@ -86,8 +86,10 @@ const isRepeatedCharFix = (a, b) => {
   return s.length >= 3 && l.length === s.length + 1 && [...l].some((c, i) => (c === l[i - 1] || c === l[i + 1]) && l.slice(0, i) + l.slice(i + 1) === s);
 };
 const isSimpleTypoWord = (a, b) => /^[a-z]+$/.test(a) && /^[a-z]+$/.test(b) && !SEMANTIC_WORDS.has(a) && !SEMANTIC_WORDS.has(b) && (isAdjacentSwap(a, b) || isRepeatedCharFix(a, b));
-const matchTokens = (text, re, norm = (s) => s) => JSON.stringify([...text.matchAll(re)].map((m) => norm(m[1] ?? m[0])));
-const proseWords = (text) => text.replace(/`[^`\n]+`/g, " ").replace(/\]\([^)]+\)|https?:\/\/\S+/g, " ").toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
+const matchTokens = (text, re, norm = (m) => m[1] ?? m[0]) => JSON.stringify([...text.matchAll(re)].map(norm));
+const REF_DEF_RE = /^ {0,3}\[([^\]]+)\]:[ \t]*(?:\r?\n[ \t]*)?(<[^>]+>|\S+)(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?/gm;
+const stripMdLead = (s) => s.replace(/^[ \t]*(?:[-*+]|>+)[ \t]+/gm, "");
+const proseWords = (text) => text.replace(/`[^`\n]+`/g, " ").replace(REF_DEF_RE, " ").replace(/\]\([^)]+\)|<((?:https?|mailto):[^>]+)>|https?:\/\/\S+/g, " ").toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
 
 function isHarmlessMarkdownChange(relPath, baseText, headText) {
   const p = relPath.replaceAll("\\", "/");
@@ -95,9 +97,10 @@ function isHarmlessMarkdownChange(relPath, baseText, headText) {
   if (/^(?:AGENTS|CLAUDE|GEMINI)\.md$/i.test(p) || /(?:review-checklist|regression-matrix)\.md$/i.test(p)) return false;
   const [bSplit, hSplit] = [splitMdCodeAndProse(baseText), splitMdCodeAndProse(headText)];
   if (bSplit.code !== hSplit.code) return false;
-  const [baseProse, headProse] = [bSplit.prose, hSplit.prose];
-  const checks = [[/`[^`\n]+`/g], [/\]\(([^)]+)\)|https?:\/\/\S+/g], [/\b\d+(?:\.\d+)*\b/g], [/(?:^|\s)(--[a-z0-9-]+)\b/gi], [MODAL_RE, (s) => s.toLowerCase().replace(/\s+/g, " ")]];
-  if (checks.some(([re, fn]) => matchTokens(baseProse, re, fn) !== matchTokens(headProse, re, fn))) return false;
+  const [baseProse, headProse, bClean, hClean] = [bSplit.prose, hSplit.prose, stripMdLead(bSplit.prose), stripMdLead(hSplit.prose)];
+  const checks = [[/`[^`\n]+`/g], [/\]\(([^)]+)\)|<((?:https?|mailto):[^>]+)>|https?:\/\/\S+/g, (m) => m[1] ?? m[2] ?? m[0]], [REF_DEF_RE, (m) => `${m[1].trim().toLowerCase()}=>${m[2]}`], [/\]\[([^\]]*)\]/g, (m) => m[1].trim().toLowerCase()], [/(?:^|\s)(--[a-z0-9-]+)\b/gi], [MODAL_RE, (m) => m[0].toLowerCase().replace(/\s+/g, " ")]];
+  const cleanChecks = [[/(?<![\p{L}\p{N}])[-+]?\d+(?:\.\d+)*\b/gu], [/(?:<=|>=|!==|===|!=|==|->|=>|[<>±=]|(?<=\s)[-+/^*%](?=\s))/g]];
+  if (checks.some(([re, fn]) => matchTokens(baseProse, re, fn) !== matchTokens(headProse, re, fn)) || cleanChecks.some(([re, fn]) => matchTokens(bClean, re, fn) !== matchTokens(hClean, re, fn))) return false;
   const bSet = new Set(baseProse.split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
   const hSet = new Set(headProse.split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
   if ([...[...bSet].filter((l) => !hSet.has(l)), ...[...hSet].filter((l) => !bSet.has(l))].some((l) => CMD_LINE_RE.test(l))) return false;
@@ -164,7 +167,7 @@ function parseReviewChecklist(checklistText) {
   for (const rawLine of activeText.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line.startsWith("|")) { cols = null; continue; }
-    const c = line.split("|").slice(1, -1).map((s) => s.trim().replace(/^`|`$/g, ""));
+    const c = line.split(/(?<=(?:^|[^\\])(?:\\\\)*)\|/).slice(1, -1).map((s) => s.replaceAll("\\|", "|").trim().replace(/^`|`$/g, ""));
     if (c.every((x) => /^:?-{2,}:?$/.test(x))) continue;
     if (!cols) {
       const h = c.map((x) => x.toLowerCase());
