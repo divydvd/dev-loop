@@ -171,13 +171,13 @@ test("4. 45-line single-domain concurrency fix outside risky areas routes to mod
     "  private readonly lock = new Mutex();",
     "  async drainQueue(items: string[]): Promise<number> {",
     "    await this.lock.acquire();",
-    ...Array.from({ length: 39 }, (_, i) => `    const step${i} = items[${i}] ?? "";`),
+    ...Array.from({ length: 37 }, (_, i) => `    const step${i} = items[${i}] ?? "";`),
     "    return items.length;",
     "  }",
     "}",
   ];
-  // 1 line removed + 44 lines added = 45 prod lines changed (or 45 total prod diff lines)
-  assert.equal(lines.length, 46);
+  // 1 line removed + 44 lines added = exact 45 prod lines changed
+  assert.equal(lines.length, 44);
   writeAndCommit(repoDir, {
     "src/queue/workerPool.ts": `${lines.join("\n")}\n`,
   });
@@ -187,7 +187,7 @@ test("4. 45-line single-domain concurrency fix outside risky areas routes to mod
   const parsed = JSON.parse(res.stdout);
   assert.equal(parsed.touchesRiskyArea, false);
   assert.deepEqual(parsed.triggeredDomains, ["concurrency-state"]);
-  assert.ok(parsed.prodLinesChanged > 0 && parsed.prodLinesChanged <= 120);
+  assert.equal(parsed.prodLinesChanged, 45);
   assert.equal(parsed.mode, "single");
   assert.deepEqual(parsed.roles, ["single-reviewer"]);
   assert.equal(parsed.synthesisJudge, false);
@@ -499,4 +499,139 @@ test("11. excludes tests, docs, and lockfiles from prodLinesChanged while counti
   const workflowRes = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--json"]);
   assert.equal(workflowRes.status, 0, workflowRes.stderr);
   assert.ok(JSON.parse(workflowRes.stdout).prodLinesChanged >= 15);
+});
+
+test("12. AC-1: behavior-changing prose in README.md ('before release' -> 'after release') is never exempt", (t) => {
+  const { repoDir, baseSha } = makeFixtureRepo(t, {
+    "README.md": "# Guide\n\nRun the smoke suite before release.\n",
+  });
+  writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nRun the smoke suite after release.\n",
+  });
+  const res = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--json"]);
+  assert.equal(res.status, 0, res.stderr);
+  assert.notEqual(JSON.parse(res.stdout).mode, "exempt");
+});
+
+test("13. AC-2 & AC-3: concept-based risky areas and zero-segment globstars ('src/**/auth.js' -> 'src/auth.js') escalate to panel", (t) => {
+  const { repoDir, baseSha } = makeFixtureRepo(t, {
+    "AGENTS.md": [
+      "# Project",
+      "",
+      "### Risky areas",
+      "- `src/**/auth.js`: auth boundary",
+      "- The approval points and the finish rules: they decide when an agent stops or merges.",
+      "",
+    ].join("\n"),
+    "src/auth.js": "export const ok = true;\n",
+    "skills/dev-loop/SKILL.md": "# Skill\n\n## Finish\nKeep the finish rules strict.\n",
+  });
+
+  // Zero-segment globstar match: src/**/auth.js must match src/auth.js
+  const globHead = writeAndCommit(repoDir, {
+    "src/auth.js": "export const ok = false;\n",
+  });
+  const globRes = JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--head", globHead, "--json"]).stdout);
+  assert.equal(globRes.touchesRiskyArea, true);
+  assert.equal(globRes.mode, "panel");
+
+  // Concept risky-area match on changed section touching 'finish rules'
+  const conceptBase = globHead;
+  writeAndCommit(repoDir, {
+    "skills/dev-loop/SKILL.md": "# Skill\n\n## Finish\nUpdate the finish rules and approval points.\n",
+  });
+  const conceptRes = JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", conceptBase, "--json"]).stdout);
+  assert.equal(conceptRes.touchesRiskyArea, true);
+  assert.equal(conceptRes.mode, "panel");
+});
+
+test("14. AC-4: operational skills/** references and assets count toward prodLinesChanged and 120 vs 121 threshold", (t) => {
+  const { repoDir, baseSha } = makeFixtureRepo(t);
+  const h120 = writeAndCommit(repoDir, {
+    "skills/dev-loop/references/guide.md": Array.from({ length: 120 }, (_, i) => `Line ${i}`).join("\n") + "\n",
+  });
+  const r120 = JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--head", h120, "--json"]).stdout);
+  assert.equal(r120.prodLinesChanged, 120);
+  assert.equal(r120.mode, "single");
+
+  const h121 = writeAndCommit(repoDir, {
+    "skills/dev-loop/assets/template.md": "Extra operational line\n",
+  });
+  const r121 = JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--head", h121, "--json"]).stdout);
+  assert.equal(r121.prodLinesChanged, 121);
+  assert.equal(r121.mode, "panel");
+});
+
+test("15. AC-5: 9-column PR-2 review-checklist.md schema emits actual Check and Source PRs into role packets", (t) => {
+  const { repoDir, outRoot, baseSha } = makeFixtureRepo(t);
+  writeAndCommit(repoDir, {
+    "docs/testing/review-checklist.md": [
+      "# Review Checklist",
+      "",
+      "## Active rules",
+      "| ID | Domain | Trigger paths | Check | Evidence example | Added | Last hit | Status | Source PRs |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| `RC-1` | `security-privacy` | `src/auth/**` | Verify token scopes before cache write. | `auth.ts:42` | 2026-11-01 | 2026-11-15 | active | #31, #39 |",
+      "| `RC-2` | `security-privacy` | `src/auth/**` | Obsolete check. | - | 2026-10-01 | 2026-10-02 | retired | #10 |",
+      "",
+    ].join("\n"),
+    "src/auth/tokenStore.ts": "export async function save(authToken: string) { return await Promise.resolve(authToken); }\n",
+  });
+
+  const outDir = join(outRoot, "nine-col");
+  const res = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--out-dir", outDir, "--json"]);
+  assert.equal(res.status, 0, res.stderr);
+  const packet = readFileSync(join(outDir, "security-privacy-packet.md"), "utf8");
+  assert.ok(packet.includes("Verify token scopes before cache write."), packet);
+  assert.ok(packet.includes("#31, #39"), packet);
+  assert.equal(packet.includes("Obsolete check."), false);
+});
+
+test("16. AC-7, UA-2, UA-3: Swift Task closures, compound camelCase/snake_case a11y tokens, and qualified Android res/layout-land paths trigger domains", (t) => {
+  const { repoDir, baseSha } = makeFixtureRepo(t);
+  writeAndCommit(repoDir, {
+    "ios/ProfileLoader.swift": "func load() {\n  Task {\n    performSync()\n  }\n}\n",
+    "app/src/main/res/layout-land/profile.xml": "<TextView android:id=\"@+id/title\" />\n",
+    "src/a11y/Helper.kt": "val buttonContentDescription = \"Save\"\n",
+  });
+
+  const res = JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--json"]).stdout);
+  assert.ok(res.triggeredDomains.includes("concurrency-state"), JSON.stringify(res.triggeredDomains));
+  assert.ok(res.triggeredDomains.includes("ui-a11y"), JSON.stringify(res.triggeredDomains));
+  assert.equal(res.mode, "panel");
+});
+
+test("17. CS-2 & SG-1: WORKTREE handles untracked dangling/file symlinks and mode changes, and --out-dir rejects pre-existing packet symlinks", (t) => {
+  const { repoDir, outRoot, baseSha } = makeFixtureRepo(t);
+  const originalReadme = readFileSync(join(repoDir, "README.md"), "utf8");
+
+  // Untracked dangling symlink in WORKTREE must not crash or classify as exempt
+  symlinkSync("nonexistent-target-v1", join(repoDir, "broken-link"));
+  const r1 = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--head", "WORKTREE", "--json"]);
+  assert.equal(r1.status, 0, r1.stderr);
+  const j1 = JSON.parse(r1.stdout);
+  assert.ok(j1.changedFiles.includes("broken-link"));
+  assert.notEqual(j1.mode, "exempt");
+
+  // Retargeting symlink changes WORKTREE digest
+  unlinkSync(join(repoDir, "broken-link"));
+  symlinkSync("nonexistent-target-v2", join(repoDir, "broken-link"));
+  const j2 = JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--head", "WORKTREE", "--json"]).stdout);
+  assert.notEqual(j2.head, j1.head);
+
+  // Stale packet files in --out-dir are cleaned before writing fresh packets
+  const cleanOut = join(outRoot, "reused-out");
+  mkdirSync(cleanOut, { recursive: true });
+  writeFileSync(join(cleanOut, "ui-a11y-packet.md"), "stale", "utf8");
+  const rClean = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--head", "WORKTREE", "--out-dir", cleanOut, "--json"]);
+  assert.equal(rClean.status, 0, rClean.stderr);
+  assert.equal(existsSync(join(cleanOut, "ui-a11y-packet.md")), false);
+
+  // Pre-existing symlink at <out-dir>/routing.json pointing inside repoDir must be rejected
+  const poisonedOut = join(outRoot, "poisoned-out");
+  mkdirSync(poisonedOut, { recursive: true });
+  symlinkSync(join(repoDir, "README.md"), join(poisonedOut, "routing.json"));
+  const bad = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--head", "WORKTREE", "--out-dir", poisonedOut, "--json"]);
+  assert.notEqual(bad.status, 0);
+  assert.equal(readFileSync(join(repoDir, "README.md"), "utf8"), originalReadme);
 });
