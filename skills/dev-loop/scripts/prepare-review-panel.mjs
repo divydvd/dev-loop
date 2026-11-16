@@ -89,7 +89,7 @@ const isSimpleTypoWord = (a, b) => /^[a-z]+$/.test(a) && /^[a-z]+$/.test(b) && !
 const matchTokens = (text, re, norm = (m) => m[1] ?? m[0]) => JSON.stringify([...text.matchAll(re)].map(norm));
 const REF_DEF_RE = /^ {0,3}\[([^\]\r\n]+)\]:[ \t]*(?:\r?\n[ \t]*)?(<[^>\r\n]+>|\S+)/gm;
 const stripMdLead = (s) => s.replace(/^[ \t]*(?:[-*+]|>+)[ \t]+/gm, "");
-const proseWords = (text) => text.replace(/`[^`\n]+`/g, " ").replace(REF_DEF_RE, " ").replace(/\]\([^)\r\n]+\)|<((?:https?|mailto):[^>\r\n]+)>|https?:\/\/\S+/g, " ").toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
+const proseWords = (text) => text.replace(/`[^`\n]+`/g, " ").replace(REF_DEF_RE, " ").replace(/\]\([ \t]*(?:\r?\n[ \t]*)?(?:<[^>\r\n]+>|[^\s)]+)|<((?:https?|mailto):[^>\r\n]+)>|https?:\/\/\S+/g, " ").toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
 
 function isHarmlessMarkdownChange(relPath, baseText, headText) {
   const p = relPath.replaceAll("\\", "/");
@@ -98,7 +98,7 @@ function isHarmlessMarkdownChange(relPath, baseText, headText) {
   const [bSplit, hSplit] = [splitMdCodeAndProse(baseText), splitMdCodeAndProse(headText)];
   if (bSplit.code !== hSplit.code) return false;
   const [baseProse, headProse, bClean, hClean] = [bSplit.prose, hSplit.prose, stripMdLead(bSplit.prose), stripMdLead(hSplit.prose)];
-  const checks = [[/`[^`\n]+`/g], [/\]\(([^)\r\n]+)\)|<((?:https?|mailto):[^>\r\n]+)>|https?:\/\/\S+/g, (m) => m[1] ?? m[2] ?? m[0]], [REF_DEF_RE, (m) => `${m[1].trim().toLowerCase()}=>${m[2]}`], [/\]\[([^\]\r\n]*)\]/g, (m) => m[1].trim().toLowerCase()], [/(?:^|\s)(--[a-z0-9-]+)\b/gi], [MODAL_RE, (m) => m[0].toLowerCase().replace(/\s+/g, " ")]];
+  const checks = [[/`[^`\n]+`/g], [/\]\(([^)]+)\)|<((?:https?|mailto):[^>\r\n]+)>|https?:\/\/\S+/g, (m) => m[1] ?? m[2] ?? m[0]], [REF_DEF_RE, (m) => `${m[1].trim().toLowerCase()}=>${m[2]}`], [/\]\[([^\]\r\n]*)\]/g, (m) => m[1].trim().toLowerCase()], [/(?:^|\s)(--[a-z0-9-]+)\b/gi], [MODAL_RE, (m) => m[0].toLowerCase().replace(/\s+/g, " ")]];
   const cleanChecks = [[/(?<![\p{L}\p{N}])[-+]?\d+(?:\.\d+)*\b/gu], [/(?:<=|>=|!==|===|!=|==|->|=>|[<>±=]|(?<=\s)[-+/^*%](?=\s))/g]];
   if (checks.some(([re, fn]) => matchTokens(baseProse, re, fn) !== matchTokens(headProse, re, fn)) || cleanChecks.some(([re, fn]) => matchTokens(bClean, re, fn) !== matchTokens(hClean, re, fn))) return false;
   const bSet = new Set(baseProse.split(/\r?\n/).map((l) => l.trim()).filter(Boolean));

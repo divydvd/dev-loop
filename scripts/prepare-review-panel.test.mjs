@@ -1014,6 +1014,16 @@ test("21. Copilot PR review Round 2: reference-style link destinations, numeric 
     JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", unclosedBase, "--head", unclosedHead, "--json"]).stdout).mode,
     "single"
   );
+  const mlInlineBase = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nSee [Guide](docs/old/path\n  \"Setup title\").\n",
+  });
+  const mlInlineHead = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nSee [Guide](docs/old-path\n  \"Setup title\").\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", mlInlineBase, "--head", mlInlineHead, "--json"]).stdout).mode,
+    "single"
+  );
 
   // 2. Numeric sign ('-1' -> '1') and comparison operator ('<' -> '>') edits must NOT be exempt
   const signBase = writeAndCommit(repoDir, {
