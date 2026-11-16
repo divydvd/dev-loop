@@ -14,7 +14,7 @@
 - **Out of scope:** <what this task does not change>
 - **Risky area:** <none | the area from the profile> (a risky area needs the owner's plan review)
 - **Stop conditions:**
-  - Done: each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass and no required coverage gap remains. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
+  - Done: each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass (except any check explicitly marked waived by a direct typed owner chat message with its raw status and unverified risk recorded) and no unwaived required coverage gaps remain. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
   - Blocked: 3 failed fixes, missing access, no device, or a product decision. Normally, stop and report with the evidence. For an approved multi-milestone assignment, use `references/milestones.md`: defer the blocked milestone and its actual dependents, then continue only eligible independent work. During confirmed active absence mode, also apply the absence reference. Stop when no eligible work remains. Global safety stops and three failed fixes still require a stop.
 
 ### Milestone record (optional for multi-milestone assignments)
@@ -34,6 +34,7 @@
 | T1 | <acceptance condition or risk> | <yes; or optional with reason> | <state and values> | <observable result> | <check type> | <existing or planned test/scenario> | not run | <actual result/link, or none> | <actual commit/snapshot and relevant environment, or none> |
 
 - Category assessment: <relevant categories -> case IDs; exclusions with reasons>
-- Required blockers: <failed, blocked, not run, or missing coverage; actual dependents, or none>
+- Owner waivers: <none | case IDs, direct owner chat quote/reference, raw status, and unverified behavior>
+- Required blockers: <unwaived failed, blocked, not run, or missing coverage; actual dependents, or none>
 - Optional limits: <reason and remaining risk, or none>
 - Reassessment: <affected cases after changes; preserve original evidence identities>

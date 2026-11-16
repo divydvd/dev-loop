@@ -23,7 +23,8 @@ For a harmless spelling or formatting change, write "not applicable: harmless ed
 - Acceptance mapping: <each acceptance condition -> case IDs and actual evidence; include important risks>
 - Regression selection: <inventory path; selected permanent case IDs and levels -> current evidence; triggers/exclusions; inventory updates or reason unchanged; missing setup/coverage gaps>
 - Category assessment: <relevant case IDs and exclusions with reasons>
-- Required blockers: <failed, blocked, not run, or required coverage gaps; actual dependents, or none>
+- Owner waivers: <none | waived case IDs, direct owner chat quote/reference, raw status, and unverified behavior (`waived` is not `passed`)>
+- Required blockers: <unwaived failed, blocked, not run, or required coverage gaps; actual dependents, or none>
 - Optional limits: <unexecuted optional checks, reasons, and remaining risks, or none>
 - Reassessment: <affected cases after changes; retain original tested identities for historical evidence>
 

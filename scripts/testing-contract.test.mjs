@@ -390,3 +390,67 @@ test("T-IR8: infra review and project profile are host-aware across Copilot, Cla
   assert.match(profile, /precedence over skill instructions, including Superpowers/);
 });
 
+test("owner gate waivers record waived status and Owner waivers slots without touching core.mdc", () => {
+  const core = read("com.github.copilot/rules/core.mdc");
+  assert.equal(core.trimEnd().split(/\r?\n/).length, 44, "core.mdc must remain at 44 lines");
+  assert.doesNotMatch(core, /\bwaived\b/i, "core.mdc must stay untouched by PR 4");
+
+  const verifyReport = guidance.split("## Verify and report")[1]?.split("## Conclusion")[0] ?? "";
+  for (const status of ["passed", "failed", "blocked", "not run", "not applicable", "waived"]) {
+    assert.match(verifyReport, new RegExp(`\\| ${status} \\|`), `missing status row: ${status}`);
+  }
+
+  for (const [label, doc] of [
+    ["testing.md", guidance],
+    ["SKILL.md", skill],
+    ["test-matrix.md", matrix],
+    ["acceptance-record.md", acceptance],
+    ["pr-body.md", pr],
+  ]) {
+    assert.match(doc, /\bwaived\b/i, `${label} must document waived status`);
+  }
+
+  for (const [label, section] of [
+    ["SKILL.md ## 8. Report", skill.split("## 8. Report")[1]?.split("## Stop conditions")[0] ?? ""],
+    ["test-matrix.md ## Coverage and remaining work", matrix.split("## Coverage and remaining work")[1] ?? ""],
+    ["acceptance-record.md ### Compact test matrix", acceptance.split("### Compact test matrix")[1] ?? ""],
+    ["pr-body.md ## Test coverage", pr.split("## Test coverage")[1]?.split("## Device handoff")[0] ?? ""],
+  ]) {
+    assert.match(section, /Owner waivers:/, `${label} must include Owner waivers slot`);
+  }
+
+  const skillDone = skill.split("- **Done:**")[1]?.split("\n")[0] ?? "";
+  const acceptanceDone = acceptance.split("  - Done:")[1]?.split("\n")[0] ?? "";
+  for (const [label, doneLine] of [
+    ["SKILL.md - **Done:**", skillDone],
+    ["acceptance-record.md - Done:", acceptanceDone],
+  ]) {
+    assert.match(doneLine, /explicitly marked waived by a direct typed owner chat message/i, `${label} must state single-line waived exception`);
+    assert.match(doneLine, /raw status.*unverified risk/i, `${label} must require raw status and unverified risk`);
+    assert.match(doneLine, /no unwaived required coverage gaps? remain/i, `${label} must forbid unwaived required coverage gaps`);
+  }
+});
+
+test("waived requires a direct typed owner chat message, preserves raw status, and forbids passed claims or safety-boundary waivers", () => {
+  const verifyReport = guidance.split("## Verify and report")[1]?.split("## Conclusion")[0] ?? "";
+  assert.match(verifyReport, /direct typed.*chat message|explicitly waived.*direct typed chat message/i);
+  assert.match(verifyReport, /not run, blocked, or failed/i);
+  assert.match(verifyReport, /it is not a pass/i);
+  assert.match(verifyReport, /ask_user/i);
+  assert.match(verifyReport, /away mode/i);
+  assert.match(verifyReport, /peer-session|subagent/i);
+  assert.match(verifyReport, /earlier PR|old PR|prior PR/i);
+  assert.match(verifyReport, /rebase.*amend.*force-push.*push to main/i);
+  assert.match(verifyReport, /merge.*deploy/i);
+  assert.match(verifyReport, /personal-data.*secret|personal data.*secret/i);
+  assert.match(verifyReport, /never report.*waived.*as passed|waived.*not.*passed/i);
+
+  const report = skill.split("## 8. Report")[1]?.split("## Stop conditions")[0] ?? "";
+  assert.match(report, /ready with owner waiver \(<case IDs>\)/);
+  assert.match(report, /never claim.*all required checks passed/i);
+
+  const ruleMap = read("README.md").split("## Rule/check map")[1]?.split(/\n#{2,3} /)[0] ?? "";
+  assert.match(ruleMap, /\bwaived\b/i);
+});
+
+

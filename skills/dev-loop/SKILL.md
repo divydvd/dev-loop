@@ -137,7 +137,7 @@ Retain assignment-level gaps and required final integration checks; one ready PR
 Commit all changes first. Do this step after the last commit to the branch, so that all evidence is at the head commit.
 - Run the test tier for each changed area. Read the output.
 - Record case statuses, actual results, and tested identities under `references/testing.md`.
-  Required failures and required coverage gaps prevent a ready claim. Report optional limits separately.
+  Unwaived required failures and unwaived required coverage gaps prevent a ready claim. Record any direct typed owner waiver with its raw status and unverified risk (`waived` is not `passed`), and report optional limits separately.
 - If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, and record the result.
   After a passing device test, keep the tested build installed. Restore only test data and device settings through the project's safe procedure.
   Do not reinstall the pretest or a fixed baseline APK after a pass, also when a monitor grant asks for it.
@@ -200,22 +200,24 @@ Send the owner one short message. The first sentence states overall PR readiness
 Before a PR exists, use "Work is not ready" rather than inventing a PR number.
 Use these fields in order; omit only fields that do not apply:
 ```
-PR #<N> is <ready | open, not ready: reason>: <one-line summary>.
+PR #<N> is <ready | ready with owner waiver (<case IDs>) | open, not ready: reason>: <one-line summary>.
 Passed scope: <cases or behavior actually checked, result, evidence, and tested identity>.
-Required gaps: <case and status; product failure | tool failure | environment blocker | unknown cause; or none>.
+Owner waivers: <case IDs, direct owner chat quote/reference, raw status, and unverified behavior; omit when none>.
+Required gaps: <unwaived case and status; product failure | tool failure | environment blocker | unknown cause; or none>.
 Next action: <smallest permitted action that addresses the blocker or completes the remaining work>.
 Tested / published identities: <both when they differ; do not imply old CI checks cover the latest correction>.
 Independent review: <reviewer, covered commit or snapshot, later-change coverage | harmless-edit exemption and reason | unavailable>.
 Please check: <the one or two things that only a person can check>.
 ```
 Keep the passed scope narrower than the evidence: a cold process start does not itself prove a fresh installation.
+When all unwaived required checks pass and one or more required checks are `waived` by a direct typed owner chat message, lead the first sentence with `ready with owner waiver (<case IDs>)` and never claim that all required checks passed.
 When required acceptance is incomplete, report that state instead of leading with "fixed" or "yes".
 During active absence mode or owner return, include the saved decision and blocker handoff from `references/absence-mode.md`.
 Do not claim acceptance is complete when a required decision or check remains blocked.
-Include the acceptance-to-case evidence links, required blockers, and optional limits under `references/testing.md`.
+Include the acceptance-to-case evidence links, owner waivers, required blockers, and optional limits under `references/testing.md`.
 
 ## Stop conditions
-- **Done:** each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass and no required coverage gaps remain. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
+- **Done:** each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass (except any check explicitly marked waived by a direct typed owner chat message with its raw status and unverified risk recorded) and no unwaived required coverage gaps remain. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
 - **Blocked:** 3 failed fixes, missing access, no device, or a product decision that the repo does not answer. Normally, stop and report what you tried, the evidence, and the decision needed. For an approved multi-milestone assignment, use `references/milestones.md` to defer the blocked milestone and its actual dependents, then select eligible independent work. During confirmed active absence mode, also use `references/absence-mode.md`. Global safety stops and three failed fixes still require a stop.
 - **Ask the owner** only at the feature design, at a plan for a risky area, and before a destructive action. During active absence mode, record these needs for the handoff; do not execute the blocked work or replace its approval.
 
