@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -644,3 +644,134 @@ test("17. CS-2 & SG-1: WORKTREE handles untracked dangling/file symlinks and mod
   assert.notEqual(bad.status, 0);
   assert.equal(readFileSync(join(repoDir, "README.md"), "utf8"), originalReadme);
 });
+
+test("18. F-1..F-8: negating prose prefixes, exact PR-2 checklist header + token triggers, known-packet cleanup + hardlink safety, distant risky headings, .github/** markdown, and commit-pinned profile/checklist", (t) => {
+  const { repoDir, outRoot, baseSha } = makeFixtureRepo(t, {
+    "README.md": "# Guide\n\nEncrypt user data and store tokens securely.\n",
+    "AGENTS.md": [
+      "# Project",
+      "",
+      "### Risky areas",
+      "- The finish rules: they decide when an agent merges.",
+      "",
+    ].join("\n"),
+    "skills/dev-loop/SKILL.md": [
+      "# Skill",
+      "",
+      "## Finish rules",
+      ...Array.from({ length: 15 }, (_, i) => `Step ${i}: keep baseline policy.`),
+      "Final line: verify evidence.",
+      "",
+    ].join("\n"),
+  });
+
+  // F-1: 'Encrypt' -> 'Decrypt' and 'securely' -> 'insecurely' must NEVER be exempt
+  const encHead = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nDecrypt user data and store tokens securely.\n",
+  });
+  assert.notEqual(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--head", encHead, "--json"]).stdout).mode,
+    "exempt"
+  );
+  const insecHead = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\nDecrypt user data and store tokens insecurely.\n",
+  });
+  assert.notEqual(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", encHead, "--head", insecHead, "--json"]).stdout).mode,
+    "exempt"
+  );
+
+  // F-7: operational Markdown under .github/** outside workflows/plugin is never exempt
+  const ghMdHead = writeAndCommit(repoDir, {
+    ".github/ISSUE_TEMPLATE/bug.md": "Describe the defect and reproduction steps.\n",
+  });
+  const ghMdEditHead = writeAndCommit(repoDir, {
+    ".github/ISSUE_TEMPLATE/bug.md": "Describe the defcet and reproduction steps.\n",
+  });
+  assert.notEqual(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", ghMdHead, "--head", ghMdEditHead, "--json"]).stdout).mode,
+    "exempt"
+  );
+
+  // F-6: edit 15 lines below '## Finish rules' heading (outside 3-line diff context) still escalates touchesRiskyArea
+  const distantHead = writeAndCommit(repoDir, {
+    "skills/dev-loop/SKILL.md": [
+      "# Skill",
+      "",
+      "## Finish rules",
+      ...Array.from({ length: 15 }, (_, i) => `Step ${i}: keep baseline policy.`),
+      "Final line: require explicit confirmation.",
+      "",
+    ].join("\n"),
+  });
+  const distantRes = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", ghMdEditHead, "--head", distantHead, "--json"]).stdout
+  );
+  assert.equal(distantRes.touchesRiskyArea, true);
+  assert.equal(distantRes.mode, "panel");
+
+  // F-2 & F-3: exact PR-2 9-column header ('Check (observable defect to verify)') + token trigger ('Mutex') in diff hunk
+  const pr2ChecklistHead = writeAndCommit(repoDir, {
+    "docs/testing/review-checklist.md": [
+      "# Project review checklist",
+      "",
+      "## Active rules",
+      "| Rule ID | Domain | Trigger paths or tokens | Check (observable defect to verify) | Safety? | Added | Active weeks | Confirmed catches | Source PRs |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| R-001 | concurrency-state | `src/sync/**`, `Mutex`, `Flow` | Verify cancellation propagates instead of swallowing CancellationException. | no | 2026-11-16 | 0 | 0 | #142, #149 |",
+      "",
+    ].join("\n"),
+    "src/service.kt": "class Service {\n  val lock = Mutex()\n  fun tokenAuth(authToken: String) = authToken\n}\n",
+  });
+
+  // F-8: dirty uncommitted working-tree edits to AGENTS.md / review-checklist.md must NOT alter explicit commit --head routing
+  writeFileSync(join(repoDir, "AGENTS.md"), "# Wiped working tree AGENTS\n", "utf8");
+  unlinkSync(join(repoDir, "docs/testing/review-checklist.md"));
+
+  // F-4: unrelated user 'notes-packet.md' in reused --out-dir must NOT be deleted
+  const outDir = join(outRoot, "f2-f8-out");
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(join(outDir, "notes-packet.md"), "keep user file", "utf8");
+  writeFileSync(join(outDir, "ui-a11y-packet.md"), "stale router packet", "utf8");
+
+  const pr2Res = runRouterCli([
+    "--repo-root",
+    repoDir,
+    "--base",
+    distantHead,
+    "--head",
+    pr2ChecklistHead,
+    "--out-dir",
+    outDir,
+    "--json",
+  ]);
+  assert.equal(pr2Res.status, 0, pr2Res.stderr);
+  const pr2Json = JSON.parse(pr2Res.stdout);
+  assert.equal(pr2Json.checklistLoaded, true);
+  assert.equal(existsSync(join(outDir, "notes-packet.md")), true);
+  assert.equal(existsSync(join(outDir, "ui-a11y-packet.md")), false);
+  const concPacket = readFileSync(join(outDir, "concurrency-state-packet.md"), "utf8");
+  assert.ok(concPacket.includes("Verify cancellation propagates instead of swallowing CancellationException."), concPacket);
+  assert.ok(concPacket.includes("#142, #149"), concPacket);
+
+  // Restore clean checkout before F-5 hardlink test
+  git(repoDir, ["checkout", "--", "AGENTS.md", "docs/testing/review-checklist.md"]);
+  const originalAgents = readFileSync(join(repoDir, "AGENTS.md"), "utf8");
+  const hardlinkOut = join(outRoot, "hardlink-out");
+  mkdirSync(hardlinkOut, { recursive: true });
+  linkSync(join(repoDir, "AGENTS.md"), join(hardlinkOut, "routing.json"));
+  const hlRes = runRouterCli([
+    "--repo-root",
+    repoDir,
+    "--base",
+    distantHead,
+    "--head",
+    pr2ChecklistHead,
+    "--out-dir",
+    hardlinkOut,
+    "--json",
+  ]);
+  assert.notEqual(hlRes.status, 0);
+  assert.equal(readFileSync(join(repoDir, "AGENTS.md"), "utf8"), originalAgents);
+});
+
