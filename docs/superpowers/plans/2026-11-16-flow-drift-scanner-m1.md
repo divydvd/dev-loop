@@ -75,7 +75,7 @@ This plan adds a zero-dependency Node ESM scanner (`skills/flow-docs/scripts/sca
   - `performance` -> `T4` (bounded single `git log -1` and single `git log --oneline <sha>..HEAD` per flow doc; `< 1s` execution).
 - Required blockers: `none` (`T1`–`T8` passed).
 - Optional limits: Live GitHub Releases publish step runs only on push to `main` (`scripts/release.test.mjs` covers release payload locally).
-- Reassessment: Reassessed post-build against all consumers (`flow-docs`, `infra-review`, `check.mjs`, `testing-contract.test.mjs`, `portability-contract.test.mjs`, `release.mjs`, and Copilot/Claude/Gemini packaging); added orphan-branch two-dot fallback and non-JSON CLI text assertions to `T5`.
+- Reassessment: Reassessed post-build and during PR #47 review rounds against all consumers (`flow-docs`, `infra-review`, `check.mjs`, `testing-contract.test.mjs`, `portability-contract.test.mjs`, `release.mjs`, and Copilot/Claude/Gemini packaging); expanded `T2`, `T5`, and `T6` for git renames (`--no-renames`), `ENOTDIR` path bounds, explicit `## Key files` extensionless/dotfile/directory entries without prose dot-token false positives, `-z` NUL-delimited Unicode Git paths, uncommitted working-tree key-file edits when `changedTo === "HEAD"`, and `--changed-to` `HEAD`/clean-checkout revision parity.
 
 ---
 

@@ -6,38 +6,28 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 const CODE_SECTIONS = new Set(["entry points", "sequence", "key files", "tests"]);
-const KNOWN_EXTENSIONS = new Set(
-  ".kt .kts .java .swift .m .mm .c .cc .cpp .h .hpp .rs .go .py .rb .php .cs .fs .scala .clj .ex .exs .erl .lua .r .dart .ts .tsx .mts .cts .js .jsx .mjs .cjs .vue .svelte .astro .html .css .scss .sass .less .xml .json .jsonc .yaml .yml .toml .ini .cfg .conf .properties .gradle .plist .pbxproj .storyboard .xib .sql .graphql .gql .proto .sh .bash .zsh .ps1 .mdc .md".split(" "),
-);
-const SLASH_SHORTHANDS = new Set(
-  "n/a true/false false/true yes/no no/yes on/off off/on and/or read/write input/output client/server key/value min/max start/stop pass/fail red/green before/after open/close sync/async http/https tcp/udp ci/cd i/o ui/ux r/w".split(" "),
-);
+const KNOWN_EXTENSIONS = new Set(".kt .kts .java .swift .m .mm .c .cc .cpp .h .hpp .rs .go .py .rb .php .cs .fs .scala .clj .ex .exs .erl .lua .r .dart .ts .tsx .mts .cts .js .jsx .mjs .cjs .vue .svelte .astro .html .css .scss .sass .less .xml .json .jsonc .yaml .yml .toml .ini .cfg .conf .properties .gradle .plist .pbxproj .storyboard .xib .sql .graphql .gql .proto .sh .bash .zsh .ps1 .mdc .md".split(" "));
+const EXTENSIONLESS_FILES = new Set("dockerfile makefile procfile gemfile podfile fastfile brewfile justfile rakefile gradlew mvnw caddyfile vagrantfile".split(" "));
+const KNOWN_DOTFILES = new Set(".gitignore .gitattributes .gitmodules .dockerignore .editorconfig .npmrc .nvmrc .yarnrc .prettierrc .eslintrc .stylelintrc .babelrc .env".split(" "));
+const NON_PATH_WORDS = new Set("none null true false yes no tbd todo n/a".split(" "));
+const SLASH_SHORTHANDS = new Set("n/a true/false false/true yes/no no/yes on/off off/on and/or read/write input/output client/server key/value min/max start/stop pass/fail red/green before/after open/close sync/async http/https tcp/udp ci/cd i/o ui/ux r/w".split(" "));
 const MIME_PREFIX_RE = /^(?:application|text|image|audio|video|multipart|font)\//i;
 const GIT_REF_PREFIX_RE = /^(?:origin|upstream|refs\/heads|refs\/tags|refs\/remotes)\//;
 const toPosix = (p) => p.replace(/\\/g, "/");
 
 function sanitizedGitEnv() {
   const env = { GIT_TERMINAL_PROMPT: "0" };
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined && !k.startsWith("GIT_")) env[k] = v;
-  }
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("GIT_")) env[k] = v;
   return env;
 }
 
 function runGit(repoRootReal, args) {
-  return execFileSync("git", ["-C", repoRootReal, ...args], {
-    env: sanitizedGitEnv(),
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 16 * 1024 * 1024,
-  });
+  return execFileSync("git", ["-C", repoRootReal, ...args], { env: sanitizedGitEnv(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 16 * 1024 * 1024 });
 }
 
 function validateGitRef(ref, flagName) {
   if (typeof ref !== "string" || ref.length === 0) throw new Error(`${flagName} must be a non-empty Git ref.`);
-  if (ref.startsWith("-") || /\s/.test(ref) || ref.includes("\0")) {
-    throw new Error(`Invalid Git ref for ${flagName}: ${JSON.stringify(ref)}`);
-  }
+  if (ref.startsWith("-") || /\s/.test(ref) || ref.includes("\0")) throw new Error(`Invalid Git ref for ${flagName}: ${JSON.stringify(ref)}`);
 }
 
 function isOutsideRoot(rootReal, targetAbs) {
@@ -46,9 +36,8 @@ function isOutsideRoot(rootReal, targetAbs) {
 }
 
 function safeLstat(targetAbs) {
-  try {
-    return lstatSync(targetAbs);
-  } catch (err) {
+  try { return lstatSync(targetAbs); }
+  catch (err) {
     if (err && (err.code === "ENOENT" || err.code === "ENOTDIR")) return null;
     throw err;
   }
@@ -58,11 +47,8 @@ function hasEscapingAncestor(repoRootReal, candidateAbs) {
   let cur = dirname(candidateAbs);
   while (!isOutsideRoot(repoRootReal, cur)) {
     if (safeLstat(cur)) {
-      try {
-        return isOutsideRoot(repoRootReal, realpathSync(cur));
-      } catch {
-        return true;
-      }
+      try { return isOutsideRoot(repoRootReal, realpathSync(cur)); }
+      catch { return true; }
     }
     const parent = dirname(cur);
     if (parent === cur) break;
@@ -72,22 +58,14 @@ function hasEscapingAncestor(repoRootReal, candidateAbs) {
 }
 
 function resolveContainedPath(repoRootReal, baseDirAbs, rawRef) {
-  if (!rawRef || rawRef.startsWith("/") || /^[A-Za-z]:[\\/]/.test(rawRef)) {
-    return { escaped: true, exists: false, isDir: false, repoRelPath: rawRef };
-  }
+  if (!rawRef || rawRef.startsWith("/") || /^[A-Za-z]:[\\/]/.test(rawRef)) return { escaped: true, exists: false, isDir: false, repoRelPath: rawRef };
   const candidateAbs = resolve(baseDirAbs, rawRef);
-  if (isOutsideRoot(repoRootReal, candidateAbs) || candidateAbs === repoRootReal) {
-    return { escaped: true, exists: false, isDir: false, repoRelPath: rawRef };
-  }
+  if (isOutsideRoot(repoRootReal, candidateAbs) || candidateAbs === repoRootReal) return { escaped: true, exists: false, isDir: false, repoRelPath: rawRef };
   const repoRelPath = toPosix(relative(repoRootReal, candidateAbs));
-  if (!safeLstat(candidateAbs)) {
-    return { escaped: hasEscapingAncestor(repoRootReal, candidateAbs), exists: false, isDir: false, repoRelPath };
-  }
+  if (!safeLstat(candidateAbs)) return { escaped: hasEscapingAncestor(repoRootReal, candidateAbs), exists: false, isDir: false, repoRelPath };
   try {
     const realAbs = realpathSync(candidateAbs);
-    if (isOutsideRoot(repoRootReal, realAbs) || realAbs === repoRootReal) {
-      return { escaped: true, exists: false, isDir: false, repoRelPath };
-    }
+    if (isOutsideRoot(repoRootReal, realAbs) || realAbs === repoRootReal) return { escaped: true, exists: false, isDir: false, repoRelPath };
     return { escaped: false, exists: true, isDir: statSync(realAbs).isDirectory(), repoRelPath };
   } catch {
     return { escaped: false, exists: false, isDir: false, repoRelPath };
@@ -95,51 +73,56 @@ function resolveContainedPath(repoRootReal, baseDirAbs, rawRef) {
 }
 
 function validateFlowsDir(repoRootReal, flowsDirRaw) {
-  if (typeof flowsDirRaw !== "string" || flowsDirRaw.trim() === "") {
-    throw new Error("--flows-dir must be a non-empty relative path.");
-  }
-  if (isAbsolute(flowsDirRaw) || /^[A-Za-z]:[\\/]/.test(flowsDirRaw)) {
-    throw new Error(`--flows-dir must stay inside repoRoot: ${flowsDirRaw}`);
-  }
+  if (typeof flowsDirRaw !== "string" || flowsDirRaw.trim() === "") throw new Error("--flows-dir must be a non-empty relative path.");
+  if (isAbsolute(flowsDirRaw) || /^[A-Za-z]:[\\/]/.test(flowsDirRaw)) throw new Error(`--flows-dir must stay inside repoRoot: ${flowsDirRaw}`);
   const normalized = toPosix(flowsDirRaw).replace(/^(?:\.\/)+/, "").replace(/\/+$/, "");
   if (!normalized) throw new Error(`--flows-dir escapes repoRoot: ${flowsDirRaw}`);
   const flowsAbs = resolve(repoRootReal, normalized);
-  if (isOutsideRoot(repoRootReal, flowsAbs) || flowsAbs === repoRootReal) {
-    throw new Error(`--flows-dir escapes repoRoot: ${flowsDirRaw}`);
-  }
+  if (isOutsideRoot(repoRootReal, flowsAbs) || flowsAbs === repoRootReal) throw new Error(`--flows-dir escapes repoRoot: ${flowsDirRaw}`);
   if (safeLstat(flowsAbs)) {
     let realFlows;
-    try {
-      realFlows = realpathSync(flowsAbs);
-    } catch {
-      throw new Error(`--flows-dir symlink escapes repoRoot: ${flowsDirRaw}`);
-    }
-    if (isOutsideRoot(repoRootReal, realFlows) || realFlows === repoRootReal) {
-      throw new Error(`--flows-dir symlink escapes repoRoot: ${flowsDirRaw}`);
-    }
+    try { realFlows = realpathSync(flowsAbs); }
+    catch { throw new Error(`--flows-dir symlink escapes repoRoot: ${flowsDirRaw}`); }
+    if (isOutsideRoot(repoRootReal, realFlows) || realFlows === repoRootReal) throw new Error(`--flows-dir symlink escapes repoRoot: ${flowsDirRaw}`);
   } else if (hasEscapingAncestor(repoRootReal, flowsAbs)) {
     throw new Error(`--flows-dir symlink escapes repoRoot: ${flowsDirRaw}`);
   }
   return { flowsDir: toPosix(relative(repoRootReal, flowsAbs)), flowsAbs };
 }
 
-function normalizeCodePathToken(rawToken) {
+function normalizeCodePathToken(rawToken, explicitEntry = false) {
   const trimmed = rawToken.trim();
   if (!trimmed || /\s/.test(trimmed) || /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) return null;
   if (/[<>]/.test(trimmed) || /^[-/~]/.test(trimmed) || /[*?[\]{}]/.test(trimmed)) return null;
-
-  const cleaned = toPosix(trimmed)
-    .replace(/(\.[A-Za-z0-9]+)(?:#[^/\s]+|:\d+(?::\d+)?)$/, "$1")
-    .replace(/^(?:\.\/)+/, "")
-    .replace(/\/+$/, "");
-  if (!cleaned || cleaned === "." || cleaned === ".." || !/[A-Za-z]/.test(cleaned)) return null;
+  const rawPosix = toPosix(trimmed).replace(/(\.[A-Za-z0-9]+)(?:#[^/\s]+|:\d+(?::\d+)?)$/, "$1");
+  const hadPathMarker = /^(?:\.\/)+|\/+$/.test(rawPosix);
+  const cleaned = rawPosix.replace(/^(?:\.\/)+/, "").replace(/\/+$/, "");
+  if (!cleaned || cleaned === "." || cleaned === ".." || !/\p{L}/u.test(cleaned)) return null;
   if (SLASH_SHORTHANDS.has(cleaned.toLowerCase()) || /^\d+(?:\/\d+)+$/.test(cleaned)) return null;
   if (MIME_PREFIX_RE.test(cleaned) || GIT_REF_PREFIX_RE.test(cleaned)) return null;
-  if (!KNOWN_EXTENSIONS.has(extname(cleaned).toLowerCase()) && !cleaned.includes("/")) return null;
-
   const segments = cleaned.split("/");
-  if (segments.some((seg) => !seg || (seg !== ".." && !/^[A-Za-z0-9._-]+$/.test(seg)))) return null;
+  if (segments.some((seg) => !seg || (seg !== ".." && !/^[\p{L}\p{N}._-]+$/u.test(seg)))) return null;
+  const base = segments[segments.length - 1];
+  if (!cleaned.includes("/") && !hadPathMarker && KNOWN_EXTENSIONS.has(cleaned.toLowerCase())) return null;
+  const isKnownFile = KNOWN_DOTFILES.has(base.toLowerCase()) || EXTENSIONLESS_FILES.has(base.toLowerCase()) || KNOWN_EXTENSIONS.has(extname(cleaned).toLowerCase());
+  if (!isKnownFile && !cleaned.includes("/") && !hadPathMarker && (!explicitEntry || NON_PATH_WORDS.has(cleaned.toLowerCase()))) return null;
   return cleaned;
+}
+
+function extractSectionTokens(secName, line) {
+  const scan = (str, explicit) => [...str.matchAll(/`([^`\r\n]+)`/g)].map((m) => normalizeCodePathToken(m[1], explicit)).filter(Boolean);
+  if (secName === "key files") {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("|")) {
+      const cells = trimmed.replace(/^\|/, "").replace(/\|$/, "").split("|");
+      if (cells.length >= 2 && cells[0].trim().toLowerCase() !== "file" && !cells.every((c) => /^:?-+:?$/.test(c.trim()))) {
+        return [...scan(cells[0], true), ...scan(cells.slice(1).join("|"), false)];
+      }
+    }
+    const bullet = line.match(/^(\s*(?:[-*+]|\d+\.)\s+`([^`\r\n]+)`)(.*)$/);
+    if (bullet) return [normalizeCodePathToken(bullet[2], true), ...scan(bullet[3], false)].filter(Boolean);
+  }
+  return scan(line, false);
 }
 
 function parseDocStructure(markdown) {
@@ -196,17 +179,36 @@ function parseIndexFile(repoRootReal, flowsDir, flowsAbs, flowsReal, indexText) 
   return { indexedDocs, indexIssues };
 }
 
-function resolveDiffSet(repoRootReal, changedFrom, changedTo) {
+function resolveDiffSet(repoRootReal, flowsDir, changedFrom, changedTo) {
   validateGitRef(changedFrom, "--changed-from");
   validateGitRef(changedTo, "--changed-to");
+  let headSha, targetSha;
+  try {
+    runGit(repoRootReal, ["rev-parse", "--verify", `${changedFrom}^{commit}`]);
+    headSha = runGit(repoRootReal, ["rev-parse", "--verify", "HEAD^{commit}"]).trim();
+    targetSha = runGit(repoRootReal, ["rev-parse", "--verify", `${changedTo}^{commit}`]).trim();
+  } catch (err) {
+    throw new Error(`Failed to resolve git ref: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (targetSha !== headSha) {
+    throw new Error(`--changed-to (${changedTo}) must match checked-out HEAD (${headSha.slice(0, 7)}) so flow metadata matches the target revision.`);
+  }
+  if (changedTo === "HEAD") {
+    const untracked = runGit(repoRootReal, ["ls-files", "-z", "--others", "--exclude-standard", "--"]).split("\0").filter(Boolean);
+    let base = changedFrom, diffMode = "two_dot";
+    try { base = runGit(repoRootReal, ["merge-base", changedFrom, "HEAD"]).trim(); diffMode = "three_dot"; } catch {}
+    const tracked = runGit(repoRootReal, ["diff", "-z", "--no-renames", "--name-only", base, "--"]).split("\0").filter(Boolean);
+    return { diffMode, changedFiles: new Set([...tracked, ...untracked]) };
+  }
+  if (runGit(repoRootReal, ["status", "--porcelain", "-z", "-uno"]).length > 0 || runGit(repoRootReal, ["status", "--porcelain", "-z", "--", flowsDir]).length > 0) {
+    throw new Error(`--changed-to (${changedTo}) requires a clean checkout so flow metadata matches the target revision.`);
+  }
   for (const [diffMode, sep] of [["three_dot", "..."], ["two_dot", ".."]]) {
     try {
-      const out = runGit(repoRootReal, ["diff", "--no-renames", "--name-only", `${changedFrom}${sep}${changedTo}`, "--"]);
-      return { diffMode, changedFiles: new Set(out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)) };
+      const out = runGit(repoRootReal, ["diff", "-z", "--no-renames", "--name-only", `${changedFrom}${sep}${changedTo}`, "--"]);
+      return { diffMode, changedFiles: new Set(out.split("\0").filter(Boolean)) };
     } catch (err) {
-      if (diffMode === "two_dot") {
-        throw new Error(`Failed to compute git diff between ${changedFrom} and ${changedTo}: ${err instanceof Error ? err.message : String(err)}`);
-      }
+      if (diffMode === "two_dot") throw new Error(`Failed to compute git diff between ${changedFrom} and ${changedTo}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }
@@ -218,16 +220,12 @@ export function scanFlowDrift({ repoRoot = ".", flowsDir: flowsDirOption = "docs
   const { flowsDir, flowsAbs } = validateFlowsDir(repoRootReal, flowsDirOption);
 
   const indexAbs = join(flowsAbs, "INDEX.md");
-  if (!safeLstat(indexAbs)) {
-    return { status: "no_flows", flowsDir, docs: [], indexIssues: [], unupdatedImpactedDocs: [] };
-  }
+  if (!safeLstat(indexAbs)) return { status: "no_flows", flowsDir, docs: [], indexIssues: [], unupdatedImpactedDocs: [] };
   const flowsReal = realpathSync(flowsAbs);
   const indexReal = realpathSync(indexAbs);
-  if (isOutsideRoot(repoRootReal, indexReal) || isOutsideRoot(flowsReal, indexReal)) {
-    throw new Error(`Flow index symlink escapes flowsDir: ${flowsDir}/INDEX.md`);
-  }
+  if (isOutsideRoot(repoRootReal, indexReal) || isOutsideRoot(flowsReal, indexReal)) throw new Error(`Flow index symlink escapes flowsDir: ${flowsDir}/INDEX.md`);
 
-  const diffContext = changedFrom !== null && changedFrom !== undefined ? resolveDiffSet(repoRootReal, changedFrom, changedTo) : null;
+  const diffContext = changedFrom !== null && changedFrom !== undefined ? resolveDiffSet(repoRootReal, flowsDir, changedFrom, changedTo) : null;
   const { indexedDocs, indexIssues } = parseIndexFile(repoRootReal, flowsDir, flowsAbs, flowsReal, readFileSync(indexReal, "utf8"));
   const docsToScan = new Map(indexedDocs);
   const unindexedSet = new Set();
@@ -263,9 +261,7 @@ export function scanFlowDrift({ repoRoot = ".", flowsDir: flowsDirOption = "docs
     for (const [secName, secLines] of sections.entries()) {
       if (!CODE_SECTIONS.has(secName)) continue;
       for (const line of secLines) {
-        for (const match of line.matchAll(/`([^`\r\n]+)`/g)) {
-          const token = normalizeCodePathToken(match[1]);
-          if (!token) continue;
+        for (const token of extractSectionTokens(secName, line)) {
           const resolved = resolveContainedPath(repoRootReal, repoRootReal, token);
           if (resolved.escaped) {
             deadRefsSet.add(resolved.repoRelPath);

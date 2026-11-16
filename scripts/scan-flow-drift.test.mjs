@@ -82,6 +82,9 @@ test("T1: returns no_flows and exits 0 when docs/flows/INDEX.md does not exist",
 
 test("T2: clean indexed flow doc scores 0 and ignores routes, functions, commands, and slash shorthands", (t) => {
   const { repoRoot } = initRepo(t);
+  writeRepoFile(repoRoot, "Dockerfile", "FROM node:22-alpine\n");
+  writeRepoFile(repoRoot, ".gitignore", "node_modules/\n");
+  writeRepoFile(repoRoot, "lib/helper.ts", "export const h = 1;\n");
   writeRepoFile(repoRoot, "src/checkout/Cart.ts", "export const cart = true;\n");
   writeRepoFile(repoRoot, "src/checkout/Pay.ts", "export const pay = true;\n");
   writeRepoFile(repoRoot, "tests/checkout.test.ts", "export const ok = true;\n");
@@ -102,14 +105,17 @@ test("T2: clean indexed flow doc scores 0 and ignores routes, functions, command
       "- User opens `/checkout` → `./src/checkout/Cart.ts` `submitOrder` (`https://example.com/pay`)",
       "",
       "## Sequence",
-      "1. Validate cart (`src/checkout/Cart.ts:12`)",
-      "2. Charge card (`src/checkout/Pay.ts`)",
+      "1. Validate cart (`src/checkout/Cart.ts:12`), `.export-btn`, and `./lib/`",
+      "2. Charge card (`src/checkout/Pay.ts`) and emit `notice`",
       "",
       "## Key files",
       "| File | Role |",
       "| --- | --- |",
-      "| `src/checkout/Cart.ts` | Cart state (`n/a`, `true/false`) |",
+      "| `src/checkout/Cart.ts` | Cart state (`n/a`, `true/false`, `.csv`, `.length`, calls `validateCart`) |",
       "| `src/checkout/Pay.ts` | Payment capture |",
+      "| `Dockerfile` | Container build |",
+      "| `.gitignore` | Ignore patterns |",
+      "| `src` | Source root |",
       "",
       "## Tests",
       "- Unit: `./gradlew test` and `tests/checkout.test.ts`",
@@ -148,7 +154,15 @@ test("T2: clean indexed flow doc scores 0 and ignores routes, functions, command
   assert.ok(checkout);
   assert.equal(checkout.lastVerifiedDoc, "2026-10-01");
   assert.equal(checkout.lastVerifiedIndex, "2026-10-01");
-  assert.deepEqual(checkout.keyFiles, ["src/checkout/Cart.ts", "src/checkout/Pay.ts", "tests/checkout.test.ts"]);
+  assert.deepEqual(checkout.keyFiles, [
+    "src/checkout/Cart.ts",
+    "lib",
+    "src/checkout/Pay.ts",
+    "Dockerfile",
+    ".gitignore",
+    "src",
+    "tests/checkout.test.ts",
+  ]);
   assert.deepEqual(checkout.deadRefs, []);
   assert.deepEqual(checkout.issues, []);
   assert.equal(checkout.commitsTouchingKeyFiles, 0);
@@ -372,6 +386,40 @@ test("T5: --changed-from flags unupdated impacted docs for files, directories, a
   const cleanStrict = runCli(["--repo-root", repoRoot, "--changed-from", "main", "--fail-on-unupdated", "--json"]);
   assert.equal(cleanStrict.status, 0, cleanStrict.stderr);
   assert.deepEqual(JSON.parse(cleanStrict.stdout).unupdatedImpactedDocs, []);
+
+  // Uncommitted working-tree edit to a key file on a fresh branch is detected when changedTo === "HEAD"
+  git(repoRoot, ["checkout", "-b", "feature/uncommitted-check", "main"]);
+  writeRepoFile(repoRoot, "src/billing/Refund.ts", "export const refund = 1;\n");
+  const dirtyScan = scanFlowDrift({ repoRoot, changedFrom: "main" });
+  assert.deepEqual(dirtyScan.unupdatedImpactedDocs, ["docs/flows/billing.md"]);
+  unlinkSync(join(repoRoot, "src/billing/Refund.ts"));
+  git(repoRoot, ["checkout", "feature/oauth"]);
+
+  // Non-ASCII flow doc and key file paths match without Git octal quoting mismatches (-z)
+  writeRepoFile(repoRoot, "src/café/über.ts", "export const u = 1;\n");
+  writeRepoFile(
+    repoRoot,
+    "docs/flows/café.md",
+    "# Café\n\nLast verified: 2026-10-02.\n\n## Key files\n| File | Role |\n| --- | --- |\n| `src/café` | Café module |\n",
+  );
+  writeRepoFile(
+    repoRoot,
+    "docs/flows/INDEX.md",
+    "# Flow docs\n\n| Flow | Doc | Key areas | Last verified |\n| --- | --- | --- | --- |\n| Auth | [auth.md](auth.md) | `src/auth` | 2026-10-02 |\n| Billing | [billing.md](billing.md) | `src/billing` | 2026-10-02 |\n| Café | [café.md](café.md) | `src/café` | 2026-10-02 |\n",
+  );
+  git(repoRoot, ["add", "-A"]);
+  git(repoRoot, ["commit", "-m", "add non-ascii café flow"]);
+  const unicodeScan = scanFlowDrift({ repoRoot, changedFrom: "main" });
+  assert.equal(unicodeScan.docs.find((d) => d.docPath === "docs/flows/café.md").diffStatus, "impacted_updated");
+  assert.deepEqual(unicodeScan.unupdatedImpactedDocs, []);
+
+  // Historical --changed-to requires checkout HEAD to match --changed-to and a clean flows dir
+  const headSha = git(repoRoot, ["rev-parse", "HEAD"]).trim();
+  assert.equal(scanFlowDrift({ repoRoot, changedFrom: "main", changedTo: headSha }).status, "ok");
+  assert.throws(() => scanFlowDrift({ repoRoot, changedFrom: "main", changedTo: "HEAD^" }), /--changed-to/);
+  writeRepoFile(repoRoot, "docs/flows/extra-dirty.md", "# Dirty\n");
+  assert.throws(() => scanFlowDrift({ repoRoot, changedFrom: "main", changedTo: headSha }), /--changed-to/);
+  unlinkSync(join(repoRoot, "docs/flows/extra-dirty.md"));
 
   // git mv rename of a key file out of a flow directory without updating the doc -> impacted_unupdated
   git(repoRoot, ["checkout", "-b", "feature/rename-login", "main"]);

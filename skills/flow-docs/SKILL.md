@@ -20,7 +20,7 @@ The docs live in `docs/flows/<flow>.md`. The index is `docs/flows/INDEX.md`.
 - Add each new invariant: a fact that must stay true, and why.
 - Set "Last verified" to today, in the doc and in its index row. Do not write a commit SHA: a squash merge or a rebase merge changes it.
 - Write in short sentences. Name files and functions. Do not copy code. Link to the code instead.
-- Before Step 5 self-review, run `node <flow-docs-skill-dir>/scripts/scan-flow-drift.mjs --changed-from <base-branch> --json`. Confirm that `unupdatedImpactedDocs` is empty, or explain in the PR body why a listed key-file change did not change the flow behavior.
+- Commit your changes first (and rerun at Step 6 after any later edits are committed), then before Step 5 self-review run `node <flow-docs-skill-dir>/scripts/scan-flow-drift.mjs --changed-from <base-branch> --json`. Confirm that `unupdatedImpactedDocs` is empty, or explain in the PR body why a listed key-file change did not change the flow behavior.
 
 ## Write a new flow doc
 Write one when a flow meets 2 or more of these conditions:
