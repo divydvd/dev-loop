@@ -390,3 +390,44 @@ test("T-IR8: infra review and project profile are host-aware across Copilot, Cla
   assert.match(profile, /precedence over skill instructions, including Superpowers/);
 });
 
+test("T-IR9: PR evidence rule miner, review checklist template, and Step-5 checklist path contract", () => {
+  const infra = read("skills/infra-review/SKILL.md");
+  const ruleMiner = read("skills/infra-review/references/rule-miner.md");
+  const devLoop = read("skills/dev-loop/SKILL.md");
+  const profile = read("skills/dev-loop/assets/project-profile.md");
+  const checklistTemplate = read("skills/dev-loop/assets/review-checklist.md");
+
+  const measure = infra.split("## 2. Measure")[1]?.split("## 3. Find the faults")[0] ?? "";
+  const choose = infra.split("## 4. Choose the changes")[1]?.split("## 5. Output")[0] ?? "";
+  const output = infra.split("## 5. Output")[1] ?? "";
+  const selfReview = devLoop.split("## 5. Self-review")[1]?.split("## 6. Verify")[0] ?? "";
+
+  // Bundled miner script + rule-miner reference wired into infra-review without changing the 17-row table
+  assert.ok(measure.includes("scripts/mine-pr-evidence.mjs"), "Shadow-mode telemetry must wire scripts/mine-pr-evidence.mjs");
+  assert.ok(choose.includes("references/rule-miner.md"), "Section 4 must reference references/rule-miner.md");
+  assert.match(output, /review-checklist\.md/, "Section 5 Project PR must cover review-checklist.md updates");
+
+  // Generator + fresh Validator contract, domains, caps, untrusted boundary, and 4-week non-safety retirement
+  assert.match(ruleMiner, /Generator/);
+  assert.match(ruleMiner, /Validator/);
+  for (const domain of ["arch-correctness", "concurrency-state", "security-privacy", "ui-a11y"]) {
+    assert.ok(ruleMiner.includes(domain), `rule-miner.md must allow domain ${domain}`);
+  }
+  assert.match(ruleMiner, /min\(3,\s*remainingSlots\)/);
+  assert.match(ruleMiner, /25/);
+  assert.match(ruleMiner, /"untrusted":\s*true|untrusted/i);
+  assert.match(ruleMiner, /Retired or automated rules/);
+  assert.match(ruleMiner, /Safety\?.*yes|never.*retire/i);
+
+  // Checklist template + project profile + Step-5-only loading (+0 startup bytes)
+  assert.ok(checklistTemplate.includes("## Active rules"));
+  assert.ok(checklistTemplate.includes("## Retired or automated rules"));
+  assert.ok(Buffer.byteLength(profile, "utf8") <= 5500, "project-profile.md must stay <= 5.5 KB");
+  assert.match(profile, /Checklist path.*docs\/testing\/review-checklist\.md/s);
+  assert.match(profile, /inline only/);
+  assert.match(selfReview, /Checklist path/);
+  assert.match(selfReview, /inline only/);
+  assert.match(selfReview, /not.*startup|never.*startup|only during.*review/i);
+});
+
+
