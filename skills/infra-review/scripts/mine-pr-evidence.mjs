@@ -4,34 +4,34 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MAX_ACTIVE_RULES = 25;
-const MAX_FIXUP_DIFF_LINES = 160;
-const MAX_COMMENT_HUNK_LINES = 80;
-
+const MAX_ACTIVE_RULES = 25, MAX_FIXUP_DIFF_LINES = 160, MAX_COMMENT_HUNK_LINES = 80, FIXUP_WINDOW_MS = 14 * 86_400_000;
+const REPO_SLUG_RE = /^[\w.-]+\/[\w.-]+$/;
 const DOC_EXT_RE = /\.(md|mdc|txt|rst|adoc)$/i;
-const DOC_PATH_RE = /^(docs|skills)\/|(?:^|\/)(README|CHANGELOG|LICENSE|AGENTS|GEMINI)(\.[^/]+)?$/i;
-const TEST_PATH_RE = /(?:^|\/)(__tests__|tests?|test|spec|specs|androidTest|unitTest|fixtures|mocks)\/|\.(test|spec)\.[^/]+$|Test\.(kt|java|swift|ts|tsx|js|jsx|py|go|rs)$/i;
+const DOC_PATH_RE = /^docs\/|(?:^|\/)(README|CHANGELOG|LICENSE|AGENTS|GEMINI)(\.[^/]+)?$/i;
+const TEST_PATH_RE = /(?:^|\/)(__tests__|tests?|spec|specs|androidTest|unitTest|fixtures|mocks)\/|(?:\.|_)(?:test|spec)\.[a-z0-9]+$|(?:^|\/)test_[^/]+\.(?:py|rb)$/i;
+const TEST_SUFFIX_RE = /(?:Test|Tests|Spec)\.(?:kt|java|swift|ts|tsx|js|jsx|mjs|cjs|py|go|rs)$/;
 const GENERATED_PATH_RE = /(?:^|\/)(dist|build|out|coverage|generated|vendor|node_modules|\.gradle)\/|(?:^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|Podfile\.lock|Gemfile\.lock|composer\.lock|poetry\.lock|go\.sum)$|\.sha256$|\.min\.(js|css)$|\.pb\.(go|cc|h)$|\.g\.dart$|(?:^|\/)schemas\/[^/]+\/\d+\.json$/i;
 const NOISY_BOT_LOGIN_RE = /^(?:codecov|coveralls|sonarcloud|sonarqubecloud|dependabot|renovate|github-actions|netlify|vercel|changeset-bot|claassistant|mergify|snyk-bot)(?:\[bot\]|-bot)?$/i;
 const NOISY_BOT_BODY_RE = /^(?:!\[coverage\]|##\s*codecov\b)|codecov\.io\/gh\/|sonarcloud\.io\/dashboard/i;
 const POSITIVE_FIX_REPLY_RE = /\b(?:fixed|addressed|done|updated|resolved)\b/i;
 const NEGATED_FIX_REPLY_RE = /\b(?:not|never|won't|wont|cannot|can't|will\s+not|did\s+not|didn't)\s+(?:be\s+)?(?:fixed|addressed|done|updated|resolved)\b/i;
-const FIXUP_CLAUSE_RE = /\b(fix(?:es|ed|up)?|fix-up|revert(?:s|ed)?|hotfix|regression)\b([^\r\n]*)/gi;
+const EXPLICIT_FIXUP_RE = /\b(?:fix(?:es|ed|up)?|fix-up|revert(?:s|ed|ing)?(?:\s+of)?|regress(?:ion|ed)\s+(?:in|from|after)|broke\s+in|broken\s+by|introduced\s+(?:by|in)|after\s+regression\s+in)(?:\s+\w+){0,3}\s+(?:PR\s+)?(?:https?:\/\/[^\s/]+\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)|([\w.-]+\/[\w.-]+)?#(\d+))/gi;
+const PR_TEMPLATE_META_LINE_RE = /^\s*[-*]\s*(?:Regression selection|Fixed findings)\s*:/gim;
 const DIRECTIVE_TAG_RE = /<\/?(?:system(?:[-_][\w-]+)?|hard[-_]gate|extremely[-_]important|subagent[-_]stop|developer(?:[-_][\w-]+)?|assistant(?:[-_][\w-]+)?|user(?:[-_][\w-]+)?|instruction(?:s|[-_][\w-]+)?|prompt(?:[-_][\w-]+)?|override(?:[-_][\w-]+)?|rule[-_]miner(?:[-_][\w-]+)?)\b[^>]*>/gi;
 const SECRET_PATTERNS = [/\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g, /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, /\bsk-(?:proj-|ant-|live-|test-)?[A-Za-z0-9_-]{20,}\b/g, /\bAKIA[0-9A-Z]{16}\b/g, /\bxox[baprs]-[A-Za-z0-9-]{16,}\b/g, /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi];
 
 export function isProductionPath(rawPath) {
   const p = String(rawPath || "").replace(/\\/g, "/").replace(/^\.\//, "");
-  return Boolean(p) && !DOC_EXT_RE.test(p) && !DOC_PATH_RE.test(p) && !TEST_PATH_RE.test(p) && !GENERATED_PATH_RE.test(p);
+  return Boolean(p) && !DOC_EXT_RE.test(p) && !DOC_PATH_RE.test(p) && !TEST_PATH_RE.test(p) && !TEST_SUFFIX_RE.test(p) && !GENERATED_PATH_RE.test(p);
 }
 
 export function sanitizeUntrustedText(rawText) {
   if (rawText === null || rawText === undefined) return "";
-  let cleaned = String(rawText)
-    .replace(/\r\n/g, "\n")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<!--[\s\S]*$/g, "")
-    .replace(DIRECTIVE_TAG_RE, "");
+  let cleaned = String(rawText).replace(/\r\n/g, "\n"), prev;
+  do {
+    prev = cleaned;
+    cleaned = cleaned.replace(/<!--[\s\S]*?-->/g, "").replace(/<!--[\s\S]*$/g, "").replace(DIRECTIVE_TAG_RE, "");
+  } while (cleaned !== prev);
   for (const pattern of SECRET_PATTERNS) cleaned = cleaned.replace(pattern, "[REDACTED]");
   return cleaned.trim();
 }
@@ -47,21 +47,13 @@ function splitMarkdownRow(line) {
   const trimmed = line.trim();
   if (!trimmed.startsWith("|")) return null;
   const cells = [];
-  let current = "";
-  let inBackticks = false;
+  let current = "", inBackticks = false;
   for (let i = 1; i < trimmed.length; i += 1) {
     const ch = trimmed[i];
-    if (ch === "\\" && i + 1 < trimmed.length) {
-      current += trimmed[++i];
-    } else if (ch === "`") {
-      inBackticks = !inBackticks;
-      current += ch;
-    } else if (ch === "|" && !inBackticks) {
-      cells.push(current.trim());
-      current = "";
-    } else {
-      current += ch;
-    }
+    if (ch === "\\" && i + 1 < trimmed.length) current += trimmed[++i];
+    else if (ch === "`") { inBackticks = !inBackticks; current += ch; }
+    else if (ch === "|" && !inBackticks) { cells.push(current.trim()); current = ""; }
+    else current += ch;
   }
   if (current.trim() !== "") cells.push(current.trim());
   return cells;
@@ -71,97 +63,91 @@ export function parseChecklist(markdownText) {
   if (!markdownText || !String(markdownText).trim()) {
     return { maxRules: MAX_ACTIVE_RULES, activeRuleCount: 0, remainingSlots: MAX_ACTIVE_RULES, activeRules: [], staleRules: [] };
   }
-  let inActiveSection = false;
-  let headerSeen = false;
+  let inActiveSection = false, headerSeen = false;
   const activeRules = [];
   for (const line of String(markdownText).replace(/\r\n/g, "\n").split("\n")) {
     const headingMatch = line.match(/^##\s+(.+?)\s*$/);
-    if (headingMatch) {
-      inActiveSection = /^active rules$/i.test(headingMatch[1]);
-      headerSeen = false;
-      continue;
-    }
+    if (headingMatch) { inActiveSection = /^active rules$/i.test(headingMatch[1]); headerSeen = false; continue; }
     if (!inActiveSection) continue;
     const cells = splitMarkdownRow(line);
     if (!cells || cells.length < 8) continue;
-    if (!headerSeen) {
-      headerSeen = true;
-      continue;
-    }
+    if (!headerSeen) { headerSeen = true; continue; }
     if (cells.every((cell) => /^:?-{3,}:?$/.test(cell))) continue;
     const [id, domain, triggers, check, safetyRaw, added, activeWeeksRaw, confirmedCatchesRaw, sourcePrs = ""] = cells;
     if (!id || id === "-" || /^none$/i.test(id)) continue;
+    const cleanSafety = safetyRaw.replace(/^`+|`+$/g, "").trim();
+    const cleanWeeks = activeWeeksRaw.replace(/^`+|`+$/g, "").trim();
+    const cleanCatches = confirmedCatchesRaw.replace(/^`+|`+$/g, "").trim();
     activeRules.push({
-      id, domain, triggers, check, safety: /^yes$/i.test(safetyRaw), added,
-      activeWeeks: Number.parseInt(activeWeeksRaw, 10) || 0,
-      confirmedCatches: Number.parseInt(confirmedCatchesRaw, 10) || 0,
+      id, domain, triggers, check, safety: !/^no$/i.test(cleanSafety), added,
+      activeWeeks: /^\d+$/.test(cleanWeeks) ? Number.parseInt(cleanWeeks, 10) : null,
+      confirmedCatches: /^\d+$/.test(cleanCatches) ? Number.parseInt(cleanCatches, 10) : null,
       sourcePrs,
     });
   }
-  const activeRuleCount = activeRules.length;
-  const remainingSlots = Math.max(0, MAX_ACTIVE_RULES - activeRuleCount);
-  const staleRules = activeRules.filter((r) => !r.safety && r.activeWeeks >= 4 && r.confirmedCatches === 0);
+  const activeRuleCount = activeRules.length, remainingSlots = Math.max(0, MAX_ACTIVE_RULES - activeRuleCount);
+  const staleRules = activeRules.filter((r) => !r.safety && r.activeWeeks !== null && r.activeWeeks >= 4 && r.confirmedCatches === 0);
   return { maxRules: MAX_ACTIVE_RULES, activeRuleCount, remainingSlots, activeRules, staleRules };
 }
 
-const defaultExecGh = (args) =>
-  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 });
-const defaultExecGit = (cwd, args) =>
-  execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 });
+const EXEC_OPTS = { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 };
+const defaultExecGh = (args) => execFileSync("gh", args, EXEC_OPTS);
+const defaultExecGit = (cwd, args) => execFileSync("git", args, { cwd, ...EXEC_OPTS });
 
 function normalizeBoundIso(raw, endOfDay) {
   const s = String(raw || "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return `${s}${endOfDay ? "T23:59:59.999Z" : "T00:00:00.000Z"}`;
-  return s;
+  const candidate = /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}${endOfDay ? "T23:59:59.999Z" : "T00:00:00.000Z"}` : s;
+  const ms = Date.parse(candidate);
+  if (!s || !Number.isFinite(ms)) throw new Error(`Invalid ISO date: ${raw}`);
+  return new Date(ms).toISOString();
+}
+
+function readJsonOptionFile(filePath, flagName) {
+  if (!existsSync(filePath)) throw new Error(`File not found for ${flagName}: ${filePath}`);
+  try { return JSON.parse(readFileSync(filePath, "utf8")); }
+  catch (err) { throw new Error(`Invalid JSON in ${flagName} (${filePath}): ${err.message}. Pass collect-metrics.mjs --format json output.`); }
 }
 
 function gitCommitExists(checkoutDir, sha, execGit) {
   if (!checkoutDir || !sha) return false;
-  try {
-    execGit(checkoutDir, ["cat-file", "-e", `${sha}^{commit}`]);
-    return true;
-  } catch {
-    return false;
-  }
+  try { execGit(checkoutDir, ["cat-file", "-e", `${sha}^{commit}`]); return true; }
+  catch { return false; }
 }
 
 function fileChangedBetweenCommits(checkoutDir, fromSha, toSha, filePath, execGit) {
   if (!gitCommitExists(checkoutDir, fromSha, execGit) || !gitCommitExists(checkoutDir, toSha, execGit)) return true;
-  try {
-    return execGit(checkoutDir, ["diff", "--name-only", fromSha, toSha, "--", filePath]).trim().length > 0;
-  } catch {
-    return true;
-  }
+  try { return execGit(checkoutDir, ["diff", "--name-only", fromSha, toSha, "--", filePath]).trim().length > 0; }
+  catch { return true; }
 }
 
 function loadMergedPrs({ repo, fromIso, toIso, prs, prsFile, execGh }) {
   let rawPrs = prs;
   if (!rawPrs && prsFile) {
-    const parsed = JSON.parse(readFileSync(prsFile, "utf8"));
+    const parsed = readJsonOptionFile(prsFile, "--prs-file");
     rawPrs = Array.isArray(parsed) ? parsed : parsed.prs || [];
   }
   if (!rawPrs) {
     if (!repo) throw new Error("Pass --repo <owner/repo> or --prs-file <json>.");
     const out = execGh([
       "pr", "list", "--repo", repo, "--state", "merged", "--limit", "200",
-      "--search", `merged:${fromIso.slice(0, 10)}..${toIso.slice(0, 10)}`,
+      "--search", `merged:${fromIso}..${toIso}`,
       "--json", "number,title,body,mergedAt,mergeCommit,headRefOid,files",
     ]);
     rawPrs = JSON.parse(out || "[]");
   }
-  const fromMs = Date.parse(fromIso);
-  const toMs = Date.parse(toIso);
-  return rawPrs.filter((pr) => {
-    const mergedMs = Date.parse(pr.mergedAt || "");
-    if (!Number.isFinite(mergedMs)) return true;
-    return (!Number.isFinite(fromMs) || mergedMs >= fromMs) && (!Number.isFinite(toMs) || mergedMs <= toMs);
+  const fromMs = Date.parse(fromIso), toMs = Date.parse(toIso);
+  const allPrsByNum = new Map(rawPrs.filter((pr) => Number.isFinite(Number(pr?.number))).map((pr) => [Number(pr.number), pr]));
+  const prsInWindow = rawPrs.filter((pr) => {
+    const mergedMs = Date.parse(pr?.mergedAt || "");
+    return Number.isFinite(mergedMs) && mergedMs >= fromMs && mergedMs <= toMs;
   });
+  return { prsInWindow, allPrsByNum };
 }
 
 function normalizeCommentsMap({ prsInWindow, repo, commentsByPr, commentsFile, execGh }) {
   if (commentsByPr) return commentsByPr;
   if (commentsFile) {
-    const parsed = JSON.parse(readFileSync(commentsFile, "utf8"));
+    const parsed = readJsonOptionFile(commentsFile, "--comments-file");
     if (Array.isArray(parsed)) {
       const grouped = {};
       for (const item of parsed) {
@@ -258,15 +244,20 @@ function collectMetricsFixupMap(metrics) {
   return byPr;
 }
 
-function extractExplicitTargetPrs(pr) {
+function extractExplicitTargetPrs(pr, { repo, allPrsByNum }) {
   const targets = new Set();
-  FIXUP_CLAUSE_RE.lastIndex = 0;
-  let match;
-  while ((match = FIXUP_CLAUSE_RE.exec(`${pr.title || ""}\n${pr.body || ""}`)) !== null) {
-    for (const refMatch of (match[2] || "").matchAll(/#(\d+)\b/g)) {
-      const targetNum = Number(refMatch[1]);
-      if (Number.isFinite(targetNum) && targetNum > 0 && targetNum !== pr.number) targets.add(targetNum);
+  const laterMs = Date.parse(pr.mergedAt || "");
+  const cleanedText = `${pr.title || ""}\n${pr.body || ""}`.replace(PR_TEMPLATE_META_LINE_RE, "");
+  for (const m of cleanedText.matchAll(EXPLICIT_FIXUP_RE)) {
+    const refRepo = m[1] || m[3], targetNum = Number(m[2] || m[4]);
+    if (repo && refRepo && refRepo.toLowerCase() !== repo.toLowerCase()) continue;
+    if (!Number.isFinite(targetNum) || targetNum <= 0 || targetNum === pr.number) continue;
+    const knownTarget = allPrsByNum?.get(targetNum);
+    if (knownTarget) {
+      const targetMs = Date.parse(knownTarget.mergedAt || "");
+      if (!Number.isFinite(targetMs) || !Number.isFinite(laterMs) || laterMs < targetMs || laterMs - targetMs > FIXUP_WINDOW_MS) continue;
     }
+    targets.add(targetNum);
   }
   return [...targets];
 }
@@ -293,11 +284,14 @@ function extractProdDiffForCommit({ checkoutDir, commitSha, prodFiles, execGit }
   }
 }
 
-function extractFixupSignals({ prsInWindow, metrics, checkoutDir, execGit }) {
+function extractFixupSignals({ prsInWindow, allPrsByNum, repo, metrics, checkoutDir, execGit }) {
   const metricsMap = collectMetricsFixupMap(metrics);
+  const metricsAuthoritative = Boolean(
+    metrics && typeof metrics === "object" && (metrics?.durability?.fixupStatus === "ok" || Array.isArray(metrics?.fixupPrs) || Array.isArray(metrics?.fixups)),
+  );
   const fixupSignals = [];
   for (const pr of prsInWindow) {
-    const explicitTargets = extractExplicitTargetPrs(pr);
+    const explicitTargets = metricsAuthoritative ? [] : extractExplicitTargetPrs(pr, { repo, allPrsByNum });
     const metricRecord = metricsMap.get(Number(pr.number));
     if (!metricRecord && explicitTargets.length === 0) continue;
 
@@ -320,26 +314,26 @@ function extractFixupSignals({ prsInWindow, metrics, checkoutDir, execGit }) {
 }
 
 export function minePrEvidence(options = {}) {
+  const repo = options.repo || null;
+  if (repo !== null && !REPO_SLUG_RE.test(repo)) throw new Error(`Invalid --repo value: ${repo}. Expected <owner/repo>.`);
   const toIso = normalizeBoundIso(options.to || new Date().toISOString(), true);
   const fromIso = normalizeBoundIso(
-    options.from || new Date(Date.parse(toIso) - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    options.from || new Date(Date.parse(toIso) - 7 * 86_400_000).toISOString(),
     false,
   );
-  const repo = options.repo || null;
+  if (Date.parse(fromIso) > Date.parse(toIso)) throw new Error(`Invalid window: --from (${fromIso}) is after --to (${toIso}).`);
   const checkoutDir = options.checkoutDir ? resolve(options.checkoutDir) : null;
   const execGh = options.execGh || defaultExecGh;
   const execGit = options.execGit || defaultExecGit;
 
-  const prsInWindow = loadMergedPrs({ repo, fromIso, toIso, prs: options.prs, prsFile: options.prsFile, execGh });
+  const { prsInWindow, allPrsByNum } = loadMergedPrs({ repo, fromIso, toIso, prs: options.prs, prsFile: options.prsFile, execGh });
   const commentsMap = normalizeCommentsMap({
     prsInWindow, repo, commentsByPr: options.commentsByPr, commentsFile: options.commentsFile, execGh,
   });
-  const metrics =
-    options.metrics ||
-    (options.metricsFile && existsSync(options.metricsFile) ? JSON.parse(readFileSync(options.metricsFile, "utf8")) : null);
+  const metrics = options.metrics || (options.metricsFile ? readJsonOptionFile(options.metricsFile, "--metrics-file") : null);
 
   const addressedThreads = extractAddressedThreads({ prsInWindow, commentsMap, checkoutDir, execGit });
-  const fixupSignals = extractFixupSignals({ prsInWindow, metrics, checkoutDir, execGit });
+  const fixupSignals = extractFixupSignals({ prsInWindow, allPrsByNum, repo, metrics, checkoutDir, execGit });
   const checklistText =
     options.checklistText ??
     (options.checklistPath && existsSync(options.checklistPath) ? readFileSync(options.checklistPath, "utf8") : null);
@@ -376,7 +370,7 @@ function parseCliArgs(argv) {
     else if (flagMap[arg]) {
       if (i + 1 >= argv.length) throw new Error(`Missing value for ${arg}`);
       opts[flagMap[arg]] = argv[++i];
-    } else throw new Error(`Unknown option: ${arg}`);
+    } else throw new Error(`Unknown argument: ${arg}`);
   }
   return opts;
 }

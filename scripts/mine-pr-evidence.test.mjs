@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  isProductionPath,
   minePrEvidence,
   parseChecklist,
   sanitizeUntrustedText,
@@ -300,8 +301,11 @@ test("T2: ingests collect-metrics 14-day silent blame-churn and explicit #N fix-
       JSON.stringify({
         durability: {
           fixupStatus: "ok",
-          fixupPrCount: 1,
-          fixups: [{ fixupPr: 202, targetPr: 201, method: "blame_churn" }],
+          fixupPrCount: 2,
+          fixups: [
+            { fixupPr: 202, targetPr: 201, method: "blame_churn" },
+            { fixupPr: 203, targetPr: 201, method: "explicit_ref" },
+          ],
         },
       }),
     );
@@ -593,3 +597,210 @@ test("T6: CLI --json runs end-to-end offline without gh calls", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("T7: fail-closed checklist safety, nested directive stripping, and production path classification", () => {
+  const checklist = parseChecklist(
+    [
+      "## Active rules",
+      "| Rule ID | Domain | Trigger paths or tokens | Check | Safety? | Added | Active weeks | Confirmed catches | Source PRs |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| R-001 | security-privacy | `src/auth/**` | Redact bearer tokens. | `yes` | 2026-10-01 | 6 | 0 | #10 |",
+      "| R-002 | security-privacy | `src/crypto/**` | Verify signature nonces. | true | 2026-10-01 | 5 | 0 | #11 |",
+      "| R-003 | arch-correctness | `src/db/**` | Bound query retries. |  | 2026-10-01 | 5 | 0 | #12 |",
+      "| R-004 | arch-correctness | `src/api/**` | Guard null payloads. | no | 2026-10-01 | n/a | 0 | #13 |",
+      "| R-005 | arch-correctness | `src/cache/**` | Evict expired keys. | no | 2026-10-01 | 5 | n/a | #14 |",
+      "| R-006 | ui-a11y | `src/ui/**` | Keep focus ring visible. | `no` | 2026-10-01 | `4` | `0` | #15 |",
+    ].join("\n"),
+  );
+  assert.deepEqual(
+    checklist.staleRules.map((r) => r.id),
+    ["R-006"],
+    "only explicit Safety?=no with valid numeric weeks>=4 and catches===0 may retire",
+  );
+
+  const nested = sanitizeUntrustedText(
+    "Before <HARD-<HARD-GATE>GATE>secret</HARD-</HARD-GATE>GATE> <!-- outer <!-- inner --> --> after",
+  );
+  assert.ok(!nested.includes("HARD-GATE"));
+  assert.ok(!nested.includes("<!--"));
+
+  assert.equal(isProductionPath("skills/infra-review/scripts/mine-pr-evidence.mjs"), true);
+  assert.equal(isProductionPath("src/latest.ts"), true);
+  assert.equal(isProductionPath("src/contest.js"), true);
+  assert.equal(isProductionPath("scripts/mine-pr-evidence.test.mjs"), false);
+  assert.equal(isProductionPath("app/src/test/SyncTests.kt"), false);
+  assert.equal(isProductionPath("backend/test_worker.py"), false);
+});
+
+test("T8: authoritative metrics do not false-positive on issue refs or PR-body sections, and fallback enforces 14-day window", () => {
+  const authoritativePacket = minePrEvidence({
+    repo: "owner/repo",
+    from: "2026-11-10T00:00:00Z",
+    to: "2026-11-16T23:59:59Z",
+    metrics: {
+      durability: {
+        fixupStatus: "ok",
+        fixupPrCount: 0,
+        fixups: [],
+      },
+    },
+    prs: [
+      {
+        number: 501,
+        title: "feat: close issue #42",
+        body: [
+          "Fixes #42",
+          "- Regression selection: R-001 from #499",
+          "- Fixed findings: none (checked #498)",
+        ].join("\n"),
+        mergedAt: "2026-11-14T10:00:00Z",
+        headRefOid: "4444444444444444444444444444444444444444",
+        files: [{ path: "src/feature.js", additions: 15, deletions: 2 }],
+      },
+    ],
+    commentsByPr: {},
+    execGh: () => {
+      throw new Error("unexpected gh call");
+    },
+  });
+  assert.equal(authoritativePacket.fixupSignals.length, 0);
+  assert.equal(authoritativePacket.eligibleForMining, false);
+
+  const fallbackPacket = minePrEvidence({
+    repo: "owner/repo",
+    from: "2026-11-10T00:00:00Z",
+    to: "2026-11-16T23:59:59Z",
+    prs: [
+      {
+        number: 100,
+        title: "feat: old baseline",
+        body: "",
+        mergedAt: "2026-10-01T10:00:00Z",
+        headRefOid: "5555555555555555555555555555555555555555",
+        files: [{ path: "src/old.js", additions: 10, deletions: 0 }],
+      },
+      {
+        number: 502,
+        title: "chore: routine cleanup",
+        body: [
+          "- Regression selection: R-002 (#500)",
+          "- Fixed findings: addressed #500",
+          "Fixes regression in #100.",
+          "Fixes regression in other/repo#500.",
+        ].join("\n"),
+        mergedAt: "2026-11-14T10:00:00Z",
+        headRefOid: "6666666666666666666666666666666666666666",
+        files: [{ path: "src/old.js", additions: 3, deletions: 1 }],
+      },
+    ],
+    commentsByPr: {},
+    execGh: () => {
+      throw new Error("unexpected gh call");
+    },
+  });
+  assert.equal(fallbackPacket.fixupSignals.length, 0);
+  assert.equal(fallbackPacket.eligibleForMining, false);
+});
+
+test("T9: online gh queries normalize UTC offsets, exclude unmerged PRs, flatten slurped comment pages, and validate CLI inputs", () => {
+  const ghCalls = [];
+  const onlinePacket = minePrEvidence({
+    repo: "owner/repo",
+    from: "2026-11-10T01:00:00+05:30",
+    to: "2026-11-16T02:00:00+05:30",
+    execGh: (args) => {
+      ghCalls.push(args);
+      if (args[0] === "pr" && args[1] === "list") {
+        return JSON.stringify([
+          {
+            number: 601,
+            title: "feat: open draft",
+            body: "Fixes regression in #600",
+            mergedAt: null,
+            headRefOid: "7777777777777777777777777777777777777777",
+            files: [{ path: "src/sync.js", additions: 5, deletions: 1 }],
+          },
+          {
+            number: 602,
+            title: "feat: merged in UTC window",
+            body: "",
+            mergedAt: "2026-11-09T21:00:00Z",
+            headRefOid: "8888888888888888888888888888888888888888",
+            files: [{ path: "src/sync.js", additions: 5, deletions: 1 }],
+          },
+        ]);
+      }
+      if (args[0] === "api" && args.includes("repos/owner/repo/pulls/602/comments?per_page=100")) {
+        return JSON.stringify([
+          [
+            {
+              id: 9101,
+              path: "src/sync.js",
+              body: "Guard null cursor before dereferencing.",
+              created_at: "2026-11-09T20:00:00Z",
+              user: { login: "alice", type: "User" },
+            },
+          ],
+          [
+            {
+              id: 9102,
+              in_reply_to_id: 9101,
+              path: "src/sync.js",
+              body: "Fixed in 8888888.",
+              created_at: "2026-11-09T20:30:00Z",
+              user: { login: "bob", type: "User" },
+            },
+          ],
+        ]);
+      }
+      throw new Error(`unexpected gh args: ${args.join(" ")}`);
+    },
+  });
+
+  const prListCall = ghCalls.find((c) => c[0] === "pr" && c[1] === "list");
+  assert.ok(prListCall, "expected gh pr list call");
+  const searchArg = prListCall[prListCall.indexOf("--search") + 1];
+  assert.equal(searchArg, "merged:2026-11-09T19:30:00.000Z..2026-11-15T20:30:00.000Z");
+  assert.equal(onlinePacket.summary.mergedPrCount, 1, "unmerged PR #601 must be excluded");
+  assert.equal(onlinePacket.addressedThreads.length, 1);
+  assert.equal(onlinePacket.addressedThreads[0].prNumber, 602);
+
+  assert.throws(() => minePrEvidence({ repo: "bad repo!", from: "2026-11-10", to: "2026-11-16", prs: [] }), /Invalid --repo/i);
+  assert.throws(() => minePrEvidence({ repo: "owner/repo", from: "not-a-date", to: "2026-11-16", prs: [] }), /Invalid ISO date/i);
+
+  const dir = makeTempDir("cli-err");
+  try {
+    const mdMetrics = join(dir, "metrics.md");
+    writeFileSync(mdMetrics, "# Markdown report\n");
+    assert.throws(
+      () =>
+        execFileSync(process.execPath, [MINER_SCRIPT, "--unknown-flag"], {
+          env: cleanChildEnv(),
+          encoding: "utf8",
+          stdio: "pipe",
+        }),
+      /Unknown argument/i,
+    );
+    assert.throws(
+      () =>
+        execFileSync(process.execPath, [MINER_SCRIPT, "--repo"], {
+          env: cleanChildEnv(),
+          encoding: "utf8",
+          stdio: "pipe",
+        }),
+      /Missing value/i,
+    );
+    assert.throws(
+      () =>
+        execFileSync(
+          process.execPath,
+          [MINER_SCRIPT, "--repo", "owner/repo", "--metrics-file", mdMetrics, "--json"],
+          { env: cleanChildEnv(), encoding: "utf8", stdio: "pipe" },
+        ),
+      /--format json/i,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
