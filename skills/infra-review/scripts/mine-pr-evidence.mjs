@@ -115,12 +115,13 @@ function gitCommitExists(checkoutDir, sha, execGit) {
 }
 
 function fileChangedBetweenCommits(checkoutDir, fromSha, toSha, filePath, execGit) {
-  if (!gitCommitExists(checkoutDir, fromSha, execGit) || !gitCommitExists(checkoutDir, toSha, execGit)) return true;
+  if (!gitCommitExists(checkoutDir, fromSha, execGit) || !gitCommitExists(checkoutDir, toSha, execGit)) return false;
   try { return execGit(checkoutDir, ["diff", "--name-only", fromSha, toSha, "--", filePath]).trim().length > 0; }
-  catch { return true; }
+  catch { return false; }
 }
 
 function loadMergedPrs({ repo, fromIso, toIso, prs, prsFile, execGh }) {
+  const fromMs = Date.parse(fromIso), toMs = Date.parse(toIso);
   let rawPrs = prs;
   if (!rawPrs && prsFile) {
     const parsed = readJsonOptionFile(prsFile, "--prs-file");
@@ -128,14 +129,14 @@ function loadMergedPrs({ repo, fromIso, toIso, prs, prsFile, execGh }) {
   }
   if (!rawPrs) {
     if (!repo) throw new Error("Pass --repo <owner/repo> or --prs-file <json>.");
+    const lookbackIso = new Date(fromMs - FIXUP_WINDOW_MS).toISOString();
     const out = execGh([
       "pr", "list", "--repo", repo, "--state", "merged", "--limit", "200",
-      "--search", `merged:${fromIso}..${toIso}`,
+      "--search", `merged:${lookbackIso}..${toIso}`,
       "--json", "number,title,body,mergedAt,mergeCommit,headRefOid,files",
     ]);
     rawPrs = JSON.parse(out || "[]");
   }
-  const fromMs = Date.parse(fromIso), toMs = Date.parse(toIso);
   const allPrsByNum = new Map(rawPrs.filter((pr) => Number.isFinite(Number(pr?.number))).map((pr) => [Number(pr.number), pr]));
   const prsInWindow = rawPrs.filter((pr) => {
     const mergedMs = Date.parse(pr?.mergedAt || "");
@@ -144,12 +145,11 @@ function loadMergedPrs({ repo, fromIso, toIso, prs, prsFile, execGh }) {
   return { prsInWindow, allPrsByNum };
 }
 
-function normalizeCommentsMap({ prsInWindow, repo, commentsByPr, commentsFile, execGh }) {
+function normalizeCommentsMap({ prsInWindow, repo, commentsByPr, parsedCommentsFile, execGh }) {
   if (commentsByPr) return commentsByPr;
-  if (commentsFile) {
-    const parsed = readJsonOptionFile(commentsFile, "--comments-file");
-    if (Array.isArray(parsed)) {
-      const flat = Array.isArray(parsed[0]) ? parsed.flat() : parsed, grouped = {};
+  if (parsedCommentsFile !== undefined) {
+    if (Array.isArray(parsedCommentsFile)) {
+      const flat = Array.isArray(parsedCommentsFile[0]) ? parsedCommentsFile.flat() : parsedCommentsFile, grouped = {};
       for (const item of flat) {
         if (!item || typeof item !== "object") continue;
         const urlMatch = String(item.pull_request_url || item.html_url || "").match(/\/pulls?\/(\d+)/);
@@ -158,7 +158,7 @@ function normalizeCommentsMap({ prsInWindow, repo, commentsByPr, commentsFile, e
       }
       return grouped;
     }
-    return parsed?.commentsByPr && typeof parsed.commentsByPr === "object" ? parsed.commentsByPr : parsed || {};
+    return parsedCommentsFile?.commentsByPr && typeof parsedCommentsFile.commentsByPr === "object" ? parsedCommentsFile.commentsByPr : parsedCommentsFile || {};
   }
   if (!repo) return {};
   const fetched = {};
@@ -253,10 +253,8 @@ function extractExplicitTargetPrs(pr, { repo, allPrsByNum }) {
     if (repo && refRepo && refRepo.toLowerCase() !== repo.toLowerCase()) continue;
     if (!Number.isFinite(targetNum) || targetNum <= 0 || targetNum === pr.number) continue;
     const knownTarget = allPrsByNum?.get(targetNum);
-    if (knownTarget) {
-      const targetMs = Date.parse(knownTarget.mergedAt || "");
-      if (!Number.isFinite(targetMs) || !Number.isFinite(laterMs) || laterMs < targetMs || laterMs - targetMs > FIXUP_WINDOW_MS) continue;
-    }
+    const targetMs = knownTarget ? Date.parse(knownTarget.mergedAt || "") : NaN;
+    if (!Number.isFinite(targetMs) || !Number.isFinite(laterMs) || laterMs < targetMs || laterMs - targetMs > FIXUP_WINDOW_MS) continue;
     targets.add(targetNum);
   }
   return [...targets];
@@ -288,11 +286,13 @@ function extractFixupSignals({ prsInWindow, allPrsByNum, repo, metrics, checkout
     const explicitTargets = metricsAuthoritative ? [] : extractExplicitTargetPrs(pr, { repo, allPrsByNum });
     const metricRecord = metricsMap.get(Number(pr.number));
     if (!metricRecord && explicitTargets.length === 0) continue;
+    const declaredProdFiles = Array.isArray(pr.files) ? [...new Set(pr.files.map((f) => (typeof f === "string" ? f : f?.path)).filter(isProductionPath))] : null;
+    if (declaredProdFiles && declaredProdFiles.length === 0) continue;
+    const commitSha = (typeof pr.mergeCommit === "string" ? pr.mergeCommit : pr.mergeCommit?.oid) || pr.headRefOid || null;
+    const diffResult = extractProdDiffForCommit({ checkoutDir, commitSha, prodFiles: declaredProdFiles || [], execGit });
+    if (diffResult.prodFiles.length === 0) continue;
     const targets = new Set([...(metricRecord ? metricRecord.targets : []), ...explicitTargets]);
     const methods = new Set([...(metricRecord ? metricRecord.methods : []), ...(explicitTargets.length ? ["explicit_ref"] : [])]);
-    const declaredProdFiles = [...new Set((pr.files || []).map((f) => (typeof f === "string" ? f : f?.path)).filter(isProductionPath))];
-    const commitSha = (typeof pr.mergeCommit === "string" ? pr.mergeCommit : pr.mergeCommit?.oid) || pr.headRefOid || null;
-    const diffResult = extractProdDiffForCommit({ checkoutDir, commitSha, prodFiles: declaredProdFiles, execGit });
     fixupSignals.push({
       untrusted: true, prNumber: pr.number, title: sanitizeUntrustedText(pr.title || ""), body: sanitizeUntrustedText(pr.body || ""),
       mergedAt: pr.mergedAt || null, commitSha, targetPrNumbers: [...targets].sort((a, b) => a - b), methods: [...methods],
@@ -310,12 +310,13 @@ export function minePrEvidence(options = {}) {
   if (Date.parse(fromIso) > Date.parse(toIso)) throw new Error(`Invalid window: --from (${fromIso}) is after --to (${toIso}).`);
   const checkoutDir = options.checkoutDir ? resolve(options.checkoutDir) : null;
   const execGh = options.execGh || defaultExecGh, execGit = options.execGit || defaultExecGit;
-  const { prsInWindow, allPrsByNum } = loadMergedPrs({ repo, fromIso, toIso, prs: options.prs, prsFile: options.prsFile, execGh });
-  const commentsMap = normalizeCommentsMap({ prsInWindow, repo, commentsByPr: options.commentsByPr, commentsFile: options.commentsFile, execGh });
   const metrics = options.metrics || (options.metricsFile ? readJsonOptionFile(options.metricsFile, "--metrics-file") : null);
+  const parsedCommentsFile = options.commentsFile ? readJsonOptionFile(options.commentsFile, "--comments-file") : undefined;
+  const checklistText = options.checklistText ?? (options.checklistPath && existsSync(options.checklistPath) ? readFileSync(options.checklistPath, "utf8") : null);
+  const { prsInWindow, allPrsByNum } = loadMergedPrs({ repo, fromIso, toIso, prs: options.prs, prsFile: options.prsFile, execGh });
+  const commentsMap = normalizeCommentsMap({ prsInWindow, repo, commentsByPr: options.commentsByPr, parsedCommentsFile, execGh });
   const addressedThreads = extractAddressedThreads({ prsInWindow, commentsMap, checkoutDir, execGit });
   const fixupSignals = extractFixupSignals({ prsInWindow, allPrsByNum, repo, metrics, checkoutDir, execGit });
-  const checklistText = options.checklistText ?? (options.checklistPath && existsSync(options.checklistPath) ? readFileSync(options.checklistPath, "utf8") : null);
   const checklist = parseChecklist(checklistText);
   const eligibleForMining = fixupSignals.length >= 1 || addressedThreads.length >= 2;
   return {

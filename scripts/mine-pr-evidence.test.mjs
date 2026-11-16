@@ -48,9 +48,16 @@ function initGitRepo() {
   return dir;
 }
 
-test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments while keeping commit-modified and fix-reply threads offline", () => {
+test("T1: filters unaddressed, bot, non-prod, post-merge, missing-git, and negated comments while keeping commit-modified and fix-reply threads offline", () => {
   const dir = makeTempDir("offline");
+  const repoDir = initGitRepo();
   try {
+    const firstSha = git(repoDir, ["rev-parse", "HEAD"]);
+    writeFileSync(join(repoDir, "src/sync.js"), "export async function syncData() {\n  return 2;\n}\n");
+    git(repoDir, ["add", "src/sync.js"]);
+    git(repoDir, ["commit", "-m", "fix: propagate CancellationException"]);
+    const headSha = git(repoDir, ["rev-parse", "HEAD"]);
+
     const prsPath = join(dir, "prs.json");
     const commentsPath = join(dir, "comments.json");
 
@@ -62,7 +69,7 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments w
           title: "feat: add sync cancellation",
           body: "Adds sync worker.",
           mergedAt: "2026-11-12T10:00:00Z",
-          headRefOid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          headRefOid: headSha,
           files: [
             { path: "src/sync.js", additions: 20, deletions: 4 },
             { path: "docs/sync.md", additions: 5, deletions: 0 },
@@ -87,7 +94,7 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments w
             id: 1,
             path: "src/sync.js",
             line: 10,
-            original_commit_id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            original_commit_id: headSha,
             created_at: "2026-11-12T08:00:00Z",
             user: { login: "reviewer-a", type: "User" },
             body: "Nit: maybe rename this local variable?",
@@ -97,7 +104,7 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments w
             id: 2,
             path: "src/sync.js",
             line: 12,
-            original_commit_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            original_commit_id: firstSha,
             created_at: "2026-11-12T08:05:00Z",
             user: { login: "codecov[bot]", type: "Bot" },
             body: "Codecov coverage report: patch coverage is 80%.",
@@ -107,7 +114,7 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments w
             id: 3,
             path: "docs/sync.md",
             line: 4,
-            original_commit_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            original_commit_id: firstSha,
             created_at: "2026-11-12T08:06:00Z",
             user: { login: "reviewer-a", type: "User" },
             body: "Typo in markdown heading.",
@@ -117,7 +124,7 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments w
             id: 4,
             path: "src/sync.js",
             line: 14,
-            original_commit_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            original_commit_id: firstSha,
             created_at: "2026-11-12T12:00:00Z",
             user: { login: "reviewer-a", type: "User" },
             body: "Post-merge comment after PR mergedAt.",
@@ -127,7 +134,7 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments w
             id: 5,
             path: "src/sync.js",
             line: 18,
-            original_commit_id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            original_commit_id: headSha,
             created_at: "2026-11-12T08:10:00Z",
             user: { login: "reviewer-a", type: "User" },
             body: "Should we change this timeout?",
@@ -145,7 +152,7 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments w
             id: 7,
             path: "src/sync.js",
             line: 22,
-            original_commit_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            original_commit_id: firstSha,
             created_at: "2026-11-12T08:30:00Z",
             user: { login: "copilot-pull-request-reviewer[bot]", type: "Bot" },
             body: "Catching bare Exception swallows CancellationException here.",
@@ -155,7 +162,7 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments w
             id: 8,
             path: "src/sync.js",
             line: 30,
-            original_commit_id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            original_commit_id: headSha,
             created_at: "2026-11-12T09:00:00Z",
             user: { login: "reviewer-b", type: "User" },
             body: "Missing mutex unlock on early return.",
@@ -169,6 +176,16 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments w
             user: { login: "author", type: "User" },
             body: "Good catch — fixed in the try/finally block.",
           },
+          {
+            id: 10,
+            path: "src/sync.js",
+            line: 32,
+            original_commit_id: "dddddddddddddddddddddddddddddddddddddddd",
+            created_at: "2026-11-12T08:40:00Z",
+            user: { login: "reviewer-c", type: "User" },
+            body: "Unreplied comment with unavailable git commit SHA must not count.",
+            diff_hunk: "@@ -30,2 +30,3 @@",
+          },
         ],
       }),
     );
@@ -177,6 +194,7 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments w
       repo: "owner/repo",
       from: "2026-11-10T00:00:00Z",
       to: "2026-11-16T23:59:59Z",
+      checkoutDir: repoDir,
       prsFile: prsPath,
       commentsFile: commentsPath,
       execGh: () => {
@@ -193,8 +211,23 @@ test("T1: filters unaddressed, bot, non-prod, post-merge, and negated comments w
         { id: 8, resolution: "fix_reply", untrusted: true },
       ],
     );
+
+    // Without checkoutDir, unavailable Git comparison must treat comment #7 as unverified (leaving only fix_reply #8)
+    const noGitPacket = minePrEvidence({
+      repo: "owner/repo",
+      from: "2026-11-10T00:00:00Z",
+      to: "2026-11-16T23:59:59Z",
+      prsFile: prsPath,
+      commentsFile: commentsPath,
+      execGh: () => {
+        throw new Error("gh must not be called");
+      },
+    });
+    assert.deepEqual(noGitPacket.addressedThreads.map((t) => t.commentId), [8]);
+    assert.equal(noGitPacket.eligibleForMining, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    rmSync(repoDir, { recursive: true, force: true });
   }
 });
 
@@ -423,10 +456,18 @@ test("T4: enforces Section 3 fault threshold (1 comment -> false; 2 comments or 
         id: 11,
         path: "src/parser.js",
         line: 4,
-        original_commit_id: "1111111111111111111111111111111111111111",
+        original_commit_id: "2222222222222222222222222222222222222222",
         created_at: "2026-11-14T09:00:00Z",
         user: { login: "reviewer", type: "User" },
         body: "Handle empty input.",
+      },
+      {
+        id: 110,
+        in_reply_to_id: 11,
+        path: "src/parser.js",
+        created_at: "2026-11-14T09:10:00Z",
+        user: { login: "author", type: "User" },
+        body: "Fixed.",
       },
     ],
   };
@@ -457,10 +498,18 @@ test("T4: enforces Section 3 fault threshold (1 comment -> false; 2 comments or 
           id: 12,
           path: "src/parser.js",
           line: 8,
-          original_commit_id: "1111111111111111111111111111111111111111",
+          original_commit_id: "2222222222222222222222222222222222222222",
           created_at: "2026-11-14T09:05:00Z",
           user: { login: "reviewer", type: "User" },
           body: "Guard against NaN.",
+        },
+        {
+          id: 120,
+          in_reply_to_id: 12,
+          path: "src/parser.js",
+          created_at: "2026-11-14T09:15:00Z",
+          user: { login: "author", type: "User" },
+          body: "Addressed.",
         },
       ],
     },
@@ -475,6 +524,14 @@ test("T4: enforces Section 3 fault threshold (1 comment -> false; 2 comments or 
     from: "2026-11-10T00:00:00Z",
     to: "2026-11-16T23:59:59Z",
     prs: [
+      {
+        number: 300,
+        title: "feat: initial parser",
+        body: "",
+        mergedAt: "2026-11-05T10:00:00Z",
+        headRefOid: "1111111111111111111111111111111111111111",
+        files: [{ path: "src/parser.js", additions: 20, deletions: 0 }],
+      },
       {
         ...basePr,
         number: 302,
@@ -492,11 +549,11 @@ test("T4: enforces Section 3 fault threshold (1 comment -> false; 2 comments or 
   assert.equal(oneFixupPacket.eligibleForMining, true);
 });
 
-test("T5: parses review-checklist.md template, computes remainingSlots out of 25, and flags only Safety? = no rules with Active weeks >= 4 and Confirmed catches = 0", () => {
+test("T5: parses empty-start review-checklist.md template (25 remainingSlots) and flags only Safety? = no rules with Active weeks >= 4 and Confirmed catches = 0", () => {
   const templateText = readFileSync(CHECKLIST_TEMPLATE, "utf8");
   const templateAudit = parseChecklist(templateText);
-  assert.equal(templateAudit.activeRuleCount, 1);
-  assert.equal(templateAudit.remainingSlots, 24);
+  assert.equal(templateAudit.activeRuleCount, 0);
+  assert.equal(templateAudit.remainingSlots, 25);
   assert.deepEqual(templateAudit.staleRules, []);
 
   const customChecklist = [
@@ -553,6 +610,14 @@ test("T6: CLI --json runs end-to-end offline without gh calls", () => {
       prsPath,
       JSON.stringify([
         {
+          number: 399,
+          title: "feat: add worker queue",
+          body: "",
+          mergedAt: "2026-11-08T10:00:00Z",
+          headRefOid: "2222222222222222222222222222222222222222",
+          files: [{ path: "src/worker.js", additions: 25, deletions: 0 }],
+        },
+        {
           number: 401,
           title: "fix: prevent race condition",
           body: "Fixes #399 with token ghp_1234567890abcdefghijklmnopqrstuv",
@@ -592,7 +657,7 @@ test("T6: CLI --json runs end-to-end offline without gh calls", () => {
     assert.equal(parsed.fixupSignals.length, 1);
     assert.ok(!parsed.fixupSignals[0].body.includes("ghp_123456"));
     assert.ok(parsed.fixupSignals[0].body.includes("[REDACTED]"));
-    assert.equal(parsed.checklist.remainingSlots, 24);
+    assert.equal(parsed.checklist.remainingSlots, 25);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -632,7 +697,7 @@ test("T7: fail-closed checklist safety, nested directive stripping, and producti
   assert.equal(isProductionPath("backend/test_worker.py"), false);
 });
 
-test("T8: authoritative metrics do not false-positive on issue refs or PR-body sections, and fallback enforces 14-day window", () => {
+test("T8: authoritative metrics exclude non-prod fix-ups and issue refs, and fallback requires verified 14-day target merge dates", () => {
   const authoritativePacket = minePrEvidence({
     repo: "owner/repo",
     from: "2026-11-10T00:00:00Z",
@@ -640,8 +705,8 @@ test("T8: authoritative metrics do not false-positive on issue refs or PR-body s
     metrics: {
       durability: {
         fixupStatus: "ok",
-        fixupPrCount: 0,
-        fixups: [],
+        fixupPrCount: 1,
+        fixups: [{ fixupPr: 503, targetPr: 500, method: "explicit_ref" }],
       },
     },
     prs: [
@@ -657,13 +722,24 @@ test("T8: authoritative metrics do not false-positive on issue refs or PR-body s
         headRefOid: "4444444444444444444444444444444444444444",
         files: [{ path: "src/feature.js", additions: 15, deletions: 2 }],
       },
+      {
+        number: 503,
+        title: "docs: clarify README after #500",
+        body: "Fixes #500 docs wording.",
+        mergedAt: "2026-11-15T10:00:00Z",
+        headRefOid: "4545454545454545454545454545454545454545",
+        files: [
+          { path: "docs/guide.md", additions: 4, deletions: 1 },
+          { path: "scripts/feature.test.mjs", additions: 6, deletions: 0 },
+        ],
+      },
     ],
     commentsByPr: {},
     execGh: () => {
       throw new Error("unexpected gh call");
     },
   });
-  assert.equal(authoritativePacket.fixupSignals.length, 0);
+  assert.equal(authoritativePacket.fixupSignals.length, 0, "docs/test-only follow-up PR #503 must not count as production evidence");
   assert.equal(authoritativePacket.eligibleForMining, false);
 
   const fallbackPacket = minePrEvidence({
@@ -681,8 +757,9 @@ test("T8: authoritative metrics do not false-positive on issue refs or PR-body s
       },
       {
         number: 502,
-        title: "chore: routine cleanup",
+        title: "fix: close issue #42 and routine cleanup",
         body: [
+          "Fixes #42",
           "- Regression selection: covers regression in #500",
           "- Fixed findings: fixed race in #500",
           "- Findings that are not fixed: won't fix #500",
@@ -699,11 +776,11 @@ test("T8: authoritative metrics do not false-positive on issue refs or PR-body s
       throw new Error("unexpected gh call");
     },
   });
-  assert.equal(fallbackPacket.fixupSignals.length, 0);
+  assert.equal(fallbackPacket.fixupSignals.length, 0, "unknown issue #42 and >14d #100 must be excluded");
   assert.equal(fallbackPacket.eligibleForMining, false);
 });
 
-test("T9: online gh queries normalize UTC offsets, exclude unmerged PRs, flatten slurped comment pages, and validate CLI inputs", () => {
+test("T9: online gh queries include 14d target lookback in UTC, exclude unmerged PRs, flatten slurped comment pages, and validate CLI inputs without GH_TOKEN", () => {
   const ghCalls = [];
   const onlinePacket = minePrEvidence({
     repo: "owner/repo",
@@ -714,6 +791,14 @@ test("T9: online gh queries normalize UTC offsets, exclude unmerged PRs, flatten
       if (args[0] === "pr" && args[1] === "list") {
         return JSON.stringify([
           {
+            number: 600,
+            title: "feat: merged 5 days before window",
+            body: "",
+            mergedAt: "2026-11-04T21:00:00Z",
+            headRefOid: "7070707070707070707070707070707070707070",
+            files: [{ path: "src/sync.js", additions: 10, deletions: 0 }],
+          },
+          {
             number: 601,
             title: "feat: open draft",
             body: "Fixes regression in #600",
@@ -723,8 +808,8 @@ test("T9: online gh queries normalize UTC offsets, exclude unmerged PRs, flatten
           },
           {
             number: 602,
-            title: "feat: merged in UTC window",
-            body: "",
+            title: "fix: merged in UTC window",
+            body: "Fixes #600",
             mergedAt: "2026-11-09T21:00:00Z",
             headRefOid: "8888888888888888888888888888888888888888",
             files: [{ path: "src/sync.js", additions: 5, deletions: 1 }],
@@ -761,8 +846,10 @@ test("T9: online gh queries normalize UTC offsets, exclude unmerged PRs, flatten
   const prListCall = ghCalls.find((c) => c[0] === "pr" && c[1] === "list");
   assert.ok(prListCall, "expected gh pr list call");
   const searchArg = prListCall[prListCall.indexOf("--search") + 1];
-  assert.equal(searchArg, "merged:2026-11-09T19:30:00.000Z..2026-11-15T20:30:00.000Z");
-  assert.equal(onlinePacket.summary.mergedPrCount, 1, "unmerged PR #601 must be excluded");
+  assert.equal(searchArg, "merged:2026-10-26T19:30:00.000Z..2026-11-15T20:30:00.000Z");
+  assert.equal(onlinePacket.summary.mergedPrCount, 1, "unmerged #601 and pre-window #600 must be excluded from window PRs");
+  assert.equal(onlinePacket.fixupSignals.length, 1, "pre-window target #600 within 14d lookback must verify #602");
+  assert.deepEqual(onlinePacket.fixupSignals[0].targetPrNumbers, [600]);
   assert.equal(onlinePacket.addressedThreads.length, 1);
   assert.equal(onlinePacket.addressedThreads[0].prNumber, 602);
 
@@ -773,10 +860,11 @@ test("T9: online gh queries normalize UTC offsets, exclude unmerged PRs, flatten
   try {
     const mdMetrics = join(dir, "metrics.md");
     writeFileSync(mdMetrics, "# Markdown report\n");
+    const unauthEnv = cleanChildEnv({ GH_TOKEN: "", GITHUB_TOKEN: "", GH_CONFIG_DIR: dir });
     assert.throws(
       () =>
         execFileSync(process.execPath, [MINER_SCRIPT, "--unknown-flag"], {
-          env: cleanChildEnv(),
+          env: unauthEnv,
           encoding: "utf8",
           stdio: "pipe",
         }),
@@ -785,7 +873,7 @@ test("T9: online gh queries normalize UTC offsets, exclude unmerged PRs, flatten
     assert.throws(
       () =>
         execFileSync(process.execPath, [MINER_SCRIPT, "--repo"], {
-          env: cleanChildEnv(),
+          env: unauthEnv,
           encoding: "utf8",
           stdio: "pipe",
         }),
@@ -796,7 +884,7 @@ test("T9: online gh queries normalize UTC offsets, exclude unmerged PRs, flatten
         execFileSync(
           process.execPath,
           [MINER_SCRIPT, "--repo", "owner/repo", "--metrics-file", mdMetrics, "--json"],
-          { env: cleanChildEnv(), encoding: "utf8", stdio: "pipe" },
+          { env: unauthEnv, encoding: "utf8", stdio: "pipe" },
         ),
       /--format json/i,
     );
@@ -853,6 +941,12 @@ test("T9: online gh queries normalize UTC offsets, exclude unmerged PRs, flatten
         checkoutDir: mergeRepo,
         commentsFile: slurpedCommentsFile,
         prs: [
+          {
+            number: 700,
+            title: "feat: initial sync",
+            body: "",
+            mergedAt: "2026-11-08T10:00:00Z",
+          },
           {
             number: 701,
             title: "fix: return 42",
