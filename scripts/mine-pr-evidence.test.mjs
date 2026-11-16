@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -683,8 +683,9 @@ test("T8: authoritative metrics do not false-positive on issue refs or PR-body s
         number: 502,
         title: "chore: routine cleanup",
         body: [
-          "- Regression selection: R-002 (#500)",
-          "- Fixed findings: addressed #500",
+          "- Regression selection: covers regression in #500",
+          "- Fixed findings: fixed race in #500",
+          "- Findings that are not fixed: won't fix #500",
           "Fixes regression in #100.",
           "Fixes regression in other/repo#500.",
         ].join("\n"),
@@ -799,6 +800,78 @@ test("T9: online gh queries normalize UTC offsets, exclude unmerged PRs, flatten
         ),
       /--format json/i,
     );
+
+    const symlinkScript = join(dir, "mine-pr-evidence-link.mjs");
+    symlinkSync(MINER_SCRIPT, symlinkScript);
+    const helpOut = execFileSync(process.execPath, [symlinkScript, "--help"], {
+      env: cleanChildEnv(),
+      encoding: "utf8",
+    });
+    assert.match(helpOut, /Usage: node skills\/infra-review\/scripts\/mine-pr-evidence\.mjs/);
+
+    const slurpedCommentsFile = join(dir, "slurped-comments.json");
+    writeFileSync(
+      slurpedCommentsFile,
+      JSON.stringify([
+        [
+          {
+            id: 9201,
+            pull_request_url: "https://api.github.com/repos/owner/repo/pulls/701",
+            path: "src/sync.js",
+            body: "Check null handle.",
+            created_at: "2026-11-12T09:00:00Z",
+            user: { login: "alice", type: "User" },
+          },
+        ],
+        [
+          {
+            id: 9202,
+            in_reply_to_id: 9201,
+            pull_request_url: "https://api.github.com/repos/owner/repo/pulls/701",
+            path: "src/sync.js",
+            body: "Fixed in commit.",
+            created_at: "2026-11-12T09:30:00Z",
+            user: { login: "bob", type: "User" },
+          },
+        ],
+      ]),
+    );
+    const mergeRepo = initGitRepo();
+    try {
+      git(mergeRepo, ["checkout", "-b", "merge-fixup-no-files"]);
+      writeFileSync(join(mergeRepo, "src/sync.js"), "export async function syncData() {\n  return 42;\n}\n");
+      git(mergeRepo, ["add", "src/sync.js"]);
+      git(mergeRepo, ["commit", "-m", "fix: return 42"]);
+      git(mergeRepo, ["checkout", "main"]);
+      git(mergeRepo, ["merge", "--no-ff", "merge-fixup-no-files", "-m", "Merge PR #701"]);
+      const mergeOid = git(mergeRepo, ["rev-parse", "HEAD"]);
+
+      const fallbackMergePacket = minePrEvidence({
+        repo: "owner/repo",
+        from: "2026-11-10",
+        to: "2026-11-16",
+        checkoutDir: mergeRepo,
+        commentsFile: slurpedCommentsFile,
+        prs: [
+          {
+            number: 701,
+            title: "fix: return 42",
+            body: "Fixes regression in #700.",
+            mergedAt: "2026-11-12T10:00:00Z",
+            headRefOid: mergeOid,
+            mergeCommit: { oid: mergeOid },
+          },
+        ],
+        execGh: () => {
+          throw new Error("unexpected gh call");
+        },
+      });
+      assert.equal(fallbackMergePacket.addressedThreads.length, 1);
+      assert.deepEqual(fallbackMergePacket.fixupSignals[0].prodFiles, ["src/sync.js"]);
+      assert.match(fallbackMergePacket.fixupSignals[0].diff, /return 42/);
+    } finally {
+      rmSync(mergeRepo, { recursive: true, force: true });
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

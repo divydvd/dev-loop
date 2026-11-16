@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,7 +16,7 @@ const NOISY_BOT_BODY_RE = /^(?:!\[coverage\]|##\s*codecov\b)|codecov\.io\/gh\/|s
 const POSITIVE_FIX_REPLY_RE = /\b(?:fixed|addressed|done|updated|resolved)\b/i;
 const NEGATED_FIX_REPLY_RE = /\b(?:not|never|won't|wont|cannot|can't|will\s+not|did\s+not|didn't)\s+(?:be\s+)?(?:fixed|addressed|done|updated|resolved)\b/i;
 const EXPLICIT_FIXUP_RE = /\b(?:fix(?:es|ed|up)?|fix-up|revert(?:s|ed|ing)?(?:\s+of)?|regress(?:ion|ed)\s+(?:in|from|after)|broke\s+in|broken\s+by|introduced\s+(?:by|in)|after\s+regression\s+in)(?:\s+\w+){0,3}\s+(?:PR\s+)?(?:https?:\/\/[^\s/]+\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)|([\w.-]+\/[\w.-]+)?#(\d+))/gi;
-const PR_TEMPLATE_META_LINE_RE = /^\s*[-*]\s*(?:Regression selection|Fixed findings)\s*:/gim;
+const PR_TEMPLATE_META_LINE_RE = /^\s*[-*]\s*(?:Regression selection|Fixed findings|Findings that are not fixed)\s*:[^\r\n]*/gim;
 const DIRECTIVE_TAG_RE = /<\/?(?:system(?:[-_][\w-]+)?|hard[-_]gate|extremely[-_]important|subagent[-_]stop|developer(?:[-_][\w-]+)?|assistant(?:[-_][\w-]+)?|user(?:[-_][\w-]+)?|instruction(?:s|[-_][\w-]+)?|prompt(?:[-_][\w-]+)?|override(?:[-_][\w-]+)?|rule[-_]miner(?:[-_][\w-]+)?)\b[^>]*>/gi;
 const SECRET_PATTERNS = [/\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g, /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, /\bsk-(?:proj-|ant-|live-|test-)?[A-Za-z0-9_-]{20,}\b/g, /\bAKIA[0-9A-Z]{16}\b/g, /\bxox[baprs]-[A-Za-z0-9-]{16,}\b/g, /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi];
 
@@ -149,8 +149,9 @@ function normalizeCommentsMap({ prsInWindow, repo, commentsByPr, commentsFile, e
   if (commentsFile) {
     const parsed = readJsonOptionFile(commentsFile, "--comments-file");
     if (Array.isArray(parsed)) {
-      const grouped = {};
-      for (const item of parsed) {
+      const flat = Array.isArray(parsed[0]) ? parsed.flat() : parsed, grouped = {};
+      for (const item of flat) {
+        if (!item || typeof item !== "object") continue;
         const urlMatch = String(item.pull_request_url || item.html_url || "").match(/\/pulls?\/(\d+)/);
         const prNum = item.prNumber ?? item.pull_number ?? (urlMatch ? Number(urlMatch[1]) : null);
         if (prNum !== null && prNum !== undefined) (grouped[String(prNum)] ||= []).push(item);
@@ -162,8 +163,7 @@ function normalizeCommentsMap({ prsInWindow, repo, commentsByPr, commentsFile, e
   if (!repo) return {};
   const fetched = {};
   for (const pr of prsInWindow) {
-    const out = execGh(["api", "--paginate", "--slurp", `repos/${repo}/pulls/${pr.number}/comments?per_page=100`]);
-    const pages = JSON.parse(out || "[]");
+    const pages = JSON.parse(execGh(["api", "--paginate", "--slurp", `repos/${repo}/pulls/${pr.number}/comments?per_page=100`]) || "[]");
     fetched[String(pr.number)] = Array.isArray(pages[0]) ? pages.flat() : pages;
   }
   return fetched;
@@ -269,45 +269,34 @@ function extractProdDiffForCommit({ checkoutDir, commitSha, prodFiles, execGit }
   let resolved = prodFiles;
   if (!resolved || resolved.length === 0) {
     try {
-      const out = execGit(checkoutDir, ["diff-tree", "--root", "--first-parent", "--no-commit-id", "--name-only", "-r", commitSha]);
+      const out = execGit(checkoutDir, ["diff-tree", "-m", "--root", "--first-parent", "--no-commit-id", "--name-only", "-r", commitSha]);
       resolved = [...new Set(out.split("\n").map((s) => s.trim()).filter(isProductionPath))];
-    } catch {
-      resolved = [];
-    }
+    } catch { resolved = []; }
   }
   if (resolved.length === 0) return { text: "", lineCount: 0, truncated: false, prodFiles: [] };
   try {
     const raw = execGit(checkoutDir, ["show", "--first-parent", "--format=", "--no-ext-diff", "--unified=2", commitSha, "--", ...resolved]);
     return { ...capLines(sanitizeUntrustedText(raw), MAX_FIXUP_DIFF_LINES), prodFiles: resolved };
-  } catch {
-    return { text: "", lineCount: 0, truncated: false, prodFiles: resolved };
-  }
+  } catch { return { text: "", lineCount: 0, truncated: false, prodFiles: resolved }; }
 }
 
 function extractFixupSignals({ prsInWindow, allPrsByNum, repo, metrics, checkoutDir, execGit }) {
   const metricsMap = collectMetricsFixupMap(metrics);
-  const metricsAuthoritative = Boolean(
-    metrics && typeof metrics === "object" && (metrics?.durability?.fixupStatus === "ok" || Array.isArray(metrics?.fixupPrs) || Array.isArray(metrics?.fixups)),
-  );
+  const metricsAuthoritative = Boolean(metrics && typeof metrics === "object" && (metrics?.durability?.fixupStatus === "ok" || Array.isArray(metrics?.fixupPrs) || Array.isArray(metrics?.fixups)));
   const fixupSignals = [];
   for (const pr of prsInWindow) {
     const explicitTargets = metricsAuthoritative ? [] : extractExplicitTargetPrs(pr, { repo, allPrsByNum });
     const metricRecord = metricsMap.get(Number(pr.number));
     if (!metricRecord && explicitTargets.length === 0) continue;
-
     const targets = new Set([...(metricRecord ? metricRecord.targets : []), ...explicitTargets]);
     const methods = new Set([...(metricRecord ? metricRecord.methods : []), ...(explicitTargets.length ? ["explicit_ref"] : [])]);
     const declaredProdFiles = [...new Set((pr.files || []).map((f) => (typeof f === "string" ? f : f?.path)).filter(isProductionPath))];
     const commitSha = (typeof pr.mergeCommit === "string" ? pr.mergeCommit : pr.mergeCommit?.oid) || pr.headRefOid || null;
     const diffResult = extractProdDiffForCommit({ checkoutDir, commitSha, prodFiles: declaredProdFiles, execGit });
-
     fixupSignals.push({
-      untrusted: true, prNumber: pr.number,
-      title: sanitizeUntrustedText(pr.title || ""), body: sanitizeUntrustedText(pr.body || ""),
-      mergedAt: pr.mergedAt || null, commitSha,
-      targetPrNumbers: [...targets].sort((a, b) => a - b), methods: [...methods],
-      prodFiles: diffResult.prodFiles, diff: diffResult.text,
-      diffLineCount: diffResult.lineCount, truncated: diffResult.truncated,
+      untrusted: true, prNumber: pr.number, title: sanitizeUntrustedText(pr.title || ""), body: sanitizeUntrustedText(pr.body || ""),
+      mergedAt: pr.mergedAt || null, commitSha, targetPrNumbers: [...targets].sort((a, b) => a - b), methods: [...methods],
+      prodFiles: diffResult.prodFiles, diff: diffResult.text, diffLineCount: diffResult.lineCount, truncated: diffResult.truncated,
     });
   }
   return fixupSignals;
@@ -317,35 +306,23 @@ export function minePrEvidence(options = {}) {
   const repo = options.repo || null;
   if (repo !== null && !REPO_SLUG_RE.test(repo)) throw new Error(`Invalid --repo value: ${repo}. Expected <owner/repo>.`);
   const toIso = normalizeBoundIso(options.to || new Date().toISOString(), true);
-  const fromIso = normalizeBoundIso(
-    options.from || new Date(Date.parse(toIso) - 7 * 86_400_000).toISOString(),
-    false,
-  );
+  const fromIso = normalizeBoundIso(options.from || new Date(Date.parse(toIso) - 7 * 86_400_000).toISOString(), false);
   if (Date.parse(fromIso) > Date.parse(toIso)) throw new Error(`Invalid window: --from (${fromIso}) is after --to (${toIso}).`);
   const checkoutDir = options.checkoutDir ? resolve(options.checkoutDir) : null;
-  const execGh = options.execGh || defaultExecGh;
-  const execGit = options.execGit || defaultExecGit;
-
+  const execGh = options.execGh || defaultExecGh, execGit = options.execGit || defaultExecGit;
   const { prsInWindow, allPrsByNum } = loadMergedPrs({ repo, fromIso, toIso, prs: options.prs, prsFile: options.prsFile, execGh });
-  const commentsMap = normalizeCommentsMap({
-    prsInWindow, repo, commentsByPr: options.commentsByPr, commentsFile: options.commentsFile, execGh,
-  });
+  const commentsMap = normalizeCommentsMap({ prsInWindow, repo, commentsByPr: options.commentsByPr, commentsFile: options.commentsFile, execGh });
   const metrics = options.metrics || (options.metricsFile ? readJsonOptionFile(options.metricsFile, "--metrics-file") : null);
-
   const addressedThreads = extractAddressedThreads({ prsInWindow, commentsMap, checkoutDir, execGit });
   const fixupSignals = extractFixupSignals({ prsInWindow, allPrsByNum, repo, metrics, checkoutDir, execGit });
-  const checklistText =
-    options.checklistText ??
-    (options.checklistPath && existsSync(options.checklistPath) ? readFileSync(options.checklistPath, "utf8") : null);
+  const checklistText = options.checklistText ?? (options.checklistPath && existsSync(options.checklistPath) ? readFileSync(options.checklistPath, "utf8") : null);
   const checklist = parseChecklist(checklistText);
   const eligibleForMining = fixupSignals.length >= 1 || addressedThreads.length >= 2;
-
   return {
     repo, window: { from: fromIso, to: toIso }, untrusted: true, eligibleForMining,
     summary: {
-      mergedPrCount: prsInWindow.length, addressedThreadCount: addressedThreads.length,
-      fixupSignalCount: fixupSignals.length, activeRuleCount: checklist.activeRuleCount,
-      remainingSlots: checklist.remainingSlots, staleRuleCount: checklist.staleRules.length,
+      mergedPrCount: prsInWindow.length, addressedThreadCount: addressedThreads.length, fixupSignalCount: fixupSignals.length,
+      activeRuleCount: checklist.activeRuleCount, remainingSlots: checklist.remainingSlots, staleRuleCount: checklist.staleRules.length,
     },
     addressedThreads, fixupSignals, checklist,
   };
@@ -358,11 +335,7 @@ export function formatEvidenceSummary(p) {
 
 function parseCliArgs(argv) {
   const opts = { json: false, help: false };
-  const flagMap = {
-    "--repo": "repo", "--from": "from", "--to": "to", "--checkout": "checkoutDir",
-    "--metrics-file": "metricsFile", "--prs-file": "prsFile",
-    "--comments-file": "commentsFile", "--checklist": "checklistPath",
-  };
+  const flagMap = { "--repo": "repo", "--from": "from", "--to": "to", "--checkout": "checkoutDir", "--metrics-file": "metricsFile", "--prs-file": "prsFile", "--comments-file": "commentsFile", "--checklist": "checklistPath" };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") opts.help = true;
@@ -375,12 +348,17 @@ function parseCliArgs(argv) {
   return opts;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function isMainModule(argv1) {
+  if (!argv1) return false;
+  const selfPath = fileURLToPath(import.meta.url);
+  try { return realpathSync(resolve(argv1)) === realpathSync(selfPath); }
+  catch { return resolve(argv1) === selfPath; }
+}
+
+if (isMainModule(process.argv[1])) {
   const cliOpts = parseCliArgs(process.argv.slice(2));
   if (cliOpts.help) {
-    process.stdout.write(
-      "Usage: node skills/infra-review/scripts/mine-pr-evidence.mjs [--repo <owner/repo>] [--from <ISO>] [--to <ISO>] [--checkout <dir>] [--metrics-file <json>] [--prs-file <json>] [--comments-file <json>] [--checklist <path>] [--json]\n",
-    );
+    process.stdout.write("Usage: node skills/infra-review/scripts/mine-pr-evidence.mjs [--repo <owner/repo>] [--from <ISO>] [--to <ISO>] [--checkout <dir>] [--metrics-file <json>] [--prs-file <json>] [--comments-file <json>] [--checklist <path>] [--json]\n");
   } else {
     const packet = minePrEvidence(cliOpts);
     process.stdout.write(cliOpts.json ? `${JSON.stringify(packet, null, 2)}\n` : formatEvidenceSummary(packet));
