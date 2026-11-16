@@ -2,7 +2,7 @@
 <2–4 sentences. Link the issue or the owner's request.>
 
 ## Acceptance record
-<Copy it from the plan. For a trivial change, write "none: trivial change". Check each "done when" item whose required cases all passed; leave any item that depends on a waived required case unchecked ([ ]) and note the owner waiver.>
+<Copy it from the plan. For a trivial change, write "none: trivial change". Check each "done when" item that has head-commit evidence and whose applicable required cases all passed; leave any item that depends on a waived required case unchecked ([ ]) and note the owner waiver.>
 
 ### Milestone scope (optional)
 <Use for a PR in a multi-milestone assignment. Otherwise write "not applicable: one focused PR".>

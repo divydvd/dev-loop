@@ -434,6 +434,8 @@ test("owner gate waivers record waived status and Owner waivers slots without to
   const ship = skill.split("## 7. Ship")[1]?.split("## After an authorized merge")[0] ?? "";
   assert.match(ship, /waived.*note|note.*waived/i, "SKILL.md ## 7. Ship must record waived cases as note, not validated or device_tested");
   const prAcceptance = pr.split("## Acceptance record")[1]?.split("## Evidence")[0] ?? "";
+  assert.match(prAcceptance, /head-commit evidence/i, "pr-body.md ## Acceptance record must require head-commit evidence");
+  assert.match(prAcceptance, /applicable required cases all passed/i, "pr-body.md ## Acceptance record must scope pass requirement to applicable required cases");
   assert.match(prAcceptance, /depends on a waived.*unchecked/i, "pr-body.md ## Acceptance record must keep any item depending on a waived case unchecked");
   assert.doesNotMatch(prAcceptance, /backed only by a waived/i, "pr-body.md ## Acceptance record must not allow checking mixed-coverage waived items");
   assert.match(pr.split("## Evidence")[1]?.split("## Test coverage")[0] ?? "", /waived/i, "pr-body.md ## Evidence must support waived (<raw status>) without false pass");
