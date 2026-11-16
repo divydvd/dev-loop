@@ -8,11 +8,11 @@
 
 **Tech Stack:** Node.js ESM (`node:test`, `node:assert/strict`, `node:fs`), Markdown skills, references, and templates, GitHub Copilot / Claude Code / Gemini CLI plugin manifests.
 
-**Spec:** `/Users/divydwivedi/Downloads/dev-loop-standalone-agent-spec.md` (`## Mandatory Repository Invariants & CI Guardrails` and `## PR 4: Explicit Owner Gate-Waiver Status (waived != passed)`).
+**Spec:** Owner-approved 5-PR standalone upgrade specification (`## Mandatory Repository Invariants & CI Guardrails` and `## PR 4: Explicit Owner Gate-Waiver Status (waived != passed)`, `main` at `0f7b6bf`).
 
 **Approvals:**
-- Feature design approval: granted by the owner in coordinator session `a97500cf-c2ac-48ad-a87f-25e566f01c3e` (`"Lets proceed."`).
-- Risky-area plan approval (`AGENTS.md` — *"The approval points and the finish rules"*): granted by the owner in coordinator session `a97500cf-c2ac-48ad-a87f-25e566f01c3e` (`"Approve PR 4 plan and start its session (Recommended)"`).
+- Feature design approval: granted by the owner in the parent coordinator session (`"Lets proceed."`).
+- Risky-area plan approval (`AGENTS.md` — *"The approval points and the finish rules"*): granted by the owner in the parent coordinator session (`"Approve PR 4 plan and start its session (Recommended)"`).
 
 ## Abstract
 In `dev-loop` `0.5.17`, `skills/dev-loop/references/testing.md` defines only five test-case statuses (`passed`, `failed`, `blocked`, `not run`, and `not applicable`), so a direct owner instruction in chat to skip a required check (such as a physical device test while away from hardware) either blocks PR readiness against owner intent or tempts agents to mislabel an applicable check as `not applicable` or `passed`.
@@ -49,7 +49,7 @@ The expected result is honest readiness reporting that preserves raw `not run`, 
 - **Size estimate:** Task 1 + Task 2: `0` production code lines (tests + Markdown skill/reference/template files); Task 3: `7` JSON version lines across 5 manifests (`README.md` and `CHANGELOG.md` are docs). Total `7` production lines (`<= 400`).
 - **Milestone selection:** Independent PR 4 (`M4`) of the 5-PR upgrade specification (`skills/dev-loop/references/milestones.md`), branched directly from `main` (`0f7b6bf`).
 - **Out of scope:** PR 1 (flow-doc drift scanner), PR 2 (PR-comment rule miner), PR 3 (multi-agent review panel), PR 5 (`work-ledger` config and outage resume), and any edits to `com.github.copilot/rules/core.mdc` or `GEMINI.md`.
-- **Risky area:** The approval points and the finish rules (`AGENTS.md`) — owner plan review approved in coordinator session `a97500cf-c2ac-48ad-a87f-25e566f01c3e`.
+- **Risky area:** The approval points and the finish rules (`AGENTS.md`) — owner plan review approved in the parent coordinator session.
 - **Stop conditions:**
   - Done: each unwaived "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass (except any required test case explicitly marked waived by a direct typed owner chat message with its raw status and unverified risk recorded) and no unwaived required coverage gaps remain. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
   - Blocked: 3 failed fixes, missing access, no device, or a product decision. Normally, stop and report with the evidence. For an approved multi-milestone assignment, use `references/milestones.md`: defer the blocked milestone and its actual dependents, then continue only eligible independent work. During confirmed active absence mode, also apply the absence reference. Stop when no eligible work remains. Global safety stops and three failed fixes still require a stop.
