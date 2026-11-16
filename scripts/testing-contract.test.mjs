@@ -425,21 +425,36 @@ test("owner gate waivers record waived status and Owner waivers slots without to
     ["SKILL.md - **Done:**", skillDone],
     ["acceptance-record.md - Done:", acceptanceDone],
   ]) {
-    assert.match(doneLine, /explicitly marked waived by a direct typed owner chat message/i, `${label} must state single-line waived exception`);
+    assert.match(doneLine, /each unwaived "done when" item has evidence at the head commit/i, `${label} must scope done-when head-commit evidence to unwaived items`);
+    assert.match(doneLine, /except any required test case explicitly marked waived by a direct typed owner chat message/i, `${label} must restrict single-line waived exception to required test cases`);
     assert.match(doneLine, /raw status.*unverified risk/i, `${label} must require raw status and unverified risk`);
     assert.match(doneLine, /no unwaived required coverage gaps? remain/i, `${label} must forbid unwaived required coverage gaps`);
   }
+
+  const ship = skill.split("## 7. Ship")[1]?.split("## After an authorized merge")[0] ?? "";
+  assert.match(ship, /waived.*note|note.*waived/i, "SKILL.md ## 7. Ship must record waived cases as note, not validated or device_tested");
+  assert.match(pr.split("## Acceptance record")[1]?.split("## Evidence")[0] ?? "", /waived.*unchecked|unchecked.*waived/i, "pr-body.md ## Acceptance record must keep waived done-when items unchecked");
+  assert.match(pr.split("## Evidence")[1]?.split("## Test coverage")[0] ?? "", /waived/i, "pr-body.md ## Evidence must support waived (<raw status>) without false pass");
 });
 
 test("waived requires a direct typed owner chat message, preserves raw status, and forbids passed claims or safety-boundary waivers", () => {
   const verifyReport = guidance.split("## Verify and report")[1]?.split("## Conclusion")[0] ?? "";
+  assert.match(verifyReport, /required test case or verification check/i);
+  assert.doesNotMatch(verifyReport, /required check or gate/i);
   assert.match(verifyReport, /direct typed.*chat message|explicitly waived.*direct typed chat message/i);
   assert.match(verifyReport, /not run, blocked, or failed/i);
   assert.match(verifyReport, /it is not a pass/i);
   assert.match(verifyReport, /ask_user/i);
   assert.match(verifyReport, /away mode/i);
-  assert.match(verifyReport, /peer-session|subagent/i);
+  assert.match(verifyReport, /coordinator.*peer-session|subagent, coordinator, or peer-session/i);
+  assert.match(verifyReport, /kickoff/i);
+  assert.match(verifyReport, /cross_session_message/i);
+  assert.match(verifyReport, /quoted.*hypothetical|hypothetical/i);
   assert.match(verifyReport, /earlier PR|old PR|prior PR/i);
+  assert.match(verifyReport, /design.*plan approval|feature-design.*risky-plan/i);
+  assert.match(verifyReport, /independent agent review/i);
+  assert.match(verifyReport, /Critical or Important/i);
+  assert.match(verifyReport, /head-commit.*CI|PR CI|checks pass at the head commit/i);
   assert.match(verifyReport, /rebase.*amend.*force-push.*push to main/i);
   assert.match(verifyReport, /merge.*deploy/i);
   assert.match(verifyReport, /personal-data.*secret|personal data.*secret/i);
