@@ -290,8 +290,8 @@ Invalid fields fall back to safe defaults, and all runtime guards stay active.
 It accepts HTTP `429`, `502`, `503`, `504`, rate-limit, overload, and transport reset or timeout errors.
 It rejects authentication (`401`, `403`), validation (`400`, `404`, `422`), other `4xx` or `5xx` statuses (`408`, `500`), context-overflow, tool, guard-denial, and cancellation errors.
 
-Auto-resume runs only when `away mode` is active in the workspace `progress.md` or in a current-session `away_mode:` ledger note.
-A direct owner `"I'm back"` message cancels any pending retry timer and blocks further auto-resume for that turn.
+Auto-resume runs only when `away mode` is active for the current session, with an explicit plan path and confirmed owner activation in `.superpowers/sdd/<plan>/progress.md` or a current-session `away_mode:` ledger note.
+A direct owner `"I'm back"` or stop-away command cancels any pending retry timer and blocks further auto-resume until a new explicit `away mode` instruction; ordinary questions about `away mode` do not re-enable it.
 Retries use `outageBackoffSec` (`[30, 120, 300]` seconds by default) up to `outageRetryCap` (clamped to `0..5`), and deduplicate twin error events while a retry timer is already pending (`status === "retrying"`).
 Each retry timer calls `.unref()` and clears on `SIGTERM` or `SIGINT` so host shutdown never hangs.
 Before running commands, the reconcile prompt instructs the agent to inspect the plan, `progress.md`, `git status`, `git log`, and `work_ledger_get`.

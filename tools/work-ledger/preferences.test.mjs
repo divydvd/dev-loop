@@ -324,3 +324,42 @@ test("final review regressions: canonical absolute dataDir validation and repo-l
   assert.ok(revokeNotes.some((n) => /acme\/widget#12 cancelled/i.test(n)));
 });
 
+test("copilot review regressions: top-level symlink inspection and strict WORK_LEDGER_DIR canonical forms", (t) => {
+  const { root, extDir } = tempDirs(t);
+  const homeDir = path.join(root, "home");
+  fs.mkdirSync(homeDir, { recursive: true });
+  const expectedFallback = path.join(homeDir, ".copilot", "work-ledger");
+
+  const origLstat = fs.lstatSync;
+  t.mock.method(fs, "lstatSync", (target, ...args) => {
+    if (target === "/ledger-link") {
+      return { isSymbolicLink: () => true, isDirectory: () => false, isFile: () => false };
+    }
+    if (target === "/ledger-link/state") {
+      const err = new Error("ENOENT");
+      err.code = "ENOENT";
+      throw err;
+    }
+    return origLstat(target, ...args);
+  });
+
+  for (const topSym of ["/ledger-link", "/ledger-link/state"]) {
+    const fromEnv = resolveDataDir({ envDir: topSym, extDir, homeDir });
+    assert.equal(fromEnv.dataDir, expectedFallback, `top-level symlink ${topSym} in envDir must fall back`);
+    assert.ok(fromEnv.bootstrapWarnings.some((w) => /symlink/i.test(w)), `expected symlink warning for ${topSym}`);
+
+    fs.writeFileSync(path.join(extDir, "config.json"), JSON.stringify({ dataDir: topSym }));
+    const fromExt = resolveDataDir({ envDir: "", extDir, homeDir });
+    assert.equal(fromExt.dataDir, expectedFallback, `top-level symlink ${topSym} in extDir must fall back`);
+    assert.ok(fromExt.bootstrapWarnings.some((w) => /symlink/i.test(w)));
+  }
+
+  // WORK_LEDGER_DIR must not expand tilde or accept dot segments / padded whitespace.
+  for (const badEnv of ["~/custom-wl", `  ${path.join(root, "padded")}  `, `${root}/./dot-seg`]) {
+    const res = resolveDataDir({ envDir: badEnv, extDir, homeDir });
+    assert.equal(res.dataDir, expectedFallback, `WORK_LEDGER_DIR=${JSON.stringify(badEnv)} must fall back`);
+    assert.ok(res.bootstrapWarnings.length > 0);
+  }
+});
+
+

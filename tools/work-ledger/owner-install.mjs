@@ -136,14 +136,16 @@ function configurationInput(request, installed) {
   const original = old ? read(path.join(request.installed, "config.json")) : null;
   if (original && digest(original) !== old[3]) fail("Configuration changed from the pinned snapshot.");
   const config = original ? object(original) : {};
-  if (!process.env.WORK_LEDGER_DIR && config.dataDir !== undefined && config.dataDir !== null
-      && (typeof config.dataDir !== "string" || !config.dataDir.trim())) {
+  const rawEnvDir = process.env.WORK_LEDGER_DIR;
+  if (!rawEnvDir && config.dataDir !== undefined && (typeof config.dataDir !== "string" || !config.dataDir.trim())) {
     fail("Configured ledger directory must be a non-empty string path.");
   }
-  const dataDir = process.env.WORK_LEDGER_DIR || (typeof config.dataDir === "string"
-    ? config.dataDir.trim().replace(/^~(?=\/|$)/, os.homedir()) : path.join(os.homedir(), ".copilot/work-ledger"));
-  if (!path.isAbsolute(dataDir)) fail("Ledger directory must be absolute; the runtime host working directory is unknown.");
-  const ledgerDir = path.resolve(dataDir);
+  if (rawEnvDir && rawEnvDir !== rawEnvDir.trim()) fail("Ledger directory must not have leading or trailing whitespace.");
+  const rawDir = rawEnvDir || (typeof config.dataDir === "string"
+    ? config.dataDir.trim().replace(/^~(?=\/|$)/, path.resolve(os.homedir())) : path.join(path.resolve(os.homedir()), ".copilot/work-ledger"));
+  const ledgerDir = rawDir.length > 1 ? rawDir.replace(/[\\/]+$/, "") : rawDir;
+  if (!path.isAbsolute(ledgerDir)) fail("Ledger directory must be absolute; the runtime host working directory is unknown.");
+  if (ledgerDir === path.parse(ledgerDir).root) fail("Ledger directory must not be the filesystem root.");
   canonical(ledgerDir);
   privateParent(request.backupParent, [request.candidate, request.installed, ledgerDir]);
   let additions = [];

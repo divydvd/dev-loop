@@ -838,6 +838,35 @@ for (const mode of [0o500, 0o555, 0o1500]) {
   });
 }
 
+test("rejects traversal, dot-segment, root, and null dataDir or WORK_LEDGER_DIR so installer and runtime never diverge", async t => {
+  const f = await fixture(t);
+  const previous = process.env.WORK_LEDGER_DIR;
+  t.after(() => {
+    if (previous === undefined) delete process.env.WORK_LEDGER_DIR;
+    else process.env.WORK_LEDGER_DIR = previous;
+  });
+
+  for (const badConfigDir of [
+    `${f.root}/state/../ledger`,
+    `${f.root}/./ledger`,
+    "/",
+    null,
+  ]) {
+    delete process.env.WORK_LEDGER_DIR;
+    fs.writeFileSync(path.join(f.installed, "config.json"), JSON.stringify({ dataDir: badConfigDir }));
+    f.request.installedHash = f.installationSnapshot(f.installed).hash;
+    await assert.rejects(f.prepareInstallation(f.request), /normalized|canonical|root|string|path|ledger/i, `expected installer to reject dataDir=${JSON.stringify(badConfigDir)}`);
+  }
+
+  fs.writeFileSync(path.join(f.installed, "config.json"), f.originalConfig);
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  for (const badEnvDir of [`${f.root}/state/../ledger`, `${f.root}/./ledger`, "/"]) {
+    process.env.WORK_LEDGER_DIR = badEnvDir;
+    await assert.rejects(f.prepareInstallation(f.request), /normalized|canonical|root|path|ledger/i, `expected installer to reject WORK_LEDGER_DIR=${JSON.stringify(badEnvDir)}`);
+  }
+});
+
+
 for (const failure of ["write", "rename", "directory-drift"]) {
   test(`a ${failure} failure preserves the read-only original bytes and modes`, async t => {
     const f = await fixture(t);

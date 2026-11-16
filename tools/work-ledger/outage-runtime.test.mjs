@@ -122,7 +122,7 @@ test("away-mode transient outage deduplicates twin events, sends reconcile promp
   fs.mkdirSync(sddDir, { recursive: true });
   fs.writeFileSync(
     path.join(sddDir, "progress.md"),
-    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n"
+    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n| Scope | session: owner-runtime, plan: docs/superpowers/plans/m5.md |\n| Owner activation | Direct 'away mode' instruction (msg-1) |\n"
   );
 
   const driver = `
@@ -206,7 +206,7 @@ test("failed session.send preserves retrying state for onSessionStart fallback, 
   fs.mkdirSync(sddDir, { recursive: true });
   fs.writeFileSync(
     path.join(sddDir, "progress.md"),
-    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n"
+    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n| Scope | session: owner-runtime, plan: docs/superpowers/plans/m5.md |\n| Owner activation | Direct 'away mode' instruction (msg-1) |\n"
   );
 
   const step1 = `
@@ -270,7 +270,7 @@ test("failed session.send preserves retrying state for onSessionStart fallback, 
   // Also verify flipping progress.md to active: false while a timer is armed prevents session.send from firing.
   fs.writeFileSync(
     path.join(sddDir, "progress.md"),
-    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n"
+    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n| Scope | session: progress-flip-session, plan: docs/superpowers/plans/m5.md |\n| Owner activation | Direct 'away mode' instruction (msg-1) |\n"
   );
   const step3 = `
     import assert from "node:assert/strict";
@@ -286,7 +286,7 @@ test("failed session.send preserves retrying state for onSessionStart fallback, 
     });
     fs.writeFileSync(
       path.join(process.cwd(), ".superpowers/sdd/m5/progress.md"),
-      "# SDD ledger — plan: docs/superpowers/plans/m5.md\\nactive: false\\n"
+      "# SDD ledger — plan: docs/superpowers/plans/m5.md\\nactive: false\\n| Scope | session: progress-flip-session, plan: docs/superpowers/plans/m5.md |\\n"
     );
     await new Promise((r) => setTimeout(r, 1300));
     assert.equal(host.sentPrompts.length, 0);
@@ -307,7 +307,7 @@ test("SIGTERM clears a 300s .unref() retry timer and exits cleanly within 3s", a
   fs.mkdirSync(sddDir, { recursive: true });
   fs.writeFileSync(
     path.join(sddDir, "progress.md"),
-    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n"
+    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n| Scope | session: owner-runtime, unref-session, plan: docs/superpowers/plans/m5.md |\n| Owner activation | Direct 'away mode' instruction (msg-1) |\n"
   );
 
   const keepAliveScript = `
@@ -386,7 +386,7 @@ test("final review runtime regressions: uncreatable dataDir fails safe and quote
   fs.mkdirSync(sddDir, { recursive: true });
   fs.writeFileSync(
     path.join(sddDir, "progress.md"),
-    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n"
+    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n| Scope | session: owner-runtime, plan: docs/superpowers/plans/m5.md |\n| Owner activation | Direct 'away mode' instruction (msg-1) |\n"
   );
 
   // 1. Quoted `I'm back` in an owner away-mode instruction does not set ownerReturnedAt,
@@ -428,12 +428,23 @@ test("final review runtime regressions: uncreatable dataDir fails safe and quote
     host.callbacks.get("user.message")({ id: "msg-back", data: { content: "I'm back" } });
     await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "true" }, workingDirectory: process.cwd() });
     saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
-    assert.ok(saved.outageRecovery["owner-runtime"].ownerReturnedAt);
+    const returnedCutoff = saved.outageRecovery["owner-runtime"].ownerReturnedAt;
+    assert.ok(returnedCutoff);
 
+    // Away-related questions after "I'm back" must NOT clear or override the return cutoff.
+    host.callbacks.get("user.message")({ id: "msg-question", data: { content: "How does away mode work?" } });
+    await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "true" }, workingDirectory: process.cwd() });
+    await host.options.hooks.onErrorOccurred({ error: "HTTP 503 Service Unavailable", workingDirectory: process.cwd() });
+    saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+    assert.equal(saved.outageRecovery["owner-runtime"].ownerReturnedAt, returnedCutoff);
+    assert.notEqual(saved.outageRecovery["owner-runtime"].status, "retrying");
+
+    // A direct activation instruction re-enables recovery for this session's scoped assignment.
     host.callbacks.get("user.message")({ id: "msg-away-again", data: { content: "away mode" } });
     await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "true" }, workingDirectory: process.cwd() });
+    await host.options.hooks.onErrorOccurred({ error: "HTTP 503 Service Unavailable", workingDirectory: process.cwd() });
     saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
-    assert.equal(saved.outageRecovery["owner-runtime"].ownerReturnedAt, null);
+    assert.equal(saved.outageRecovery["owner-runtime"].status, "retrying");
     console.log("quoted-back-and-reenter-ok");
   `;
   const rQuoted = runInlineDriver(quotedBackScript, { cwd: repoDir, env });
@@ -462,4 +473,135 @@ test("final review runtime regressions: uncreatable dataDir fails safe and quote
   assert.equal(badDirRes.status, 0, `${badDirRes.stdout}\n${badDirRes.stderr}`);
   assert.match(badDirRes.stdout, /bad-datadir-fallback-ok/);
 });
+
+test("copilot review runtime regressions: gitHead race on send and hydration, and cross-session isolation", (t) => {
+  const { dir, ledgerDir, repoDir, env } = makeSandbox(t, { withRemote: true });
+  fs.writeFileSync(
+    path.join(ledgerDir, "config.json"),
+    JSON.stringify({ outageRetryCap: 3, outageBackoffSec: [1, 2, 2] })
+  );
+  const sddDir = path.join(repoDir, ".superpowers/sdd/m5");
+  fs.mkdirSync(sddDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sddDir, "progress.md"),
+    "# SDD ledger — plan: docs/superpowers/plans/m5.md\nactive: true\n| Scope | session: owner-runtime, plan: docs/superpowers/plans/m5.md |\n| Owner activation | Direct 'away mode' instruction (msg-1) |\n"
+  );
+
+  // Create a slow git wrapper so gitHead() takes ~250ms and exposes the mid-lookup owner "I'm back" race.
+  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  const binDir = path.join(dir, "slow-bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  const slowGit = path.join(binDir, "git");
+  fs.writeFileSync(
+    slowGit,
+    `#!/bin/sh\nif [ "$1" = "rev-parse" ] && [ -n "$SLOW_GIT_HEAD" ]; then sleep 0.25; fi\nexec "${realGit}" "$@"\n`,
+    { mode: 0o755 }
+  );
+  const raceEnv = { ...env, PATH: `${binDir}:${env.PATH}` };
+
+  // 1. Unrelated session B in the same checkout must NOT recover using session A's progress.md.
+  const crossRes = runInlineDriver(
+    `
+      import assert from "node:assert/strict";
+      import fs from "node:fs";
+      import path from "node:path";
+      import { pathToFileURL } from "node:url";
+      await import(pathToFileURL(${JSON.stringify(extensionPath)}).href);
+      const host = globalThis.ledgerTestHost;
+      await host.options.hooks.onErrorOccurred({ error: "HTTP 503 Service Unavailable", workingDirectory: process.cwd() });
+      const ledgerPath = path.join(process.env.WORK_LEDGER_DIR, "ledger.json");
+      if (fs.existsSync(ledgerPath)) {
+        const saved = JSON.parse(fs.readFileSync(ledgerPath, "utf8"));
+        assert.equal(saved.outageRecovery?.["unrelated-session"], undefined);
+      }
+      console.log("cross-session-isolated-ok");
+    `,
+    { cwd: repoDir, env: { ...raceEnv, TEST_SESSION_ID: "unrelated-session" } }
+  );
+  assert.equal(crossRes.status, 0, `${crossRes.stdout}\n${crossRes.stderr}`);
+  assert.match(crossRes.stdout, /cross-session-isolated-ok/);
+
+  // 2. Owner sends "I'm back" while gitHead() is awaited in the timer send callback -> must stay cancelled and NOT send.
+  const slowGitHook = `
+    import childProcess from "node:child_process";
+    import { syncBuiltinESMExports } from "node:module";
+    const origExecFile = childProcess.execFile;
+    childProcess.execFile = function (file, args, options, callback) {
+      const cb = typeof options === "function" ? options : callback;
+      const wrapped = process.env.SLOW_GIT_HEAD === "1" && Array.isArray(args) && args.includes("rev-parse")
+        ? (...xs) => setTimeout(() => cb?.(...xs), 250)
+        : cb;
+      return typeof options === "function" ? origExecFile.call(this, file, args, wrapped) : origExecFile.call(this, file, args, options, wrapped);
+    };
+    syncBuiltinESMExports();
+  `;
+  const timerRaceRes = runInlineDriver(
+    `
+      ${slowGitHook}
+      import assert from "node:assert/strict";
+      import fs from "node:fs";
+      import path from "node:path";
+      import { pathToFileURL } from "node:url";
+      await import(pathToFileURL(${JSON.stringify(extensionPath)}).href);
+      const host = globalThis.ledgerTestHost;
+      host.callbacks.get("user.message")({ id: "initial-prompt-1", data: { content: "start task" } });
+      await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "true" }, workingDirectory: process.cwd() }, { sessionId: host.session.sessionId });
+      await host.options.hooks.onErrorOccurred({ error: "HTTP 503 Service Unavailable", workingDirectory: process.cwd() });
+      process.env.SLOW_GIT_HEAD = "1";
+      // Timer fires at ~1000ms and enters 250ms gitHead(); emit "I'm back" at 1080ms mid-lookup!
+      await new Promise((r) => setTimeout(r, 1080));
+      host.callbacks.get("user.message")({ id: "race-back-1", data: { content: "I'm back" } });
+      await new Promise((r) => setTimeout(r, 500));
+      assert.equal(host.sentPrompts.length, 0, "must not send reconcile prompt after mid-gitHead I'm back");
+      const saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+      assert.equal(saved.outageRecovery["owner-runtime"].status, "cancelled");
+      console.log("timer-race-cancelled-ok");
+    `,
+    { cwd: repoDir, env: raceEnv }
+  );
+  assert.equal(timerRaceRes.status, 0, `${timerRaceRes.stdout}\n${timerRaceRes.stderr}`);
+  assert.match(timerRaceRes.stdout, /timer-race-cancelled-ok/);
+
+  // 3. Owner sends "I'm back" while gitHead() is awaited in onSessionStart hydration -> must stay cancelled and NOT hydrate prompt.
+  const ledgerFile = path.join(ledgerDir, "ledger.json");
+  const seeded = JSON.parse(fs.readFileSync(ledgerFile, "utf8"));
+  seeded.outageRecovery["owner-runtime"] = {
+    sessionId: "owner-runtime",
+    planPath: "docs/superpowers/plans/m5.md",
+    progressPath: ".superpowers/sdd/m5/progress.md",
+    attemptsUsed: 1,
+    nextDelaySec: 30,
+    pendingPrompt: "[work-ledger] Away-mode transient outage recovery (attempt 1/3, cause: http_503).",
+    lastOutageAt: new Date().toISOString(),
+    status: "retrying",
+  };
+  fs.writeFileSync(ledgerFile, JSON.stringify(seeded));
+
+  const hydrateRaceRes = runInlineDriver(
+    `
+      ${slowGitHook}
+      import assert from "node:assert/strict";
+      import fs from "node:fs";
+      import path from "node:path";
+      import { pathToFileURL } from "node:url";
+      process.env.SLOW_GIT_HEAD = "1";
+      await import(pathToFileURL(${JSON.stringify(extensionPath)}).href);
+      const host = globalThis.ledgerTestHost;
+      host.callbacks.get("user.message")({ id: "initial-prompt-2", data: { content: "start task" } });
+      await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "true" }, workingDirectory: process.cwd() }, { sessionId: host.session.sessionId });
+      const startPromise = host.options.hooks.onSessionStart();
+      await new Promise((r) => setTimeout(r, 80));
+      host.callbacks.get("user.message")({ id: "race-back-2", data: { content: "I'm back" } });
+      const startRes = await startPromise;
+      assert.doesNotMatch(startRes.additionalContext, /Away-mode transient outage recovery/);
+      const saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+      assert.equal(saved.outageRecovery["owner-runtime"].status, "cancelled");
+      console.log("hydrate-race-cancelled-ok");
+    `,
+    { cwd: repoDir, env: raceEnv }
+  );
+  assert.equal(hydrateRaceRes.status, 0, `${hydrateRaceRes.stdout}\n${hydrateRaceRes.stderr}`);
+  assert.match(hydrateRaceRes.stdout, /hydrate-race-cancelled-ok/);
+});
+
 

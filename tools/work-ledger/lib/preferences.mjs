@@ -23,25 +23,26 @@ function readConfigObject(filePath, warnings) {
   } catch (err) { if (err?.code !== "ENOENT") warnings.push(`Cannot load ${filePath} (${err?.message || err}); using safe defaults.`); return {}; }
 }
 
-function validateDataDir(raw, label, homeDir, fallback, warnings) {
-  if (typeof raw !== "string" || !raw.trim()) return (warnings.push(`Invalid ${label}: expected a non-empty absolute path; using ${fallback}.`), null);
-  const expanded = raw.trim().replace(/^~(?=\/|$)/, homeDir), norm = path.isAbsolute(expanded) ? path.resolve(expanded) : "";
-  if (!norm || norm === "/" || /(?:^|[\\/])\.\.(?:[\\/]|$)/.test(expanded)) return (warnings.push(`Invalid ${label} ${JSON.stringify(raw)}: expected a canonical absolute path; using ${fallback}.`), null);
-  const stop = new Set([path.resolve(homeDir), path.resolve(os.tmpdir()), "/"]);
-  for (let cur = norm; !stop.has(cur) && path.dirname(cur) !== "/"; cur = path.dirname(cur)) {
+function validateDataDir(raw, label, homeDir, fallback, warnings, allowTilde = false) {
+  if (typeof raw !== "string" || !raw.trim() || (!allowTilde && raw !== raw.trim())) return (warnings.push(`Invalid ${label}: expected a non-empty absolute path; using ${fallback}.`), null);
+  const expanded = allowTilde ? raw.trim().replace(/^~(?=\/|$)/, path.resolve(homeDir)) : raw, trimmed = expanded.length > 1 ? expanded.replace(/[\\/]+$/, "") : expanded;
+  const norm = path.isAbsolute(trimmed) && path.resolve(trimmed) === trimmed ? trimmed : "";
+  if (!norm || norm === path.parse(norm).root) return (warnings.push(`Invalid ${label} ${JSON.stringify(raw)}: expected a canonical absolute path; using ${fallback}.`), null);
+  const stop = new Set([path.resolve(os.tmpdir()), path.parse(norm).root]);
+  for (let cur = norm; !stop.has(cur) && path.dirname(cur) !== cur; cur = path.dirname(cur)) {
     try { const st = fs.lstatSync(cur); if (st.isSymbolicLink() || !st.isDirectory()) return (warnings.push(`Refusing ${label} ${JSON.stringify(raw)}: symlink or non-directory; using ${fallback}.`), null); }
     catch (err) { if (err?.code !== "ENOENT") return (warnings.push(`Cannot stat ${label} ${cur} (${err?.message || err}); using ${fallback}.`), null); }
   }
   return norm;
 }
 
-const canonical = (v) => Array.isArray(v) ? v.map(canonical) : isPlain(v) ? Object.fromEntries(Object.keys(v).sort().filter((k) => !DANGEROUS.has(k) && v[k] !== undefined).map((k) => [k, canonical(v[k])])) : v;
+const canonical = (v) => Array.isArray(v) ? v.map(canonical) : isPlain(v) ? Object.fromEntries(Object.keys(v).sort().filter((k) => !DANGEROUS.has(k) && v[k] !== undefined).map((k, _) => [k, canonical(v[k])])) : v;
 
 export function resolveDataDir({ envDir = process.env.WORK_LEDGER_DIR, extDir, homeDir = os.homedir() } = {}) {
   const bootstrapWarnings = [], fallback = path.join(homeDir, ".copilot", "work-ledger");
-  if (envDir !== undefined && envDir !== "") return { dataDir: validateDataDir(String(envDir), "WORK_LEDGER_DIR", homeDir, fallback, bootstrapWarnings) || fallback, bootstrapWarnings };
+  if (envDir !== undefined && envDir !== "") return { dataDir: validateDataDir(String(envDir), "WORK_LEDGER_DIR", homeDir, fallback, bootstrapWarnings, false) || fallback, bootstrapWarnings };
   const extFile = extDir ? path.join(extDir, "config.json") : null, extCfg = readConfigObject(extFile, bootstrapWarnings);
-  if (extCfg.dataDir !== undefined) return { dataDir: validateDataDir(extCfg.dataDir, `dataDir in ${extFile}`, homeDir, fallback, bootstrapWarnings) || fallback, bootstrapWarnings };
+  if (extCfg.dataDir !== undefined) return { dataDir: validateDataDir(extCfg.dataDir, `dataDir in ${extFile}`, homeDir, fallback, bootstrapWarnings, true) || fallback, bootstrapWarnings };
   return { dataDir: fallback, bootstrapWarnings };
 }
 
@@ -53,9 +54,9 @@ export function loadPreferences({ dataDir, extDir, defaults = DEFAULT_CONFIG } =
   if ("defaultRepo" in m) (m.defaultRepo === null || validRepo(m.defaultRepo)) ? (config.defaultRepo = m.defaultRepo) : configWarnings.push(`Invalid defaultRepo ${JSON.stringify(m.defaultRepo)}; falling back to ${JSON.stringify(defaults.defaultRepo)}.`);
   for (const [f, [min, max]] of Object.entries(INT_BOUNDS)) if (f in m) (Number.isInteger(m[f]) && m[f] >= min && m[f] <= max) ? (config[f] = m[f]) : configWarnings.push(`Invalid ${f} ${JSON.stringify(m[f])}; falling back to ${defaults[f]}.`);
   if ("outageRetryCap" in m) {
-    if (Number.isInteger(m.outageRetryCap) && m.outageRetryCap >= 0 && m.outageRetryCap <= 5) config.outageRetryCap = m.outageRetryCap;
-    else if (Number.isInteger(m.outageRetryCap) && m.outageRetryCap > 5) { config.outageRetryCap = 5; configWarnings.push(`outageRetryCap ${m.outageRetryCap} clamped to 5.`); }
-    else { config.outageRetryCap = defaults.outageRetryCap ?? 3; configWarnings.push(`Invalid outageRetryCap ${JSON.stringify(m.outageRetryCap)}; falling back to ${config.outageRetryCap}.`); }
+    const v = m.outageRetryCap;
+    if (Number.isInteger(v) && v >= 0) config.outageRetryCap = v > 5 ? (configWarnings.push(`outageRetryCap ${v} clamped to 5.`), 5) : v;
+    else { config.outageRetryCap = defaults.outageRetryCap ?? 3; configWarnings.push(`Invalid outageRetryCap ${JSON.stringify(v)}; falling back to ${config.outageRetryCap}.`); }
   }
   if ("outageBackoffSec" in m) {
     const v = m.outageBackoffSec;
@@ -64,14 +65,9 @@ export function loadPreferences({ dataDir, extDir, defaults = DEFAULT_CONFIG } =
   for (const [f, fb] of Object.entries(BOOL_DEFAULTS)) if (f in m) typeof m[f] === "boolean" ? (config[f] = m[f]) : (config[f] = f in defaults ? defaults[f] : fb, configWarnings.push(`Invalid ${f} ${JSON.stringify(m[f])}; falling back to ${config[f]}.`));
   if ("deployWorkflows" in m) {
     const v = m.deployWorkflows, entries = isPlain(v) ? Object.entries(v).filter(([k]) => !DANGEROUS.has(k)) : [];
-    if (v === null) config.deployWorkflows = null;
-    else if (isPlain(v) && entries.length && entries.every(([, s]) => typeof s === "string" && s.trim())) config.deployWorkflows = { ...DEFAULT_DEPLOY_WORKFLOWS, ...Object.fromEntries(entries) };
-    else configWarnings.push(`Invalid deployWorkflows; falling back to null.`);
+    v === null ? (config.deployWorkflows = null) : (isPlain(v) && entries.length && entries.every(([, s]) => typeof s === "string" && s.trim())) ? (config.deployWorkflows = { ...DEFAULT_DEPLOY_WORKFLOWS, ...Object.fromEntries(entries) }) : configWarnings.push(`Invalid deployWorkflows; falling back to null.`);
   }
   for (const f of ["localMavenScopes", "readOnlyMonitors"]) if (f in m) Array.isArray(m[f]) ? (config[f] = [...m[f]]) : configWarnings.push(`Invalid ${f}; falling back to [].`);
-  if ("dataDir" in m && m.dataDir !== undefined) validateDataDir(m.dataDir, "dataDir", os.homedir(), path.join(os.homedir(), ".copilot", "work-ledger"), configWarnings);
+  if ("dataDir" in m && m.dataDir !== undefined) validateDataDir(m.dataDir, "dataDir", os.homedir(), path.join(os.homedir(), ".copilot", "work-ledger"), configWarnings, true);
   return { config, configWarnings, configDigest: crypto.createHash("sha256").update(JSON.stringify(canonical(config))).digest("hex").slice(0, 12) };
 }
-
-
-

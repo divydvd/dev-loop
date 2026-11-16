@@ -112,7 +112,7 @@ export function prune(data, now = Date.now()) {
     u.merges = (u.merges || []).slice(-10);
   }
   for (const [sid, rec] of Object.entries(data.outageRecovery || {})) {
-    const ts = Date.parse(rec?.lastOutageAt || rec?.ownerReturnedAt);
+    const ts = Math.max(Date.parse(rec?.lastOutageAt || "") || 0, Date.parse(rec?.ownerReturnedAt || "") || 0, Date.parse(rec?.ownerActivatedAt || "") || 0) || NaN;
     if (!rec || typeof rec !== "object" || !Number.isFinite(ts) || ts < now - 14 * day) delete data.outageRecovery[sid];
   }
 }

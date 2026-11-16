@@ -23,17 +23,23 @@ function makeWorkspace(t) {
   return root;
 }
 
-function writeAwayProgress(root, slug = "2026-11-16-demo", active = true) {
+function writeAwayProgress(root, slug = "2026-11-16-demo", active = true, {
+  sessionId = "sess-1",
+  activation = "Direct 'away mode' instruction (msg-1, 2026-11-16T09:00:00Z)",
+} = {}) {
   const dir = path.join(root, ".superpowers", "sdd", slug);
   fs.mkdirSync(dir, { recursive: true });
   const progressPath = path.join(dir, "progress.md");
   const planPath = `docs/superpowers/plans/${slug}.md`;
-  fs.writeFileSync(progressPath, [
+  const lines = [
     `# SDD ledger — plan: ${planPath}`,
     "## Absence mode",
     `active: ${active ? "true" : "false"}`,
     `| Mode | ${active ? "Active" : "Ended"} |`,
-  ].join("\n") + "\n");
+  ];
+  if (sessionId) lines.push(`| Scope | session: ${sessionId}, assignment: ${slug}, plan: ${planPath} |`);
+  if (activation) lines.push(`| Owner activation | ${activation} |`);
+  fs.writeFileSync(progressPath, lines.join("\n") + "\n");
   return { progressPath, planPath };
 }
 
@@ -114,7 +120,7 @@ test("detectAwayMode recognizes both nested checkout progress.md and away_mode l
   const root = makeWorkspace(t);
   const subDir = path.join(root, "packages", "core");
   fs.mkdirSync(subDir, { recursive: true });
-  const { planPath } = writeAwayProgress(root, "2026-11-16-nested", true);
+  const { planPath } = writeAwayProgress(root, "2026-11-16-nested", true, { sessionId: "s1" });
 
   const fromFiles = detectAwayMode({ cwd: subDir, data: emptyLedger(), sessionId: "s1" });
   assert.equal(fromFiles.active, true);
@@ -122,7 +128,7 @@ test("detectAwayMode recognizes both nested checkout progress.md and away_mode l
 
   const emptyRoot = makeWorkspace(t);
   const data = emptyLedger();
-  recordEvidence(data, { repo: "acme/widget", pr: 9, kind: "note", text: "away_mode: active=true plan=docs/superpowers/plans/p.md", sessionId: "s2" });
+  recordEvidence(data, { repo: "acme/widget", pr: 9, kind: "note", text: "away_mode: active=true plan=docs/superpowers/plans/p.md activation=msg-1", sessionId: "s2" });
   const fromLedger = detectAwayMode({ cwd: emptyRoot, data, sessionId: "s2" });
   assert.equal(fromLedger.active, true);
   assert.equal(fromLedger.planPath, "docs/superpowers/plans/p.md");
@@ -133,7 +139,7 @@ test("detectAwayMode recognizes both nested checkout progress.md and away_mode l
 
 test("planOutageResume schedules [30, 120, 300]s, deduplicates twin error events, and halts exhausted on failure 4", (t) => {
   const cwd = makeWorkspace(t);
-  const { planPath } = writeAwayProgress(cwd, "2026-11-16-m5", true);
+  const { planPath } = writeAwayProgress(cwd, "2026-11-16-m5", true, { sessionId: "sess-away" });
   const data = emptyLedger();
   const sha = "a".repeat(40);
   const baseNow = Date.parse("2026-11-16T12:00:00Z");
@@ -216,7 +222,7 @@ test("planOutageResume schedules [30, 120, 300]s, deduplicates twin error events
 
 test("recordOutageProgress resets attemptsUsed to 0 only after new commit SHA or ledger progress", (t) => {
   const cwd = makeWorkspace(t);
-  writeAwayProgress(cwd, "2026-11-16-reset", true);
+  writeAwayProgress(cwd, "2026-11-16-reset", true, { sessionId: "sess-prog" });
   const data = emptyLedger();
   const sha1 = "1".repeat(40);
   const sha2 = "2".repeat(40);
@@ -329,7 +335,7 @@ test("reviewer regressions: classifier exclusions, strict away-mode markers, new
   // Narrative prose inside progress.md mentioning 'active: true' must NOT activate away mode,
   // and an ended newer progress.md must stop fallback to an older active progress.md.
   const ws = makeWorkspace(t);
-  writeAwayProgress(ws, "2026-11-10-old", true);
+  writeAwayProgress(ws, "2026-11-10-old", true, { sessionId: "sess-a" });
   const oldFile = path.join(ws, ".superpowers/sdd/2026-11-10-old/progress.md");
   fs.utimesSync(oldFile, new Date("2026-11-10T00:00:00Z"), new Date("2026-11-10T00:00:00Z"));
 
@@ -338,14 +344,14 @@ test("reviewer regressions: classifier exclusions, strict away-mode markers, new
   const currentFile = path.join(currentDir, "progress.md");
   fs.writeFileSync(
     currentFile,
-    "# SDD ledger — plan: docs/superpowers/plans/current.md\n| Mode | Ended |\nTask 1 note: verified guard stays active: true when config is malformed.\n"
+    "# SDD ledger — plan: docs/superpowers/plans/current.md\n| Mode | Ended |\n| Scope | session: sess-a, plan: docs/superpowers/plans/current.md |\nTask 1 note: verified guard stays active: true when config is malformed.\n"
   );
   fs.utimesSync(currentFile, new Date("2026-11-16T12:00:00Z"), new Date("2026-11-16T12:00:00Z"));
   assert.equal(detectAwayMode({ cwd: ws, data, sessionId: "sess-a" }).active, false);
 
   // Per-session progress isolation + status === "resumed" requirement before resetting attemptsUsed.
   const wsActive = makeWorkspace(t);
-  writeAwayProgress(wsActive, "2026-11-16-iso", true);
+  writeAwayProgress(wsActive, "2026-11-16-iso", true, { sessionId: "sess-a" });
   const sha = "a".repeat(40);
   const t0 = Date.parse("2026-11-16T15:00:00Z");
   planOutageResume(data, {
@@ -380,7 +386,7 @@ test("reviewer regressions: classifier exclusions, strict away-mode markers, new
 
 test("final review regressions: failing Gradle, null initial HEAD, mid-turn commits, and unified away timeline", (t) => {
   const ws = makeWorkspace(t);
-  writeAwayProgress(ws, "2026-11-16-final", true);
+  writeAwayProgress(ws, "2026-11-16-final", true, { sessionId: "s1" });
   const progressFile = path.join(ws, ".superpowers/sdd/2026-11-16-final/progress.md");
   const t0 = Date.parse("2026-11-16T16:00:00Z");
   fs.utimesSync(progressFile, new Date(t0), new Date(t0));
@@ -490,4 +496,83 @@ test("final review regressions: failing Gradle, null initial HEAD, mid-turn comm
   });
   assert.equal(detectAwayMode({ cwd: ws, data, sessionId: "s1" }).active, false);
 });
+
+test("copilot review regressions: session-scoped progress.md, confirmed activation, atomic claim, and away-intent parsing", async (t) => {
+  const mod = await import("./lib/outage-resume.mjs");
+  assert.equal(typeof mod.parseOwnerAwayIntent, "function");
+  for (const q of [
+    "How does away mode work?",
+    "What is away mode?",
+    "Away mode?",
+    "Explain away mode",
+    "Do not use away mode",
+    "Don't enter away mode",
+  ]) {
+    assert.equal(mod.parseOwnerAwayIntent(q), null, `question/negation must not activate: ${q}`);
+  }
+  for (const act of [
+    "away mode",
+    "away mode: continue M5",
+    "Use away mode for this task.",
+    "Enter away mode until I type   tonight.",
+    "Please continue in away mode",
+  ]) {
+    assert.equal(mod.parseOwnerAwayIntent(act), "activate", `direct instruction must activate: ${act}`);
+  }
+  for (const ret of ["I'm back", "I am back, what changed?", "stop away mode", "end away mode", "stop"]) {
+    assert.equal(mod.parseOwnerAwayIntent(ret), "return", `return/stop instruction must end away mode: ${ret}`);
+  }
+
+  // Session A's active progress.md must NOT enable recovery for Session B in the same checkout.
+  const sharedWs = makeWorkspace(t);
+  writeAwayProgress(sharedWs, "2026-11-16-sess-a", true, { sessionId: "sess-A" });
+  const sharedData = emptyLedger();
+  assert.equal(detectAwayMode({ cwd: sharedWs, data: sharedData, sessionId: "sess-A" }).active, true);
+  assert.equal(detectAwayMode({ cwd: sharedWs, data: sharedData, sessionId: "sess-B" }).active, false);
+  assert.equal(detectAwayMode({ cwd: sharedWs, data: sharedData, sessionId: "" }).active, false);
+
+  const crossSession = planOutageResume(sharedData, {
+    sessionId: "sess-B",
+    cwd: sharedWs,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: "a".repeat(40),
+    config: DEFAULT_CONFIG,
+    now: Date.parse("2026-11-16T17:00:00Z"),
+  });
+  assert.equal(crossSession.resume, false);
+  assert.equal(crossSession.reason, "away_mode_inactive");
+
+  // Unscoped progress.md (missing session scope) or unconfirmed activation (missing Owner activation) must be refused.
+  const unscopedWs = makeWorkspace(t);
+  writeAwayProgress(unscopedWs, "2026-11-16-unscoped", true, { sessionId: null });
+  assert.equal(detectAwayMode({ cwd: unscopedWs, data: emptyLedger(), sessionId: "sess-A" }).active, false);
+
+  const noActivationWs = makeWorkspace(t);
+  writeAwayProgress(noActivationWs, "2026-11-16-noact", true, { sessionId: "sess-A", activation: null });
+  assert.equal(detectAwayMode({ cwd: noActivationWs, data: emptyLedger(), sessionId: "sess-A" }).active, false);
+
+  // Atomic claim in markOutagePromptSent refuses to overwrite a cancelled record when owner returned mid-lookup.
+  const raceData = emptyLedger();
+  const scheduled = planOutageResume(raceData, {
+    sessionId: "sess-A",
+    cwd: sharedWs,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: "a".repeat(40),
+    config: DEFAULT_CONFIG,
+    now: Date.parse("2026-11-16T17:00:00Z"),
+  });
+  assert.equal(scheduled.resume, true);
+  // Owner returns before markOutagePromptSent runs -> status becomes "cancelled".
+  raceData.outageRecovery["sess-A"].status = "cancelled";
+  raceData.outageRecovery["sess-A"].pendingPrompt = null;
+  const claimed = markOutagePromptSent(raceData, "sess-A", Date.parse("2026-11-16T17:00:30Z"), "a".repeat(40), {
+    attempt: scheduled.attempt,
+    prompt: scheduled.prompt,
+    cwd: sharedWs,
+    config: DEFAULT_CONFIG,
+  });
+  assert.equal(claimed, null);
+  assert.equal(raceData.outageRecovery["sess-A"].status, "cancelled");
+});
+
 

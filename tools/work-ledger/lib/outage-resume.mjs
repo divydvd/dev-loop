@@ -6,13 +6,13 @@ import { TAG, DEFAULT_CONFIG } from "./policy.mjs";
 
 const PERMANENT_HTTP = new Set([400, 401, 403, 404, 422]), TRANSIENT_HTTP = new Set([429, 502, 503, 504]);
 const TRANSIENT_CODES = new Set(["ETIMEDOUT", "ECONNRESET", "EAI_AGAIN", "EPIPE", "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
+const BAD_ACT = /^(?:-|none|null|false|n\/a|na|tbd|todo|pending|unknown|unconfirmed|inferred)\b/i;
 const collectStrings = (o, k) => [o, o?.data, o?.error, o?.cause].filter((s) => s && typeof s === "object" && typeof s[k] === "string" && s[k]).map((s) => s[k]);
-
+const hasTok = (s, tok) => Boolean(tok) && new RegExp(`(?:^|[^A-Za-z0-9_.-])${String(tok).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^A-Za-z0-9_.-])`).test(String(s || ""));
 function extractNumericStatus(obj) {
   for (const s of [obj, obj?.data, obj?.error, obj?.cause]) if (s && typeof s === "object") for (const k of ["status", "statusCode", "httpStatus"]) if (Number.isInteger(s[k])) return s[k];
   return null;
 }
-
 export function classifyTransientOutage(errOrEvent) {
   const raw = typeof errOrEvent === "string" ? { message: errOrEvent } : errOrEvent;
   if (!raw || typeof raw !== "object") return { transient: false, code: "empty" };
@@ -37,58 +37,69 @@ export function classifyTransientOutage(errOrEvent) {
   if (netCode) return { transient: true, code: netCode[1].toLowerCase() };
   return /\b(upstream(?:\s+stream)?\s+disconnect(?:ed)?|stream\s+disconnected|socket\s+hang\s+up|premature\s+close)\b/i.test(combined) ? { transient: true, code: "stream_disconnect" } : { transient: false, code: "non_transient" };
 }
-
 function findCheckoutRoots(cwd) {
   const roots = [];
-  for (let cur = cwd ? path.resolve(cwd) : "", d = 0; cur && d < 12; d++) {
+  for (let cur = cwd ? path.resolve(cwd) : "", d = 0; cur && d < 12; cur = path.dirname(cur), d++) {
     roots.push(cur);
-    const parent = path.dirname(cur);
-    if (fs.existsSync(path.join(cur, ".git")) || parent === cur) break;
-    cur = parent;
+    if (fs.existsSync(path.join(cur, ".git")) || path.dirname(cur) === cur) break;
   }
   return roots;
 }
-
-function parseAwayState(content) {
-  let state = null;
+export function parseOwnerAwayIntent(text) {
+  const clauses = String(text || "").split(/[.!;\n]+/).map((c) => c.trim()).filter(Boolean);
+  for (const c of clauses) if ((!/\b(?:when|until|before|after|once|if|unless|whether|say|type|send|write)\s+i(?:'?m|\s+am)\s+back\b/i.test(c) && /(?:^|[,:—–-]\s*)i(?:'?m|\s+am)\s+back\b/i.test(c)) || (!c.includes("?") && /^(?:please\s+)?(?:stop|end|exit|leave|disable|cancel|turn\s+off)(?:\s+away\s+mode)?\s*$/i.test(c))) return "return";
+  for (const c of clauses) if (!c.includes("?") && !/\b(?:not|never|don'?t|without)\b/i.test(c) && /^(?:please\s+)?(?:(?:use|enter|enable|start|activate|turn\s+on|switch\s+to|go\s+(?:in)?to|(?:continue|proceed|work|run|keep\s+(?:going|working))\s+in)\s+)?away\s+mode(?:\s*$|[\s,:—–-])/i.test(c)) return "activate";
+  return null;
+}
+function parseProgressRecord(content, sessionId) {
+  let state = null, planPath = null, scopeCell = null, activation = null;
+  const explicit = [];
   for (const line of String(content || "").split("\n")) {
     if (/^\s*(?:[-*]\s*)?active\s*:\s*true\s*$/i.test(line) || /^\s*\|\s*Mode\s*\|\s*Active\b/i.test(line)) state = true;
     if (/^\s*(?:[-*]\s*)?active\s*:\s*false\s*$/i.test(line) || /^\s*\|\s*Mode\s*\|\s*(?:Ended|Inactive)\b/i.test(line)) state = false;
+    const pm = /^#\s*SDD ledger\s*[—-]\s*plan:\s*(.+)$/.exec(line) || /^\s*(?:[-*]\s*)?plan\s*[:=]\s*([^\s|]+)\s*$/i.exec(line), sm = /^\s*(?:[-*]\s*)?session(?:[_ -]?id)?\s*[:=]\s*([^\s|,;]+)\s*$/i.exec(line);
+    if (pm) planPath = pm[1].trim();
+    if (sm) explicit.push(sm[1].trim());
+    const sc = /^\s*\|\s*Scope\s*\|\s*([^|]+)\|/i.exec(line), ac = /^\s*\|\s*Owner\s+activation\s*\|\s*([^|]+)\|/i.exec(line) || /^\s*(?:[-*]\s*)?(?:owner[_ -]?)?activation\s*[:=]\s*(.+)$/i.exec(line);
+    if (sc) scopeCell = sc[1].trim();
+    if (ac) activation = ac[1].trim();
   }
-  return state;
+  if (!planPath && scopeCell) planPath = /([A-Za-z0-9_./-]+\.md)\b/.exec(scopeCell)?.[1] || null;
+  return { state, planPath, matchesSession: Boolean(sessionId) && (explicit.length ? explicit.includes(sessionId) : hasTok(scopeCell, sessionId)), hasActivation: Boolean(activation && !BAD_ACT.test(activation)) };
 }
-
 export function detectAwayMode({ cwd, data, sessionId } = {}) {
-  const rawRet = Date.parse(sessionId ? data?.outageRecovery?.[sessionId]?.ownerReturnedAt || "" : "");
-  let endedCutoffMs = Number.isFinite(rawRet) ? rawRet : 0, progCandidate = null, noteCandidate = null;
+  if (!sessionId) return { active: false, planPath: null, progressPath: null };
+  const recState = data?.outageRecovery?.[sessionId], liveActMs = Date.parse(recState?.ownerActivatedAt || "") || 0;
+  let endedCutoffMs = Date.parse(recState?.ownerReturnedAt || "") || 0, progCandidate = null, noteCandidate = null;
   for (const root of findCheckoutRoots(cwd)) {
     const sddDir = path.join(root, ".superpowers", "sdd");
     if (!fs.existsSync(sddDir)) continue;
-    let items = [];
-    try { items = fs.readdirSync(sddDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => { const p = path.join(sddDir, d.name, "progress.md"); try { return { slug: d.name, progressAbs: p, mtimeMs: fs.statSync(p).mtimeMs }; } catch { return null; } }).filter(Boolean).sort((a, b) => b.mtimeMs - a.mtimeMs); } catch { items = []; }
-    let decided = false;
+    let items = [], decided = false;
+    try { items = fs.readdirSync(sddDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => { const p = path.join(sddDir, d.name, "progress.md"); try { return { progressAbs: p, mtimeMs: fs.statSync(p).mtimeMs }; } catch { return null; } }).filter(Boolean).sort((a, b) => b.mtimeMs - a.mtimeMs); } catch { items = []; }
     for (const item of items) {
       let text = "";
       try { text = fs.readFileSync(item.progressAbs, "utf8"); } catch { continue; }
-      const state = parseAwayState(text);
-      if (state === null) continue;
+      const pr = parseProgressRecord(text, sessionId);
+      if (!pr.matchesSession || pr.state === null) continue;
       decided = true;
-      if (!state) endedCutoffMs = Math.max(endedCutoffMs, item.mtimeMs);
-      else progCandidate = { atMs: item.mtimeMs, planPath: (/^#\s*SDD ledger\s*[—-]\s*plan:\s*(.+)$/m.exec(text) || /^\s*plan\s*[:=]\s*([^\s|]+)\s*$/im.exec(text))?.[1]?.trim() || `docs/superpowers/plans/${item.slug}.md`, progressPath: path.relative(root, item.progressAbs).split(path.sep).join("/") };
+      if (!pr.state) endedCutoffMs = Math.max(endedCutoffMs, item.mtimeMs);
+      else if (pr.planPath && (pr.hasActivation || liveActMs > endedCutoffMs)) progCandidate = { atMs: liveActMs > endedCutoffMs ? Math.max(item.mtimeMs, liveActMs) : item.mtimeMs, planPath: pr.planPath, progressPath: path.relative(root, item.progressAbs).split(path.sep).join("/") };
       break;
     }
     if (decided) break;
   }
-  const latest = Object.values(data?.units || {}).flatMap((u) => (u?.notes || []).filter((n) => (!sessionId || n.sessionId === sessionId) && /^\s*away[_ -]mode\s*[:=]/i.test(n.text || ""))).sort((a, b) => (Date.parse(a.at || "") || 0) - (Date.parse(b.at || "") || 0)).at(-1);
+  const latest = Object.values(data?.units || {}).flatMap((u) => (u?.notes || []).filter((n) => n.sessionId === sessionId && /^\s*away[_ -]mode\s*[:=]/i.test(n.text || ""))).sort((a, b) => (Date.parse(a.at || "") || 0) - (Date.parse(b.at || "") || 0)).at(-1);
   if (latest) {
     const noteMs = Date.parse(latest.at || "") || 0, body = String(latest.text || "").replace(/^\s*away[_ -]mode\s*[:=]\s*/i, "");
     if (/^(?:active\s*[:=]\s*false|inactive|ended|off|returned)\b/i.test(body)) endedCutoffMs = Math.max(endedCutoffMs, noteMs);
-    else if (/^(?:active(?:\s*[:=]\s*true)?|enabled|on)\b/i.test(body)) noteCandidate = { atMs: noteMs, planPath: /\bplan\s*[:=]\s*([^\s,;]+)/i.exec(body)?.[1] || null, progressPath: null };
+    else if (/^(?:active(?:\s*[:=]\s*true)?|enabled|on)\b/i.test(body)) {
+      const planPath = /\bplan\s*[:=]\s*([^\s,;]+)/i.exec(body)?.[1] || null, act = /\bactivation\s*[:=]\s*([^\s,;]+)/i.exec(body)?.[1] || null;
+      if (planPath && ((act && !BAD_ACT.test(act)) || liveActMs > endedCutoffMs)) noteCandidate = { atMs: liveActMs > endedCutoffMs ? Math.max(noteMs, liveActMs) : noteMs, planPath, progressPath: null };
+    }
   }
   const chosen = [progCandidate, noteCandidate].filter(Boolean).sort((a, b) => b.atMs - a.atMs)[0];
   return chosen && chosen.atMs > endedCutoffMs ? { active: true, planPath: chosen.planPath, progressPath: chosen.progressPath } : { active: false, planPath: null, progressPath: null };
 }
-
 export function progressFingerprint(data, sessionId = null) {
   const match = (x) => !sessionId || x?.sessionId === sessionId;
   const validations = [...new Set((data?.validations || []).filter((v) => match(v) && v.exit === 0 && !v.dirty).map((v) => `${v.sha || ""}:${v.tasks || ""}`))].sort();
@@ -98,20 +109,17 @@ export function progressFingerprint(data, sessionId = null) {
   }).filter(Boolean);
   return crypto.createHash("sha256").update(JSON.stringify({ validations, units })).digest("hex").slice(0, 12);
 }
-
 export function buildReconcilePrompt({ planPath, progressPath, attempt, maxAttempts, lastHeadSha, code } = {}) {
   const shaNote = lastHeadSha ? ` (last observed HEAD: ${String(lastHeadSha).slice(0, 12)})` : "";
   return `${TAG} Away-mode transient outage recovery (attempt ${attempt}/${maxAttempts}, cause: ${code || "transient_outage"})${shaNote}.\nBefore running any build, git, or GitHub command, inspect local and remote state in this exact order:\n1. Read ${planPath || "the active plan in docs/superpowers/plans/"} and ${progressPath || ".superpowers/sdd/<plan>/progress.md"}.\n2. Run \`git status\` and \`git log -n 5\` to verify committed work.\n3. Call \`work_ledger_get\` to inspect recorded validations, reviews, and open PR state.\nDo not duplicate any commit, \`git push\`, or \`gh pr create\` that already succeeded. Resume from the first incomplete step while preserving all owner approval boundaries.`;
 }
-
 export function planOutageResume(data, { sessionId, cwd, error, headSha = null, config = DEFAULT_CONFIG, now = Date.now() } = {}) {
   const cls = classifyTransientOutage(error), maxAttempts = Number.isInteger(config?.outageRetryCap) ? config.outageRetryCap : 3;
   const noResume = (reason, status, extra = {}) => ({ resume: false, reason, code: cls.code, attempt: 0, maxAttempts, delaySec: null, status, prompt: null, record: null, ...extra });
   if (!cls.transient) return noResume("non_transient", "ignored");
-  const sid = sessionId || "default", away = detectAwayMode({ cwd, data, sessionId: sid });
+  const sid = sessionId || "", away = detectAwayMode({ cwd, data, sessionId: sid });
   if (!away.active) return noResume("away_mode_inactive", "inactive");
-  data.outageRecovery ||= {};
-  if (data.outageRecovery[sid]?.status === "retrying") {
+  if ((data.outageRecovery ||= {})[sid]?.status === "retrying") {
     const ex = data.outageRecovery[sid];
     return noResume("already_retrying", "retrying", { deduplicated: true, attempt: ex.attemptsUsed, delaySec: ex.nextDelaySec ?? null, prompt: ex.pendingPrompt || null, record: ex });
   }
@@ -123,29 +131,25 @@ export function planOutageResume(data, { sessionId, cwd, error, headSha = null, 
   const attempt = used + 1, delaySec = backoff[Math.min(used, backoff.length - 1)], prompt = buildReconcilePrompt({ planPath, progressPath, attempt, maxAttempts, lastHeadSha: baseRec.lastHeadSha, code: cls.code });
   return { resume: true, code: cls.code, attempt, maxAttempts, delaySec, status: "retrying", prompt, record: (data.outageRecovery[sid] = { ...baseRec, attemptsUsed: attempt, nextDelaySec: delaySec, pendingPrompt: prompt, status: "retrying" }) };
 }
-
-export function markOutagePromptSent(data, sessionId, now = Date.now(), headSha = null) {
-  const sid = sessionId || "default", rec = data?.outageRecovery?.[sid];
-  if (!rec) return null;
-  Object.assign(rec, { status: "resumed", nextDelaySec: null, pendingPrompt: null, resumedAt: new Date(now).toISOString(), lastProgressFingerprint: progressFingerprint(data, sid) });
+export function markOutagePromptSent(data, sessionId, now = Date.now(), headSha = null, opts = null) {
+  const rec = sessionId ? data?.outageRecovery?.[sessionId] : null;
+  if (!rec || rec.status !== "retrying") return null;
+  if (opts && ((opts.attempt !== undefined && rec.attemptsUsed !== opts.attempt) || (opts.prompt !== undefined && rec.pendingPrompt !== opts.prompt))) return null;
+  if (opts && (opts.config?.outageRetryCap <= 0 || (opts.cwd !== undefined && !detectAwayMode({ cwd: opts.cwd, data, sessionId }).active))) return (Object.assign(rec, { status: "cancelled", nextDelaySec: null, pendingPrompt: null }), null);
+  Object.assign(rec, { status: "resumed", nextDelaySec: null, pendingPrompt: null, resumedAt: new Date(now).toISOString(), lastProgressFingerprint: progressFingerprint(data, sessionId) });
   if (headSha && !rec.lastHeadSha) rec.lastHeadSha = headSha;
   return rec;
 }
-
 export function revertOutagePromptSend(data, sessionId, { attempt, prompt, delaySec } = {}) {
-  const rec = data?.outageRecovery?.[sessionId || "default"];
+  const rec = sessionId ? data?.outageRecovery?.[sessionId] : null;
   return (!rec || rec.status !== "resumed" || rec.attemptsUsed !== attempt) ? null : Object.assign(rec, { status: "retrying", pendingPrompt: prompt || null, nextDelaySec: delaySec ?? null });
 }
-
 export function recordOutageProgress(data, { sessionId, headSha = null, now = Date.now() } = {}) {
-  const sid = sessionId || "default", rec = data?.outageRecovery?.[sid];
+  const rec = sessionId ? data?.outageRecovery?.[sessionId] : null;
   if (!rec || rec.attemptsUsed === 0 || rec.status === "retrying") return false;
   if (headSha && !rec.lastHeadSha) rec.lastHeadSha = headSha;
-  const currentFp = progressFingerprint(data, sid), shaAdvanced = Boolean(headSha && rec.lastHeadSha && headSha !== rec.lastHeadSha);
-  if (!shaAdvanced && currentFp === rec.lastProgressFingerprint) return false;
+  const currentFp = progressFingerprint(data, sessionId);
+  if (!(headSha && rec.lastHeadSha && headSha !== rec.lastHeadSha) && currentFp === rec.lastProgressFingerprint) return false;
   Object.assign(rec, { attemptsUsed: 0, status: "idle", nextDelaySec: null, pendingPrompt: null, lastHeadSha: headSha || rec.lastHeadSha, lastProgressFingerprint: currentFp, resetAt: new Date(now).toISOString() });
   return true;
 }
-
-
-
