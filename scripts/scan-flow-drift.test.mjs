@@ -406,6 +406,7 @@ test("T6: blocks path traversal, symlink escape, unknown CLI flags, and invalid 
   writeFileSync(join(parent, "outside.ts"), "export const secret = 1;\n", "utf8");
   writeFileSync(join(parent, "outside.md"), "# Secret\n", "utf8");
 
+  writeRepoFile(repoRoot, "README.md", "# Repo root readme\n");
   writeRepoFile(repoRoot, "src/safe.ts", "export const safe = 1;\n");
   symlinkSync(join(parent, "outside.ts"), join(repoRoot, "src/escape-link.ts"));
   writeRepoFile(
@@ -414,7 +415,9 @@ test("T6: blocks path traversal, symlink escape, unknown CLI flags, and invalid 
     [
       "# Security",
       "",
-      "Last verified: 2026-10-01.",
+      "```markdown",
+      "Last verified: 2099-01-01.",
+      "```",
       "",
       "## Key files",
       "| File | Role |",
@@ -429,6 +432,7 @@ test("T6: blocks path traversal, symlink escape, unknown CLI flags, and invalid 
       "",
     ].join("\n"),
   );
+  symlinkSync(join(repoRoot, "README.md"), join(repoRoot, "docs/flows/readme-link.md"));
   writeRepoFile(
     repoRoot,
     "docs/flows/INDEX.md",
@@ -439,6 +443,7 @@ test("T6: blocks path traversal, symlink escape, unknown CLI flags, and invalid 
       "| --- | --- | --- | --- |",
       "| Security | [security.md](security.md) | `src/` | 2026-10-01 |",
       "| Escape | [../../outside.md](../../outside.md) | `..` | 2026-10-01 |",
+      "| ReadmeLink | [readme-link.md](readme-link.md) | `src/` | 2026-10-01 |",
       "",
     ].join("\n"),
   );
@@ -448,11 +453,14 @@ test("T6: blocks path traversal, symlink escape, unknown CLI flags, and invalid 
   const res = scanFlowDrift({ repoRoot });
   const sec = res.docs.find((d) => d.docPath === "docs/flows/security.md");
   assert.ok(sec);
+  assert.equal(sec.lastVerifiedDoc, null);
+  assert.ok(sec.issues.includes("unverified_marker"));
+  assert.equal(res.docs.find((d) => d.docPath.endsWith("readme-link.md")), undefined);
   // None of the escaping/symlink targets may be treated as valid existing repo files
   assert.ok(sec.deadRefs.includes("../outside.ts"));
   assert.ok(sec.deadRefs.includes("../../etc/passwd"));
   assert.ok(sec.deadRefs.includes("src/escape-link.ts"));
-  assert.ok(res.indexIssues.some((i) => i.kind === "missing_indexed_doc"));
+  assert.equal(res.indexIssues.filter((i) => i.kind === "missing_indexed_doc").length, 2);
 
   // Invalid CLI / ref arguments exit 1
   assert.equal(runCli(["--unknown-flag"]).status, 1);

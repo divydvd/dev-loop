@@ -120,29 +120,33 @@ function normalizeCodePathToken(rawToken) {
   return cleaned;
 }
 
-function splitMarkdownSections(markdown) {
+function parseDocStructure(markdown) {
   const sections = new Map();
   let current = "";
-  let inFence = false;
+  let fence = null;
+  let lastVerifiedDoc = null;
   for (const line of markdown.split(/\r?\n/)) {
-    if (/^\s*(?:```|~~~)/.test(line)) {
-      inFence = !inFence;
+    const fm = line.match(/^\s*(`{3,}|~{3,})/);
+    if (fm) {
+      if (!fence) fence = fm[1];
+      else if (fm[1][0] === fence[0] && fm[1].length >= fence.length) fence = null;
       continue;
     }
-    if (inFence) continue;
+    if (fence) continue;
     const heading = line.match(/^##\s+(.+?)\s*$/);
     if (heading) {
       current = heading[1].trim().toLowerCase();
       if (!sections.has(current)) sections.set(current, []);
     } else if (current) {
       sections.get(current).push(line);
+    } else if (lastVerifiedDoc === null) {
+      lastVerifiedDoc = line.match(/^Last verified:\s*(.+?)\.?\s*$/)?.[1]?.trim() ?? null;
     }
   }
-  return sections;
+  return { lastVerifiedDoc, sections };
 }
 
-function parseIndexFile(repoRootReal, flowsDir, flowsAbs, indexText) {
-  const flowsReal = realpathSync(flowsAbs);
+function parseIndexFile(repoRootReal, flowsDir, flowsAbs, flowsReal, indexText) {
   const indexedDocs = new Map();
   const indexIssues = [];
 
@@ -159,8 +163,9 @@ function parseIndexFile(repoRootReal, flowsDir, flowsAbs, indexText) {
     const lastVerifiedIndex = cells[3].replace(/\.$/, "").trim();
     const resolved = resolveContainedPath(repoRootReal, flowsAbs, rawTarget);
     const candidateAbs = resolve(flowsAbs, rawTarget);
+    const escapesFlows = !resolved.exists || isOutsideRoot(flowsReal, realpathSync(candidateAbs));
 
-    if (resolved.escaped || isOutsideRoot(flowsReal, candidateAbs) || !resolved.exists || resolved.isDir) {
+    if (resolved.escaped || escapesFlows || resolved.isDir) {
       indexIssues.push({ kind: "missing_indexed_doc", doc: resolved.escaped ? `${flowsDir}/${rawTarget}` : resolved.repoRelPath });
     } else {
       indexedDocs.set(resolved.repoRelPath, { docRelPath: resolved.repoRelPath, docAbs: candidateAbs, lastVerifiedIndex });
@@ -194,29 +199,33 @@ export function scanFlowDrift({ repoRoot = ".", flowsDir: flowsDirOption = "docs
   if (!lstatSync(indexAbs, { throwIfNoEntry: false })) {
     return { status: "no_flows", flowsDir, docs: [], indexIssues: [], unupdatedImpactedDocs: [] };
   }
+  const flowsReal = realpathSync(flowsAbs);
   const indexReal = realpathSync(indexAbs);
-  if (isOutsideRoot(repoRootReal, indexReal)) throw new Error(`Flow index symlink escapes repoRoot: ${flowsDir}/INDEX.md`);
+  if (isOutsideRoot(repoRootReal, indexReal) || isOutsideRoot(flowsReal, indexReal)) {
+    throw new Error(`Flow index symlink escapes flowsDir: ${flowsDir}/INDEX.md`);
+  }
 
   const diffContext = changedFrom !== null && changedFrom !== undefined ? resolveDiffSet(repoRootReal, changedFrom, changedTo) : null;
-  const { indexedDocs, indexIssues } = parseIndexFile(repoRootReal, flowsDir, flowsAbs, readFileSync(indexReal, "utf8"));
+  const { indexedDocs, indexIssues } = parseIndexFile(repoRootReal, flowsDir, flowsAbs, flowsReal, readFileSync(indexReal, "utf8"));
   const docsToScan = new Map(indexedDocs);
   const unindexedSet = new Set();
 
   for (const entry of readdirSync(flowsAbs, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (entry.name === "INDEX.md" || !entry.name.endsWith(".md")) continue;
+    const entryAbs = join(flowsAbs, entry.name);
     const resolved = resolveContainedPath(repoRootReal, flowsAbs, entry.name);
-    if (resolved.escaped || !resolved.exists || resolved.isDir || docsToScan.has(resolved.repoRelPath)) continue;
+    if (resolved.escaped || !resolved.exists || resolved.isDir || isOutsideRoot(flowsReal, realpathSync(entryAbs))) continue;
+    if (docsToScan.has(resolved.repoRelPath)) continue;
     indexIssues.push({ kind: "unindexed_flow_doc", doc: resolved.repoRelPath });
     unindexedSet.add(resolved.repoRelPath);
-    docsToScan.set(resolved.repoRelPath, { docRelPath: resolved.repoRelPath, docAbs: join(flowsAbs, entry.name), lastVerifiedIndex: null });
+    docsToScan.set(resolved.repoRelPath, { docRelPath: resolved.repoRelPath, docAbs: entryAbs, lastVerifiedIndex: null });
   }
 
   const docs = [];
   const unupdatedImpactedDocs = [];
 
   for (const { docRelPath, docAbs, lastVerifiedIndex } of docsToScan.values()) {
-    const content = readFileSync(docAbs, "utf8");
-    const lastVerifiedDoc = content.match(/^Last verified:\s*(.+?)\.?\s*$/m)?.[1]?.trim() ?? null;
+    const { lastVerifiedDoc, sections } = parseDocStructure(readFileSync(docAbs, "utf8"));
     const unverified = !lastVerifiedDoc || lastVerifiedDoc.toLowerCase() === "not yet";
 
     const docIndexIssues = unindexedSet.has(docRelPath) ? ["unindexed_flow_doc"] : [];
@@ -225,7 +234,6 @@ export function scanFlowDrift({ repoRoot = ".", flowsDir: flowsDirOption = "docs
       indexIssues.push({ kind: "verified_date_mismatch", doc: docRelPath, docValue: lastVerifiedDoc, indexValue: lastVerifiedIndex });
     }
 
-    const sections = splitMarkdownSections(content);
     const keyFilesSet = new Set();
     const keyFileMeta = new Map();
     const deadRefsSet = new Set();
@@ -300,43 +308,22 @@ export function scanFlowDrift({ repoRoot = ".", flowsDir: flowsDirOption = "docs
       }
     }
 
-    docs.push({
-      docPath: docRelPath,
-      lastVerifiedDoc,
-      lastVerifiedIndex,
-      docLastCommit,
-      keyFiles,
-      deadRefs,
-      commitsTouchingKeyFiles,
-      recentCommits,
-      issues,
-      driftScore,
-      diffStatus,
-    });
+    docs.push({ docPath: docRelPath, lastVerifiedDoc, lastVerifiedIndex, docLastCommit, keyFiles, deadRefs, commitsTouchingKeyFiles, recentCommits, issues, driftScore, diffStatus });
   }
 
   docs.sort((a, b) => b.driftScore - a.driftScore || a.docPath.localeCompare(b.docPath));
   unupdatedImpactedDocs.sort((a, b) => a.localeCompare(b));
-  return {
-    status: "ok",
-    flowsDir,
-    ...(diffContext ? { changedFrom, changedTo, diffMode: diffContext.diffMode } : {}),
-    indexIssues,
-    unupdatedImpactedDocs,
-    docs,
-  };
+  const diffMeta = diffContext ? { changedFrom, changedTo, diffMode: diffContext.diffMode } : {};
+  return { status: "ok", flowsDir, ...diffMeta, indexIssues, unupdatedImpactedDocs, docs };
 }
 
 function formatTextReport(report) {
   if (report.status === "no_flows") return `Flow drift scan: no_flows (${report.flowsDir}/INDEX.md not found)\n`;
   const lines = [`Flow drift scan: ${report.docs.length} doc(s) in ${report.flowsDir}`];
   if (report.changedFrom) lines.push(`Diff range: ${report.changedFrom} -> ${report.changedTo} (${report.diffMode})`);
-  if (report.indexIssues.length > 0) {
-    lines.push(`Index issues (${report.indexIssues.length}):`, ...report.indexIssues.map((i) => `  - ${i.kind}: ${i.doc}`));
-  }
+  if (report.indexIssues.length > 0) lines.push(`Index issues (${report.indexIssues.length}):`, ...report.indexIssues.map((i) => `  - ${i.kind}: ${i.doc}`));
   for (const doc of report.docs) {
-    const suffix = doc.issues.length > 0 ? ` issues=[${doc.issues.join(", ")}]` : "";
-    lines.push(`- ${doc.docPath}: score=${doc.driftScore} commits=${doc.commitsTouchingKeyFiles} diff=${doc.diffStatus}${suffix}`);
+    lines.push(`- ${doc.docPath}: score=${doc.driftScore} commits=${doc.commitsTouchingKeyFiles} diff=${doc.diffStatus}${doc.issues.length ? ` issues=[${doc.issues.join(", ")}]` : ""}`);
   }
   if (report.unupdatedImpactedDocs.length > 0) lines.push(`Unupdated impacted docs: ${report.unupdatedImpactedDocs.join(", ")}`);
   return `${lines.join("\n")}\n`;
@@ -344,25 +331,16 @@ function formatTextReport(report) {
 
 function main(argv = process.argv.slice(2)) {
   try {
-    const { values } = parseArgs({
-      args: argv,
-      strict: true,
-      allowPositionals: false,
-      options: {
-        "repo-root": { type: "string", default: "." },
-        "flows-dir": { type: "string", default: "docs/flows" },
-        "changed-from": { type: "string" },
-        "changed-to": { type: "string", default: "HEAD" },
-        json: { type: "boolean", default: false },
-        "fail-on-unupdated": { type: "boolean", default: false },
-      },
-    });
-    const report = scanFlowDrift({
-      repoRoot: values["repo-root"],
-      flowsDir: values["flows-dir"],
-      changedFrom: values["changed-from"] ?? null,
-      changedTo: values["changed-to"],
-    });
+    const options = {
+      "repo-root": { type: "string", default: "." },
+      "flows-dir": { type: "string", default: "docs/flows" },
+      "changed-from": { type: "string" },
+      "changed-to": { type: "string", default: "HEAD" },
+      json: { type: "boolean", default: false },
+      "fail-on-unupdated": { type: "boolean", default: false },
+    };
+    const { values } = parseArgs({ args: argv, strict: true, allowPositionals: false, options });
+    const report = scanFlowDrift({ repoRoot: values["repo-root"], flowsDir: values["flows-dir"], changedFrom: values["changed-from"] ?? null, changedTo: values["changed-to"] });
     process.stdout.write(values.json ? `${JSON.stringify(report, null, 2)}\n` : formatTextReport(report));
     if (values["fail-on-unupdated"] && report.unupdatedImpactedDocs.length > 0) process.exitCode = 1;
   } catch (err) {
@@ -371,14 +349,9 @@ function main(argv = process.argv.slice(2)) {
   }
 }
 
-const isDirectRun =
-  process.argv[1] &&
-  (() => {
-    try {
-      return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
-    } catch {
-      return resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-    }
-  })();
+const isDirectRun = process.argv[1] && (() => {
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); }
+  catch { return resolve(process.argv[1]) === fileURLToPath(import.meta.url); }
+})();
 
 if (isDirectRun) main();
