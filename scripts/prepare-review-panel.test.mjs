@@ -882,4 +882,94 @@ test("19. R3-F1..F3: 1-char word substitutions, fenced '# comment' under risky h
   assert.equal(symWtRes.checklistLoaded, true);
 });
 
+test("20. Copilot PR review: indented/4-backtick/4-space code blocks, list-prefixed commands, Unicode text, and risky doc sections", (t) => {
+  const { repoDir } = makeFixtureRepo(t, {
+    "AGENTS.md": [
+      "# Sample Project",
+      "",
+      "### Risky areas",
+      "- `com.github.copilot/rules/core.mdc`: global session rules.",
+      "- The approval points and the finish rules: they decide when an agent stops or merges.",
+      "",
+      "### Review checklist",
+      "- Keep core rules generic.",
+      "",
+    ].join("\n"),
+  });
+
+  // 1a. 4-backtick fenced code block edit in README.md must NOT be exempt
+  const b4Base = writeAndCommit(repoDir, {
+    "README.md": "# Clean\n\n````sh\nrm -rf \"$CACHE\"/*\n````\n",
+  });
+  const b4Head = writeAndCommit(repoDir, {
+    "README.md": "# Clean\n\n````sh\nrm -rf \"$CACHE\"/ *\n````\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", b4Base, "--head", b4Head, "--json"]).stdout).mode,
+    "single"
+  );
+
+  // 1b. Indented 2-space fence edit in README.md must NOT be exempt
+  const indFenceBase = writeAndCommit(repoDir, {
+    "README.md": "# Clean\n\n  ```sh\n  rm -rf \"$CACHE\"/*\n  ```\n",
+  });
+  const indFenceHead = writeAndCommit(repoDir, {
+    "README.md": "# Clean\n\n  ```sh\n  rm -rf \"$CACHE\"/ *\n  ```\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", indFenceBase, "--head", indFenceHead, "--json"]).stdout).mode,
+    "single"
+  );
+
+  // 1c. 4-space indented code block edit in README.md must NOT be exempt
+  const indCodeBase = writeAndCommit(repoDir, {
+    "README.md": "# Clean\n\n    rm -rf \"$CACHE\"/*\n",
+  });
+  const indCodeHead = writeAndCommit(repoDir, {
+    "README.md": "# Clean\n\n    rm -rf \"$CACHE\"/ *\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", indCodeBase, "--head", indCodeHead, "--json"]).stdout).mode,
+    "single"
+  );
+
+  // 2. Markdown list-prefixed command edit ('- npm run test:unit' -> '- npm run test-unit') must NOT be exempt
+  const listCmdBase = writeAndCommit(repoDir, {
+    "README.md": "# Scripts\n\n- npm run test:unit\n",
+  });
+  const listCmdHead = writeAndCommit(repoDir, {
+    "README.md": "# Scripts\n\n- npm run test-unit\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", listCmdBase, "--head", listCmdHead, "--json"]).stdout).mode,
+    "single"
+  );
+
+  // 3. Unicode prose edit ('Разрешить доступ.' -> 'Запретить доступ.') must NOT be exempt
+  const uniBase = writeAndCommit(repoDir, {
+    "README.md": "# Доступ\n\nРазрешить доступ.\n",
+  });
+  const uniHead = writeAndCommit(repoDir, {
+    "README.md": "# Доступ\n\nЗапретить доступ.\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", uniBase, "--head", uniHead, "--json"]).stdout).mode,
+    "single"
+  );
+
+  // 4. Concept-based risky area under '## Finish rules' in README.md escalates to panel, while test files stay excluded
+  const docRiskBase = writeAndCommit(repoDir, {
+    "README.md": "# Handbook\n\n## Finish rules\n\nWait for owner confirmation.\n",
+  });
+  const docRiskHead = writeAndCommit(repoDir, {
+    "README.md": "# Handbook\n\n## Finish rules\n\nProceed once checks pass.\n",
+  });
+  const docRiskRes = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", docRiskBase, "--head", docRiskHead, "--json"]).stdout
+  );
+  assert.equal(docRiskRes.touchesRiskyArea, true);
+  assert.equal(docRiskRes.mode, "panel");
+});
+
+
 

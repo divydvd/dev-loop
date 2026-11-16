@@ -8,9 +8,8 @@ import { parseArgs } from "node:util";
 
 const DOMAIN_ORDER = ["concurrency-state", "security-privacy", "ui-a11y"];
 const KNOWN_OUT_FILES = new Set(["routing.json", "single-reviewer-packet.md", "arch-correctness-packet.md", "concurrency-state-packet.md", "security-privacy-packet.md", "ui-a11y-packet.md", "skeptic-judge-packet.md"]);
-const FENCE_RE = /^(?:```|~~~)[^\n]*\n[\s\S]*?^(?:```|~~~)[ \t]*$/gm;
 const MODAL_RE = /\b(?:must|never|always|required|shall|forbidden)\b|\bdo\s+not\b/gi;
-const CMD_LINE_RE = /^\s*(?:\$\s*)?(?:node|npm|npx|pnpm|yarn|git|gh|copilot|claude|gemini|cargo|go|python3?|pytest|gradle|\.\/gradlew|sh|bash|curl)\b/;
+const CMD_LINE_RE = /^\s*(?:(?:[-*+]|\d+[.)]|>)\s+)*(?:\$\s*)?(?:node|npm|npx|pnpm|yarn|git|gh|copilot|claude|gemini|cargo|go|python3?|pytest|gradle|\.\/gradlew|sh|bash|curl|rm|cp|mv|mkdir|chmod|chown|make|docker|kubectl)\b/;
 const SEMANTIC_WORDS = new Set("before after enable disable enabled disabled allow allowed deny denied true false yes no on off in out up down with without only all none not never always must should may can cannot sync async read write open close push pull add remove delete keep drop pass fail from form unite untie causal casual".split(" "));
 const ROLE_FOCUS = {
   "single-reviewer": "Check requirements, source, affected callers, error handling, domain risks, and missing test-matrix cases across the full diff.",
@@ -20,18 +19,11 @@ const ROLE_FOCUS = {
   "ui-a11y": "Check UI state rendering, accessibility semantics/labels, keyboard/screen-reader navigation, reduced motion, and theme contrast.",
 };
 function sanitizedGitEnv() {
-  const env = { ...process.env };
-  delete env.NODE_TEST_CONTEXT;
-  for (const k of Object.keys(env)) if (k.startsWith("GIT_")) delete env[k];
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== "NODE_TEST_CONTEXT" && !k.startsWith("GIT_")));
   return env;
 }
 const runGit = (cwd, args, encoding = "utf8") => execFileSync("git", args, { cwd, env: sanitizedGitEnv(), encoding, maxBuffer: 32 * 1024 * 1024 });
-const gitBlobOrNull = (cwd, rev, rel) => {
-  try {
-    const treeLine = runGit(cwd, ["ls-tree", rev, "--", rel]).trim();
-    return !treeLine || treeLine.startsWith("120000 ") ? null : runGit(cwd, ["show", `${rev}:${rel}`]);
-  } catch { return null; }
-};
+const gitBlobOrNull = (cwd, rev, rel) => { try { const t = runGit(cwd, ["ls-tree", rev, "--", rel]).trim(); return !t || t.startsWith("120000 ") ? null : runGit(cwd, ["show", `${rev}:${rel}`]); } catch { return null; } };
 const gitConfigOrNull = (cwd, rev, rel, depth = 0) => {
   if (depth > 8) throw new Error(`Symlink loop reading ${rel} at ${rev}`);
   let treeLine = "";
@@ -39,7 +31,8 @@ const gitConfigOrNull = (cwd, rev, rel, depth = 0) => {
   if (!treeLine) return null;
   const body = runGit(cwd, ["show", `${rev}:${rel}`]);
   if (!treeLine.startsWith("120000 ")) return body;
-  const next = posix.normalize(posix.join(posix.dirname(rel), body.trim().replaceAll("\\", "/")));
+  const rawTarget = body.trim().replaceAll("\\", "/");
+  const next = posix.isAbsolute(rawTarget) ? "" : posix.normalize(posix.join(posix.dirname(rel), rawTarget));
   if (!next || next === "." || next.startsWith("..") || posix.isAbsolute(next)) throw new Error(`Symlinked config escapes --repo-root: ${rel}`);
   const resolved = gitConfigOrNull(cwd, rev, next, depth + 1);
   if (resolved === null) throw new Error(`Broken symlinked config: ${rel} -> ${next}`);
@@ -49,53 +42,67 @@ const isInsideOrEqual = (baseDir, target) => { const r = relative(baseDir, targe
 function resolveRealTarget(targetPath) {
   const tail = [];
   let cur = resolve(targetPath);
-  while (!existsSync(cur)) {
-    const parent = dirname(cur);
-    if (parent === cur) break;
-    tail.unshift(relative(parent, cur));
-    cur = parent;
-  }
+  while (!existsSync(cur) && dirname(cur) !== cur) { tail.unshift(relative(dirname(cur), cur)); cur = dirname(cur); }
   return resolve(existsSync(cur) ? realpathSync(cur) : cur, ...tail);
 }
-function validateGitRef(ref, flagName) {
-  if (typeof ref !== "string" || !ref.trim() || ref.startsWith("-")) throw new Error(`Invalid git ref for ${flagName}: ${String(ref)}`);
-}
+const validateGitRef = (ref, flagName) => { if (typeof ref !== "string" || !ref.trim() || ref.startsWith("-")) throw new Error(`Invalid git ref for ${flagName}: ${String(ref)}`); };
 
+function isTestOrGeneratedFile(relPath) {
+  const p = relPath.replaceAll("\\", "/").replace(/^\.\//, "");
+  if (/\.(?:test|spec)\.[^/]+$/i.test(p) || /(?:^|\/)(?:test|tests|__tests__|androidTest)\//.test(p)) return true;
+  if (/(?:Test|Tests)\.(?:kt|java|swift)$/.test(p) || /_test\.(?:go|py|rs)$/.test(p) || /(?:^|\/)test_[^/]+\.py$/.test(p)) return true;
+  return /\.(?:lock|sha256)$/i.test(p) || /(?:^|\/)(?:generated|build|dist|out|\.next|coverage)\//.test(p) || /^(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|Podfile\.lock|composer\.lock|Gemfile\.lock)$/.test(p);
+}
 export function isProductionFile(relPath) {
   const p = relPath.replaceAll("\\", "/").replace(/^\.\//, "");
-  if (/\.(?:test|spec)\.[^/]+$/i.test(p) || /(?:^|\/)(?:test|tests|__tests__|androidTest)\//.test(p)) return false;
-  if (/(?:Test|Tests)\.(?:kt|java|swift)$/.test(p) || /_test\.(?:go|py|rs)$/.test(p) || /(?:^|\/)test_[^/]+\.py$/.test(p)) return false;
-  if (/\.(?:lock|sha256)$/i.test(p) || /(?:^|\/)(?:generated|build|dist|out|\.next|coverage)\//.test(p)) return false;
-  if (/^(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|Podfile\.lock|composer\.lock|Gemfile\.lock)$/.test(p)) return false;
+  if (isTestOrGeneratedFile(p)) return false;
   if (/^(?:skills|com\.github\.copilot|hooks|\.claude-plugin|\.github)\//.test(p)) return true;
   if (/^(?:plugin\.json|gemini-extension\.json|GEMINI\.md|AGENTS\.md|CLAUDE\.md)$/.test(p) || /^scripts\/[^/]+\.(?:mjs|cjs|js|sh|py)$/.test(p)) return true;
   return !(/\.md$/i.test(p) || /^docs\//.test(p));
 }
-
+function nextFenceState(fence, line) {
+  if (!fence) {
+    const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    return m && !(m[1][0] === "`" && m[2].includes("`")) ? m[1] : null;
+  }
+  const m = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+  return m && m[1][0] === fence[0] && m[1].length >= fence.length ? null : fence;
+}
+function splitMdCodeAndProse(text) {
+  const [code, prose] = [[], []];
+  let [fence, prevBlank, inIndented] = [null, true, false];
+  for (const line of text.split(/\r?\n/)) {
+    const nf = nextFenceState(fence, line);
+    if (fence || nf) { code.push(line); fence = nf; prevBlank = false; inIndented = false; continue; }
+    if ((prevBlank || inIndented) && /^(?: {4}|\t)/.test(line)) { inIndented = true; prevBlank = false; code.push(line); continue; }
+    if (/^\s*$/.test(line)) { prevBlank = true; prose.push(line); continue; }
+    prevBlank = false; inIndented = false; prose.push(line);
+  }
+  return { code: JSON.stringify(code), prose: prose.join("\n") };
+}
 const isAdjacentSwap = (a, b) => a.length >= 3 && a.length === b.length && [...a].some((_, i) => i + 1 < a.length && a[i] !== b[i] && a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(0, i) + a.slice(i + 2) === b.slice(0, i) + b.slice(i + 2));
 const isRepeatedCharFix = (a, b) => {
   const [s, l] = a.length < b.length ? [a, b] : [b, a];
   return s.length >= 3 && l.length === s.length + 1 && [...l].some((c, i) => (c === l[i - 1] || c === l[i + 1]) && l.slice(0, i) + l.slice(i + 1) === s);
 };
-const isSimpleTypoWord = (a, b) => !SEMANTIC_WORDS.has(a) && !SEMANTIC_WORDS.has(b) && (isAdjacentSwap(a, b) || isRepeatedCharFix(a, b));
+const isSimpleTypoWord = (a, b) => /^[a-z]+$/.test(a) && /^[a-z]+$/.test(b) && !SEMANTIC_WORDS.has(a) && !SEMANTIC_WORDS.has(b) && (isAdjacentSwap(a, b) || isRepeatedCharFix(a, b));
 const matchTokens = (text, re, norm = (s) => s) => JSON.stringify([...text.matchAll(re)].map((m) => norm(m[1] ?? m[0])));
-const proseWords = (text) => text.replace(/`[^`\n]+`/g, " ").replace(/\]\([^)]+\)|https?:\/\/\S+/g, " ").toLowerCase().match(/[a-z]+/g) ?? [];
+const proseWords = (text) => text.replace(/`[^`\n]+`/g, " ").replace(/\]\([^)]+\)|https?:\/\/\S+/g, " ").toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
 
 function isHarmlessMarkdownChange(relPath, baseText, headText) {
   const p = relPath.replaceAll("\\", "/");
   if (!/\.md$/i.test(p) || isProductionFile(p) || baseText === null || headText === null) return false;
   if (/^(?:AGENTS|CLAUDE|GEMINI)\.md$/i.test(p) || /(?:review-checklist|regression-matrix)\.md$/i.test(p)) return false;
-  if (matchTokens(baseText, FENCE_RE) !== matchTokens(headText, FENCE_RE)) return false;
-  const baseProse = baseText.replace(FENCE_RE, "");
-  const headProse = headText.replace(FENCE_RE, "");
+  const [bSplit, hSplit] = [splitMdCodeAndProse(baseText), splitMdCodeAndProse(headText)];
+  if (bSplit.code !== hSplit.code) return false;
+  const [baseProse, headProse] = [bSplit.prose, hSplit.prose];
   const checks = [[/`[^`\n]+`/g], [/\]\(([^)]+)\)|https?:\/\/\S+/g], [/\b\d+(?:\.\d+)*\b/g], [/(?:^|\s)(--[a-z0-9-]+)\b/gi], [MODAL_RE, (s) => s.toLowerCase().replace(/\s+/g, " ")]];
   if (checks.some(([re, fn]) => matchTokens(baseProse, re, fn) !== matchTokens(headProse, re, fn))) return false;
   const bSet = new Set(baseProse.split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
   const hSet = new Set(headProse.split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
   if ([...[...bSet].filter((l) => !hSet.has(l)), ...[...hSet].filter((l) => !bSet.has(l))].some((l) => CMD_LINE_RE.test(l))) return false;
-  const bw = proseWords(baseProse);
-  const hw = proseWords(headProse);
-  if (bw.join(" ") === hw.join(" ")) return true;
+  const [bw, hw] = [proseWords(baseProse), proseWords(headProse)];
+  if (bw.join(" ") === hw.join(" ")) return bw.length > 0 || baseProse.replace(/\s+/g, "") === headProse.replace(/\s+/g, "");
   return bw.length === hw.length && bw.every((w, i) => w === hw[i] || isSimpleTypoWord(w, hw[i]));
 }
 
@@ -107,19 +114,13 @@ const SEC_SPLIT_RE = /\b(?:auth|token|secret|password|crypto|cipher|keystore|Key
 
 export function detectDomains(changedFiles, diffHunkText) {
   const raw = `${changedFiles.join("\n")}\n${diffHunkText}`;
-  const split = splitSubwords(raw);
-  const found = new Set();
+  const [split, found] = [splitSubwords(raw), new Set()];
   if (CONC_RAW_RE.test(raw) || CONC_SPLIT_RE.test(split)) found.add("concurrency-state");
   if (SEC_RAW_RE.test(raw) || SEC_SPLIT_RE.test(split) || /(?:^|[^A-Za-z0-9])WebView\b/i.test(raw)) found.add("security-privacy");
-  const uiPath = changedFiles.some((f) => {
-    const p = f.replaceAll("\\", "/");
-    return /\.(?:tsx|jsx|vue|svelte|css|scss|html)$/i.test(p) || /(?:^|\/)(?:res\/layout(?:-[^/]+)?|ui)\//i.test(p) || /(?:View|Screen|Composable)[^/]*\.kt$/.test(p) || /View[^/]*\.swift$/.test(p);
-  });
-  const uiHunk = /(?:^|[^A-Za-z0-9_])@Composable\b/.test(raw) || /\b(?:SwiftUI|contentDescription|semantics|accessibilityLabel|TalkBack|VoiceOver|prefers-reduced-motion|darkTheme)\b/.test(raw) || /\b(?:content\s+description|accessibility\s+label|talk\s+back|voice\s+over|prefers\s+reduced\s+motion|dark\s+theme)\b/i.test(split);
-  if (uiPath || uiHunk) found.add("ui-a11y");
+  const uiPath = changedFiles.some((f) => { const p = f.replaceAll("\\", "/"); return /\.(?:tsx|jsx|vue|svelte|css|scss|html)$/i.test(p) || /(?:^|\/)(?:res\/layout(?:-[^/]+)?|ui)\//i.test(p) || /(?:View|Screen|Composable)[^/]*\.kt$/.test(p) || /View[^/]*\.swift$/.test(p); });
+  if (uiPath || /(?:^|[^A-Za-z0-9_])@Composable\b/.test(raw) || /\b(?:SwiftUI|contentDescription|semantics|accessibilityLabel|TalkBack|VoiceOver|prefers-reduced-motion|darkTheme)\b/.test(raw) || /\b(?:content\s+description|accessibility\s+label|talk\s+back|voice\s+over|prefers\s+reduced\s+motion|dark\s+theme)\b/i.test(split)) found.add("ui-a11y");
   return DOMAIN_ORDER.filter((d) => found.has(d));
 }
-
 function extractHeadingSection(markdown, headingName) {
   const match = new RegExp(`^#{2,3}\\s+${headingName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t]*$`, "im").exec(markdown);
   if (!match) return "";
@@ -127,16 +128,11 @@ function extractHeadingSection(markdown, headingName) {
   const next = rest.search(/^#{1,3}\s+/m);
   return next === -1 ? rest : rest.slice(0, next);
 }
-
 function globToRegExp(pattern) {
   const norm = pattern.replaceAll("\\", "/").replace(/^\.\//, "");
   let rx = "^";
   for (let i = 0; i < norm.length;) {
-    if (norm.startsWith("**/", i)) { rx += "(?:.+/)?"; i += 3; }
-    else if (norm.startsWith("/**", i) && i + 3 === norm.length) { rx += "(?:/.*)?"; i += 3; }
-    else if (norm.startsWith("**", i)) { rx += ".*"; i += 2; }
-    else if (norm[i] === "*") { rx += "[^/]*"; i += 1; }
-    else { rx += "+?^${}()|[]\\.".includes(norm[i]) ? `\\${norm[i]}` : norm[i]; i += 1; }
+    if (norm.startsWith("**/", i)) { rx += "(?:.+/)?"; i += 3; } else if (norm.startsWith("/**", i) && i + 3 === norm.length) { rx += "(?:/.*)?"; i += 3; } else if (norm.startsWith("**", i)) { rx += ".*"; i += 2; } else if (norm[i] === "*") { rx += "[^/]*"; i += 1; } else { rx += "+?^${}()|[]\\.".includes(norm[i]) ? `\\${norm[i]}` : norm[i]; i += 1; }
   }
   return new RegExp(`${rx}(?:$|/)`);
 }
@@ -196,9 +192,9 @@ function extractEnclosingHeadings(fileText, lineNums) {
   const [lines, targets, stack, out] = [fileText.split(/\r?\n/), new Set(lineNums), [], []];
   let fence = null;
   for (let i = 1, max = Math.min(lines.length, Math.max(...lineNums)); i <= max; i += 1) {
-    const fm = lines[i - 1].match(/^\s*(`{3,}|~{3,})/);
-    if (fm) { if (!fence) fence = fm[1]; else if (fm[1][0] === fence[0] && fm[1].length >= fence.length) fence = null; }
-    const m = !fence && lines[i - 1].match(/^(#{1,6})\s+(.+?)\s*$/);
+    const nf = nextFenceState(fence, lines[i - 1]);
+    const m = !fence && !nf && lines[i - 1].match(/^(#{1,6})\s+(.+?)\s*$/);
+    fence = nf;
     if (m) { stack.length = m[1].length - 1; stack[m[1].length - 1] = m[2]; }
     if (targets.has(i)) out.push(...stack.filter(Boolean));
   }
@@ -208,7 +204,7 @@ function extractProdDiffSections(diff, readBaseHead) {
   const chunks = [];
   for (const sec of diff.split(/^diff --git /m).slice(1)) {
     const rel = sec.match(/^(?:a\/.*? b\/|"a\/.*?" "b\/)(.+?)"?\r?\n/)?.[1] ?? null;
-    if (rel && !isProductionFile(rel)) continue;
+    if (rel && isTestOrGeneratedFile(rel)) continue;
     chunks.push(sec);
     if (rel && readBaseHead) {
       const { baseText, headText } = readBaseHead(rel);
@@ -294,14 +290,14 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
         const target = readlinkSync(full);
         hash.update(`\0symlink:${rel}:${st.mode}:${target}\0`);
         fileStats.set(rel, { added: 1, deleted: 0 });
-        extraHunks.push(target); if (isProductionFile(rel)) prodExtra.push(target);
+        extraHunks.push(target); if (!isTestOrGeneratedFile(rel)) prodExtra.push(target);
       } else if (st.isFile()) {
         const bytes = readFileSync(full);
         const utf8 = bytes.toString("utf8");
         hash.update(`\0file:${rel}:${st.mode}\0`).update(bytes);
         fileStats.set(rel, { added: utf8 === "" ? 0 : utf8.replace(/\r?\n$/, "").split(/\r?\n/).length, deleted: 0 });
         untrackedTextByPath.set(rel, utf8);
-        extraHunks.push(utf8); if (isProductionFile(rel)) prodExtra.push(utf8);
+        extraHunks.push(utf8); if (!isTestOrGeneratedFile(rel)) prodExtra.push(utf8);
       }
     }
     diffHunkText = extraHunks.filter(Boolean).join("\n");
@@ -317,16 +313,9 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
   }
 
   const changedFiles = [...fileStats.keys()].sort();
-  let [totalLinesChanged, prodLinesChanged] = [0, 0];
-  for (const rel of changedFiles) {
-    const delta = fileStats.get(rel).added + fileStats.get(rel).deleted;
-    totalLinesChanged += delta;
-    if (isProductionFile(rel)) prodLinesChanged += delta;
-  }
-
+  const [totalLinesChanged, prodLinesChanged] = changedFiles.reduce(([t, p], rel) => { const d = fileStats.get(rel).added + fileStats.get(rel).deleted; return [t + d, p + (isProductionFile(rel) ? d : 0)]; }, [0, 0]);
   const readWorktreeConfig = (absPath, flag) => {
-    let lst;
-    try { lst = lstatSync(absPath); } catch { return null; }
+    try { lstatSync(absPath); } catch { return null; }
     if (!existsSync(absPath)) throw new Error(`Broken symlink for ${flag}`);
     const real = realpathSync(absPath);
     if (!isInsideOrEqual(realRepoRoot, real)) throw new Error(`${flag} must stay inside --repo-root`);
@@ -336,7 +325,7 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
   const rawChecklistText = head === "WORKTREE" ? readWorktreeConfig(lexicalChecklist, "--checklist") : gitConfigOrNull(realRepoRoot, resolvedHead, checklistRel);
   const { riskyPatterns, riskyConcepts, checklistBullets } = parseAgentsProfile(rawAgentsText ?? "");
   const lowerCtx = diffContextText.toLowerCase();
-  const matchedRiskyAreas = [...riskyPatterns.filter((pat) => changedFiles.some((f) => globToRegExp(pat).test(f.replaceAll("\\", "/")))), ...riskyConcepts.filter((phrase) => changedFiles.some((f) => isProductionFile(f)) && lowerCtx.includes(phrase))];
+  const matchedRiskyAreas = [...riskyPatterns.filter((pat) => changedFiles.some((f) => globToRegExp(pat).test(f.replaceAll("\\", "/")))), ...riskyConcepts.filter((phrase) => changedFiles.some((f) => !isTestOrGeneratedFile(f)) && lowerCtx.includes(phrase))];
   const touchesRiskyArea = matchedRiskyAreas.length > 0;
   const checklistLoaded = rawChecklistText !== null;
   const checklistRules = checklistLoaded ? parseReviewChecklist(rawChecklistText) : [];
