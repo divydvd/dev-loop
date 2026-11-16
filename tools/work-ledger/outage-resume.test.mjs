@@ -451,7 +451,35 @@ test("final review regressions: failing Gradle, null initial HEAD, mid-turn comm
   assert.equal(r2.resume, true);
   assert.equal(r2.attempt, 1);
 
-  // 3. Newer ledger note "away_mode: active=false" overrides an older progress.md with active: true.
+  // 3. Subagent / checkpoint error events are rejected by classifyTransientOutage, and recordOutageProgress
+  // resets attemptsUsed after status "cancelled" or "exhausted" once real HEAD or ledger progress occurs.
+  assert.equal(classifyTransientOutage({ agentId: "sub-1", data: { message: "HTTP 503 Service Unavailable" } }).transient, false);
+  assert.equal(classifyTransientOutage({ checkpoint: true, data: { message: "HTTP 503 Service Unavailable" } }).transient, false);
+
+  const dataExh = emptyLedger();
+  const exhRes = planOutageResume(dataExh, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha1,
+    config: cap1Config,
+    now: t0 + 1000,
+  });
+  assert.equal(exhRes.resume, true);
+  markOutagePromptSent(dataExh, "s1", t0 + 2000, sha1);
+  const exhRes2 = planOutageResume(dataExh, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha1,
+    config: cap1Config,
+    now: t0 + 3000,
+  });
+  assert.equal(exhRes2.status, "exhausted");
+  assert.equal(recordOutageProgress(dataExh, { sessionId: "s1", headSha: sha2, now: t0 + 4000 }), true);
+  assert.equal(dataExh.outageRecovery.s1.attemptsUsed, 0);
+
+  // 4. Newer ledger note "away_mode: active=false" overrides an older progress.md with active: true.
   recordEvidence(data, {
     repo: "acme/widget",
     pr: 99,

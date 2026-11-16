@@ -390,8 +390,8 @@ for (const w of startupWarnings) log(`${TAG} Config warning: ${w}`, "warning");
 
 session.on("user.message", (e) => { approvalWork = approvalWork.then(() => onUserMessage(e)).catch((err) => ledger.error(`user.message: ${err?.stack || err}`)); });
 session.on("assistant.message", (e) => { try { onAssistantMessage(e); } catch (err) { ledger.error(`assistant.message: ${err?.stack || err}`); } });
-session.on("session.error", (e) => { void queueOutageCheck(e, cwdNow); });
-session.on("session.idle", () => { void checkOutageProgress(cwdNow).catch((err) => ledger.error(`session.idle: ${err?.stack || err}`)); });
+session.on("session.error", (e) => { if (!e?.agentId && !e?.checkpoint) void queueOutageCheck(e, cwdNow); });
+session.on("session.idle", (e) => { if (!e?.agentId && !e?.checkpoint) void checkOutageProgress(cwdNow).catch((err) => ledger.error(`session.idle: ${err?.stack || err}`)); });
 
 ready = (async () => {
   if (config.debug) {

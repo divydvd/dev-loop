@@ -252,7 +252,7 @@ test("final review regressions: canonical absolute dataDir validation and repo-l
   const linkPath = path.join(root, "symlink-data");
   fs.symlinkSync(realTarget, linkPath);
 
-  for (const badDir of ["../escape", "state", `${root}/sub/../escape`, linkPath]) {
+  for (const badDir of ["../escape", "state", `${root}/sub/../escape`, linkPath, `${linkPath}/`, "/"]) {
     fs.writeFileSync(path.join(extDir, "config.json"), JSON.stringify({ dataDir: badDir }));
     const fromExt = resolveDataDir({ envDir: "", extDir, homeDir });
     assert.equal(fromExt.dataDir, expectedFallback, `extDir dataDir ${badDir} must fall back`);
@@ -263,11 +263,42 @@ test("final review regressions: canonical absolute dataDir validation and repo-l
     assert.ok(fromEnv.bootstrapWarnings.length > 0, `envDir ${badDir} must emit warning`);
   }
 
-  // 2. When defaultRepo is null, "merge acme/widget#12 and don't merge #12" cancels in the same message,
+  // Trailing slash on a valid custom dataDir must be stripped so protectedDirs substring matching works.
+  const validCustom = path.join(root, "custom-ledger");
+  assert.equal(resolveDataDir({ envDir: `${validCustom}/`, extDir, homeDir }).dataDir, validCustom);
+
+  // 2. When defaultRepo is null, "merge acme/widget#12 and don't merge #12" cancels in the same message
+  // without emitting a false "Cannot resolve" note and without revoking an unrelated other/lib#12 approval,
   // and standalone "don't merge #12" revokes a single unambiguous active #12 merge approval in that session.
   const data = emptyLedger();
-  const sameMsg = planOwnerMessage("merge acme/widget#12 and don't merge #12", { sessionId: "s1", defaultRepo: null });
-  assert.deepEqual(sameMsg.merges, []);
+  const emptySameNotes = applyPlan(data, planOwnerMessage("merge acme/widget#12 and don't merge #12", { sessionId: "s1", defaultRepo: null }), {
+    heads: new Map(),
+    sessionId: "s1",
+    text: "merge acme/widget#12 and don't merge #12",
+    config: DEFAULT_CONFIG,
+  });
+  assert.deepEqual(emptySameNotes, []);
+
+  applyPlan(data, planOwnerMessage("merge other/lib#12", { sessionId: "s1", defaultRepo: null }), {
+    heads: new Map([["other/lib#12", { sha: "b".repeat(40), state: "OPEN" }]]),
+    sessionId: "s1",
+    text: "merge other/lib#12",
+    config: DEFAULT_CONFIG,
+  });
+  const crossRepoSame = planOwnerMessage("merge acme/widget#12 and don't merge #12", {
+    sessionId: "s1",
+    approvals: data.approvals,
+    defaultRepo: null,
+  });
+  assert.deepEqual(crossRepoSame.merges, []);
+  applyPlan(data, crossRepoSame, {
+    heads: new Map(),
+    sessionId: "s1",
+    text: "merge acme/widget#12 and don't merge #12",
+    config: DEFAULT_CONFIG,
+  });
+  assert.equal(data.approvals.filter((a) => !a.usedAt && a.repo === "other/lib").length, 1, "other/lib#12 must remain active");
+  data.approvals = [];
 
   const grantPlan = planOwnerMessage("merge acme/widget#12", { sessionId: "s1", defaultRepo: null });
   applyPlan(data, grantPlan, {

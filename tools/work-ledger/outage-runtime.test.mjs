@@ -411,6 +411,16 @@ test("final review runtime regressions: uncreatable dataDir fails safe and quote
     });
     await host.options.hooks.onPreToolUse({ toolName: "bash", toolArgs: { command: "true" }, workingDirectory: process.cwd() }, { sessionId: host.session.sessionId });
 
+    // Subagent and checkpoint session.error events must NOT arm root-session outage retries.
+    host.callbacks.get("session.error")({ agentId: "sub-agent-1", data: { message: "HTTP 503 Service Unavailable" } });
+    host.callbacks.get("session.error")({ checkpoint: true, data: { message: "HTTP 503 Service Unavailable" } });
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(host.sentPrompts.length, 0);
+    if (fs.existsSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"))) {
+      const mid = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
+      assert.notEqual(mid.outageRecovery?.["owner-runtime"]?.status, "retrying");
+    }
+
     await host.options.hooks.onErrorOccurred({ error: "HTTP 503 Service Unavailable", workingDirectory: process.cwd() });
     let saved = JSON.parse(fs.readFileSync(path.join(process.env.WORK_LEDGER_DIR, "ledger.json"), "utf8"));
     assert.equal(saved.outageRecovery["owner-runtime"].status, "retrying");

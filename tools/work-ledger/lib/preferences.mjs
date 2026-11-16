@@ -25,9 +25,9 @@ function readConfigObject(filePath, warnings) {
 
 function validateDataDir(raw, label, homeDir, fallback, warnings) {
   if (typeof raw !== "string" || !raw.trim()) return (warnings.push(`Invalid ${label}: expected a non-empty absolute path; using ${fallback}.`), null);
-  const expanded = raw.trim().replace(/^~(?=\/|$)/, homeDir);
-  if (!path.isAbsolute(expanded) || /(?:^|[\\/])\.\.(?:[\\/]|$)/.test(expanded)) return (warnings.push(`Invalid ${label} ${JSON.stringify(raw)}: expected a canonical absolute path; using ${fallback}.`), null);
-  const norm = path.normalize(expanded), stop = new Set([path.normalize(homeDir), path.normalize(os.tmpdir()), "/"]);
+  const expanded = raw.trim().replace(/^~(?=\/|$)/, homeDir), norm = path.isAbsolute(expanded) ? path.resolve(expanded) : "";
+  if (!norm || norm === "/" || /(?:^|[\\/])\.\.(?:[\\/]|$)/.test(expanded)) return (warnings.push(`Invalid ${label} ${JSON.stringify(raw)}: expected a canonical absolute path; using ${fallback}.`), null);
+  const stop = new Set([path.resolve(homeDir), path.resolve(os.tmpdir()), "/"]);
   for (let cur = norm; !stop.has(cur) && path.dirname(cur) !== "/"; cur = path.dirname(cur)) {
     try { const st = fs.lstatSync(cur); if (st.isSymbolicLink() || !st.isDirectory()) return (warnings.push(`Refusing ${label} ${JSON.stringify(raw)}: symlink or non-directory; using ${fallback}.`), null); }
     catch (err) { if (err?.code !== "ENOENT") return (warnings.push(`Cannot stat ${label} ${cur} (${err?.message || err}); using ${fallback}.`), null); }

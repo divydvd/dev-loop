@@ -16,6 +16,7 @@ function extractNumericStatus(obj) {
 export function classifyTransientOutage(errOrEvent) {
   const raw = typeof errOrEvent === "string" ? { message: errOrEvent } : errOrEvent;
   if (!raw || typeof raw !== "object") return { transient: false, code: "empty" };
+  if (raw.agentId || raw.checkpoint || raw.data?.parentToolCallId) return { transient: false, code: "subagent_or_checkpoint" };
   if (raw.permissionDecision === "deny") return { transient: false, code: "guard_denied" };
   if (raw.errorContext === "tool_execution" || raw.errorContext === "user_input") return { transient: false, code: "non_session_context" };
   const names = collectStrings(raw, "name"), codes = collectStrings(raw, "code"), types = collectStrings(raw, "errorType");
@@ -138,7 +139,7 @@ export function revertOutagePromptSend(data, sessionId, { attempt, prompt, delay
 
 export function recordOutageProgress(data, { sessionId, headSha = null, now = Date.now() } = {}) {
   const sid = sessionId || "default", rec = data?.outageRecovery?.[sid];
-  if (!rec || rec.attemptsUsed === 0 || rec.status !== "resumed") return false;
+  if (!rec || rec.attemptsUsed === 0 || rec.status === "retrying") return false;
   if (headSha && !rec.lastHeadSha) rec.lastHeadSha = headSha;
   const currentFp = progressFingerprint(data, sid), shaAdvanced = Boolean(headSha && rec.lastHeadSha && headSha !== rec.lastHeadSha);
   if (!shaAdvanced && currentFp === rec.lastProgressFingerprint) return false;

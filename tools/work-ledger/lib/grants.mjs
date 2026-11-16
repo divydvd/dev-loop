@@ -76,7 +76,11 @@ export function planOwnerMessage(text, { sessionId, pending = [], approvals = []
     else plan.notes.push(`"review again" did not match a PR in this session. Type the number, for example "review again #123".`);
   }
 
-  for (const r of parsed.revokes) add(plan.revoke, r);
+  for (const r of parsed.revokes) {
+    const sameMsg = !r.repo ? plan.merges.filter((m) => m.pr === r.pr) : [], mRepos = [...new Set(sameMsg.map((m) => m.repo).filter(Boolean))];
+    if (mRepos.length) mRepos.forEach((repo) => add(plan.revoke, { repo, pr: r.pr }));
+    else add(plan.revoke, sameMsg.length ? { ...r, cancelledSameMsg: true } : r);
+  }
   if (parsed.revokeContext) {
     approvals.filter((a) => a.kind === "merge" && a.sessionId === sessionId && !a.usedAt && Date.parse(a.expiresAt) > now).forEach((a) => add(plan.revoke, { repo: a.repo, pr: a.pr }));
     mine("merge", 24 * HOUR).forEach((p) => add(plan.revoke, { repo: p.repo, pr: p.pr }));
@@ -109,7 +113,7 @@ export function applyPlan(data, plan, { heads, sessionId, text, config, now = Da
     if (!r.repo) {
       const repos = [...new Set(data.approvals.filter((a) => a.kind === "merge" && active(a) && a.pr === r.pr && (!sessionId || !a.sessionId || a.sessionId === sessionId)).map((a) => a.repo).filter(Boolean))];
       if (repos.length === 1) r = { ...r, repo: repos[0] };
-      else { notes.push(`Cannot resolve a GitHub repository for #${r.pr} here. Type "don't merge owner/repo#${r.pr}".`); continue; }
+      else { if (!r.cancelledSameMsg) notes.push(`Cannot resolve a GitHub repository for #${r.pr} here. Type "don't merge owner/repo#${r.pr}".`); continue; }
     }
     let n = 0;
     for (const a of data.approvals) if (a.kind === "merge" && active(a) && samePr(a, r)) { a.usedAt = at; a.revoked = true; n++; }
