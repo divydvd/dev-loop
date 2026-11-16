@@ -186,8 +186,8 @@ The expected result is fast 1-reviewer turnaround on `<= 120`-line single-domain
 - Consumes: updated skill and reference files from Task 3; fixed scenarios `S-RP1`–`S-RP5` + `README.md` controls from Task 1
 - Produces: `5/5` fresh-agent compliance evidence (`green-rp-1`..`green-rp-5`) for `CHANGELOG.md` and the PR body
 
-- [ ] **Step 1: Dispatch 5 parallel fresh-context `explore` subagents with the revised `0.5.18` instructions on the exact Task 1 scenarios**
-- [ ] **Step 2: Manually inspect every response against `S-RP1`–`S-RP5` and `Case 1` / `Case 9` / `V5` controls**
+- [x] **Step 1: Dispatch 5 parallel fresh-context `explore` subagents with the revised `0.5.18` instructions on the exact Task 1 scenarios**
+- [x] **Step 2: Manually inspect every response against `S-RP1`–`S-RP5` and `Case 1` / `Case 9` / `V5` controls**
   If any subagent misses a requirement or exhibits variance, tighten the contract in `review-panel.md` / `SKILL.md`, rerun `check.mjs` + contract tests, and re-verify with 5 fresh subagents until `5/5` converge.
 
 ---
