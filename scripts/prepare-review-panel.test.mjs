@@ -994,6 +994,26 @@ test("21. Copilot PR review Round 2: reference-style link destinations, numeric 
     JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", refPathHead, "--head", refCaseHead, "--json"]).stdout).mode,
     "single"
   );
+  const refTitleBase = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\n[r]: /setup \"Allow access\"\n",
+  });
+  const refTitleHead = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\n[r]: /setup \"Deny access\"\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", refTitleBase, "--head", refTitleHead, "--json"]).stdout).mode,
+    "single"
+  );
+  const unclosedBase = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\n[doc]: /x \"unclosed\n\nAllow access.\n\nLater \"quote\".\n",
+  });
+  const unclosedHead = writeAndCommit(repoDir, {
+    "README.md": "# Guide\n\n[doc]: /x \"unclosed\n\nDeny access.\n\nLater \"quote\".\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", unclosedBase, "--head", unclosedHead, "--json"]).stdout).mode,
+    "single"
+  );
 
   // 2. Numeric sign ('-1' -> '1') and comparison operator ('<' -> '>') edits must NOT be exempt
   const signBase = writeAndCommit(repoDir, {
