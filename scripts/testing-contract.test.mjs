@@ -137,7 +137,7 @@ test("required gaps block ready claims while optional limits remain explicit", (
 
 test("CI runs the testing contract alongside existing suites", () => {
   const workflow = read(".github/workflows/check.yml");
-  for (const suite of ["testing-contract", "independent-review", "branch-maintenance", "device-handoff", "collect-metrics", "run-benchmark", "portability-contract"]) {
+  for (const suite of ["testing-contract", "scan-flow-drift", "independent-review", "branch-maintenance", "device-handoff", "collect-metrics", "run-benchmark", "portability-contract"]) {
     assert.ok(workflow.includes(`node --test scripts/${suite}.test.mjs`), `missing CI suite: ${suite}`);
   }
 });
@@ -389,4 +389,27 @@ test("T-IR8: infra review and project profile are host-aware across Copilot, Cla
   assert.match(profile, /plugin or extension/i);
   assert.match(profile, /precedence over skill instructions, including Superpowers/);
 });
+
+test("flow-docs and infra-review wire scan-flow-drift.mjs with manual fallback and shadow-mode telemetry", () => {
+  const flowSkill = read("skills/flow-docs/SKILL.md");
+  const beforeSection = flowSkill.split("## Before you change a flow")[1]?.split("## Update a flow doc")[0] ?? "";
+  const updateSection = flowSkill.split("## Update a flow doc")[1]?.split("## Write a new flow doc")[0] ?? "";
+
+  assert.ok(beforeSection.includes("scripts/scan-flow-drift.mjs"));
+  assert.match(beforeSection, /node <flow-docs-skill-dir>\/scripts\/scan-flow-drift\.mjs --json/);
+  assert.match(beforeSection, /git log -1 --format=%h -- <doc>/);
+  assert.match(updateSection, /node <flow-docs-skill-dir>\/scripts\/scan-flow-drift\.mjs --changed-from <base-branch> --json/);
+  assert.ok(updateSection.includes("unupdatedImpactedDocs"));
+  assert.match(updateSection, /Step 5 self-review/);
+
+  const infra = read("skills/infra-review/SKILL.md");
+  const shadow = infra.split("### Shadow-mode objective telemetry")[1]?.split("## 3. Find the faults")[0] ?? "";
+  assert.match(
+    shadow,
+    /node <dev-loop-checkout>\/skills\/flow-docs\/scripts\/scan-flow-drift\.mjs --repo-root <project-checkout> --json/,
+  );
+  assert.match(shadow, /--changed-from <mergeCommit>\^1 --changed-to <mergeCommit> --json/);
+  assert.match(shadow, /unupdatedImpactedDocs/);
+});
+
 
