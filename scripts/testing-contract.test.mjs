@@ -137,7 +137,7 @@ test("required gaps block ready claims while optional limits remain explicit", (
 
 test("CI runs the testing contract alongside existing suites", () => {
   const workflow = read(".github/workflows/check.yml");
-  for (const suite of ["testing-contract", "scan-flow-drift", "independent-review", "branch-maintenance", "device-handoff", "collect-metrics", "run-benchmark", "portability-contract"]) {
+  for (const suite of ["testing-contract", "scan-flow-drift", "independent-review", "branch-maintenance", "device-handoff", "collect-metrics", "mine-pr-evidence", "run-benchmark", "portability-contract"]) {
     assert.ok(workflow.includes(`node --test scripts/${suite}.test.mjs`), `missing CI suite: ${suite}`);
   }
 });
@@ -503,6 +503,51 @@ test("waived requires a direct typed owner chat message, preserves raw status, a
 
   const ruleMap = read("README.md").split("## Rule/check map")[1]?.split(/\n#{2,3} /)[0] ?? "";
   assert.match(ruleMap, /\bwaived\b/i);
+});
+
+test("T-IR9: PR evidence rule miner, review checklist template, and Step-5 checklist path contract", () => {
+  const infra = read("skills/infra-review/SKILL.md");
+  const ruleMiner = read("skills/infra-review/references/rule-miner.md");
+  const devLoop = read("skills/dev-loop/SKILL.md");
+  const profile = read("skills/dev-loop/assets/project-profile.md");
+  const checklistTemplate = read("skills/dev-loop/assets/review-checklist.md");
+
+  const measure = infra.split("## 2. Measure")[1]?.split("## 3. Find the faults")[0] ?? "";
+  const choose = infra.split("## 4. Choose the changes")[1]?.split("## 5. Output")[0] ?? "";
+  const output = infra.split("## 5. Output")[1] ?? "";
+  const selfReview = devLoop.split("## 5. Self-review")[1]?.split("## 6. Verify")[0] ?? "";
+
+  // Bundled miner script + rule-miner reference wired into infra-review without changing the 17-row table
+  assert.ok(measure.includes("scripts/mine-pr-evidence.mjs"), "Shadow-mode telemetry must wire scripts/mine-pr-evidence.mjs");
+  assert.ok(choose.includes("references/rule-miner.md"), "Section 4 must reference references/rule-miner.md");
+  assert.match(output, /review-checklist\.md/, "Section 5 Project PR must cover review-checklist.md updates");
+
+  // Generator + fresh Validator contract, domains, caps, untrusted boundary, and 4-week non-safety retirement
+  assert.match(ruleMiner, /Generator/);
+  assert.match(ruleMiner, /Validator/);
+  for (const domain of ["arch-correctness", "concurrency-state", "security-privacy", "ui-a11y"]) {
+    assert.ok(ruleMiner.includes(domain), `rule-miner.md must allow domain ${domain}`);
+  }
+  assert.match(ruleMiner, /min\(3,\s*remainingSlots\)/);
+  assert.match(ruleMiner, /25/);
+  assert.match(ruleMiner, /"untrusted":\s*true|untrusted/i);
+  assert.match(ruleMiner, /Retired or automated rules/);
+  assert.match(ruleMiner, /Safety\?.*yes|never.*retire/i);
+  assert.match(
+    ruleMiner,
+    /after updating.*counters.*re-run.*--checklist|recompute.*staleRules.*after.*counter/is,
+    "rule-miner.md must recompute staleRules after weekly counter updates",
+  );
+
+  // Checklist template + project profile + Step-5-only loading (+0 startup bytes)
+  assert.ok(checklistTemplate.includes("## Active rules"));
+  assert.ok(checklistTemplate.includes("## Retired or automated rules"));
+  assert.ok(Buffer.byteLength(profile, "utf8") <= 5500, "project-profile.md must stay <= 5.5 KB");
+  assert.match(profile, /Checklist path.*docs\/testing\/review-checklist\.md/s);
+  assert.match(profile, /inline only/);
+  assert.match(selfReview, /Checklist path/);
+  assert.match(selfReview, /inline only/);
+  assert.match(selfReview, /not.*startup|never.*startup|only during.*review/i);
 });
 
 

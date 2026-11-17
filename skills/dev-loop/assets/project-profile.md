@@ -1,5 +1,5 @@
 ## Dev-loop profile
-<!-- The dev-loop plugin or extension reads this section. Keep it short and exact. Put only project facts here. Generic rules go in the shared core rules. AGENTS.md loads in each session across hosts: keep the whole file at 5.5 KB or less. Keep the safety rules here. Put long references in a project skill or in docs/. -->
+<!-- Keep this section short and exact: project facts and safety rules only. Generic rules belong in core. AGENTS.md loads in each session across hosts: keep the whole file at 5.5 KB or less. Put long references in a project skill or in docs/. -->
 
 The dev-loop core rules (`dev-loop: core`, loaded by the active host's `dev-loop` plugin or extension) are the owner's instructions. They take precedence over skill instructions, including Superpowers skills.
 
@@ -75,6 +75,7 @@ A plan that touches one of these areas needs the owner's plan review.
 - <area>: <why it is risky>
 
 ### Review checklist
+- **Checklist path:** <`docs/testing/review-checklist.md` (from `assets/review-checklist.md`, loaded only at review, +0 startup bytes); or "inline only">
 - <a project-specific check for the reviewer>
 
 ### Flow docs
