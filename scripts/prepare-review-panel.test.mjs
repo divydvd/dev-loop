@@ -1230,5 +1230,30 @@ test("22. M2/M3 integration: AGENTS.md 'Checklist path' honors 'inline only', cu
   const escapeRun = runRouterCli(["--repo-root", repoDir, "--base", escapeBase, "--head", escapeHead, "--json"]);
   assert.notEqual(escapeRun.status, 0);
   assert.match(escapeRun.stderr, /--checklist must stay inside --repo-root/);
+
+  // 4. Fixing a broken base AGENTS.md symlink succeeds, and editing symlinked config/real-agents.md is never exempt
+  unlinkSync(join(repoDir, "AGENTS.md"));
+  symlinkSync("config/missing-base-agents.md", join(repoDir, "AGENTS.md"));
+  git(repoDir, ["add", "-A"]);
+  git(repoDir, ["commit", "-m", "broken base AGENTS symlink"]);
+  const brokenSymBase = git(repoDir, ["rev-parse", "HEAD"]);
+
+  mkdirSync(join(repoDir, "config"), { recursive: true });
+  writeFileSync(join(repoDir, "config/real-agents.md"), "# Project\n\n### Review checklist\n- Check recieve path.\n", "utf8");
+  unlinkSync(join(repoDir, "AGENTS.md"));
+  symlinkSync("config/real-agents.md", join(repoDir, "AGENTS.md"));
+  git(repoDir, ["add", "-A"]);
+  git(repoDir, ["commit", "-m", "fix AGENTS symlink"]);
+  const fixedSymHead = git(repoDir, ["rev-parse", "HEAD"]);
+  const fixedRun = runRouterCli(["--repo-root", repoDir, "--base", brokenSymBase, "--head", fixedSymHead, "--json"]);
+  assert.equal(fixedRun.status, 0, fixedRun.stderr);
+
+  const symTargetHead = writeAndCommit(repoDir, {
+    "config/real-agents.md": "# Project\n\n### Review checklist\n- Check receive path.\n",
+  });
+  assert.notEqual(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", fixedSymHead, "--head", symTargetHead, "--json"]).stdout).mode,
+    "exempt"
+  );
 });
 
