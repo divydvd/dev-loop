@@ -14,7 +14,7 @@ A multi-host plugin and extension (GitHub Copilot, Claude Code, and Gemini CLI) 
 | Check script | `scripts/check.mjs` | Exact checks: the rule size, the frontmatter, the links, the 5 host manifests, `GEMINI.md` byte parity, hook isolation, and the `15 KB` startup ceiling. CI runs it on each PR. |
 | Portability contract tests | `scripts/portability-contract.test.mjs` | Regression checks for multi-host manifests, `GEMINI.md` sync, Claude `SessionStart` hook isolation, Gemini CLI packaging, and host guides. |
 | Device handoff tests | `scripts/device-handoff.test.mjs` | Regression checks for passing-build retention, monitor grants, and authorized post-merge refresh instructions. |
-| Independent review tests | `scripts/independent-review.test.mjs` | Regression checks for review scope, coverage reuse, exemptions, and readiness evidence. |
+| Independent review tests | `scripts/independent-review.test.mjs`, `scripts/prepare-review-panel.test.mjs` | Regression checks for review scope, proportional panel routing, external packet generation, exemptions, and readiness evidence. |
 | Testing contract checks | `scripts/testing-contract.test.mjs` | Structural checks for test planning, evidence fields, coverage review, and readiness instructions. |
 | Objective metrics collector | `scripts/collect-metrics.mjs` | Read-only shadow-mode collector for 14-day code survival, Git-ancestry ledger verification, autonomy, route-bucketed `totalNanoAiu`, and mixed-host `unmatched_non_copilot_or_missing_session` PR reporting. |
 | Executable benchmark runner | `scripts/run-benchmark.mjs` | Isolated Git sandbox runner and anti-tampering oracle grader for baseline-vs-candidate plugin comparisons (`B1–B6`). |
@@ -199,6 +199,7 @@ Source tests and structural checks do not prove that an agent followed an instru
 | Rule | Check location | Regression test | Known limitation |
 | --- | --- | --- | --- |
 | Require independent review before substantive PR readiness | [Review instructions](skills/dev-loop/SKILL.md) | [Independent review suite](scripts/independent-review.test.mjs) | Structural checks preserve the instruction contract; they do not block an agent that skips review. |
+| Route Step-5 review proportionally and generate external specialist packets | [Review panel router](skills/dev-loop/scripts/prepare-review-panel.mjs), [Review panel reference](skills/dev-loop/references/review-panel.md) | [Review panel router suite](scripts/prepare-review-panel.test.mjs), [Independent review suite](scripts/independent-review.test.mjs) | Deterministic router classifies diff size, risky areas, and domain triggers and rejects `--out-dir` inside `--repo-root`; specialist isolation and `skeptic-judge` execution remain agent instructions rather than a runtime guard. |
 | Keep required coverage gaps visible | [Testing instructions](skills/dev-loop/references/testing.md) | [Testing contract suite](scripts/testing-contract.test.mjs) | Structural checks and sampled consuming-agent cases do not prove coverage of every future task. |
 | Separate explicit owner gate waivers (`waived`) from `passed` and `not applicable` while preserving raw status | [Testing instructions](skills/dev-loop/references/testing.md), [Loop instructions](skills/dev-loop/SKILL.md) | [Testing contract suite](scripts/testing-contract.test.mjs) | Structural checks verify `waived` authorization and reporting rules; they do not authenticate chat provenance at runtime outside active host guards. |
 | Guard protected Git history operations | [Work-ledger policy](tools/work-ledger/lib/policy.mjs) | [Guard policy suite](tools/work-ledger/guard-policy.test.mjs) | Runtime policy source is separate from the plugin. Source tests do not verify live installation; supported scoped controls can pause individual checks. |
@@ -527,18 +528,21 @@ Do not merge into the default branch locally, rebase, or force push.
 ## Independent PR review
 Every substantive PR receives independent agent review before its first push.
 This includes small fixes, tests, dependencies, configuration, rules, skills, and operational instructions.
-Only harmless spelling or formatting edits are exempt. The PR records the exemption reason.
+Only harmless spelling or formatting edits in non-operational Markdown files are exempt. The PR records the exemption reason.
 Self-review, passing tests, and GitHub Copilot review do not replace independent review.
 
-The reviewer uses a separate context and checks the diff, acceptance record, and affected interactions.
-The PR records the reviewer, reviewed commit or snapshot, scope, verdict, and findings disposition.
+Step 5 runs `skills/dev-loop/scripts/prepare-review-panel.mjs` with `--out-dir` outside `--repo-root` to select `exempt`, `single`, or `panel` mode deterministically (`skills/dev-loop/references/review-panel.md`).
+Small single-domain changes (`<= 120` production lines outside `AGENTS.md` risky areas) use one fresh `single-reviewer` subagent (`single (<agent>)`).
+Larger, risky, or multi-domain changes dispatch isolated specialists (`arch-correctness`, `concurrency-state`, `security-privacy`, `ui-a11y`) from frozen external `<role>-packet.md` files, followed by one `skeptic-judge` synthesis pass (`panel (<roles> -> skeptic-judge)`).
+Parallel-capable hosts launch specialists in one turn; single-subagent hosts run the same packets sequentially in fresh contexts (`dispatch: sequential`).
+The PR records the reviewer, reviewed commit or `WORKTREE:<sha256>` snapshot, scope, verdict, and findings disposition.
 Existing complete coverage can count. Isolated task reviews do not establish integration coverage.
-Later substantive changes receive focused review; harmless edits do not trigger duplicate review.
+Later small substantive changes receive focused `single` review; harmless edits do not trigger duplicate review.
 The evidence links reviewed content to the final substantive change without claiming an old review covered a new commit.
 
-A failed reviewer receives one retry. If review remains unavailable, the agent can open the PR but reports it as not ready.
+A failed specialist or `skeptic-judge` receives one retry in a fresh subagent. If any required role fails twice, record it in `Not reviewed`; the agent can open the PR, but reports `"open, not ready: independent review unavailable"`.
 Independent review does not authorize a merge or replace tests and human checks.
-Run `node --test scripts/independent-review.test.mjs` when these instructions change.
+Run `node --test scripts/independent-review.test.mjs` and `node --test scripts/prepare-review-panel.test.mjs` when these instructions or the router change.
 Skill application scenarios are also required; text checks alone do not prove agent behavior.
 After merge, update the installed plugin and start a new session or reload its instructions.
 This change does not add a blocking work-ledger guard.
