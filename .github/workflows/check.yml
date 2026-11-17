@@ -15,6 +15,7 @@ jobs:
       - run: node --test scripts/branch-maintenance.test.mjs
       - run: node --test scripts/independent-review.test.mjs
       - run: node --test scripts/testing-contract.test.mjs
+      - run: node --test scripts/scan-flow-drift.test.mjs
       - run: node --test scripts/collect-metrics.test.mjs
       - run: node --test scripts/mine-pr-evidence.test.mjs
       - run: node --test scripts/run-benchmark.test.mjs

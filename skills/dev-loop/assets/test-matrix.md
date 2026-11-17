@@ -33,10 +33,11 @@ Use the same fields as the compact table. Expand each case where a row cannot ex
 
 ## Coverage and remaining work
 - Acceptance mapping: <each condition -> case IDs or explicit gap>
-- Required blockers: <failed, blocked, not run, or missing coverage; reason and actual dependents, or none>
+- Owner waivers: <none | case IDs, direct owner chat quote/reference, raw status, and unverified behavior>
+- Required blockers: <unwaived failed, blocked, not run, or missing coverage; reason and actual dependents, or none>
 - Optional limits: <unexecuted optional checks, reasons, and remaining risks, or none>
 - Reassessment: <changed requirements/source/setup/consumers; affected cases and reruns>
 - Historical evidence: <original identities and relevance; never claim an old result ran at a new commit>
 
-Statuses: `passed`, `failed`, `blocked`, `not run`, `not applicable` with a reason.
-A matrix or category exclusion is not execution evidence. Required gaps prevent readiness.
+Statuses: `passed`, `failed`, `blocked`, `not run`, `not applicable` with a reason, `waived` only with a direct typed owner chat message plus raw status and unverified risk (`waived` is not `passed`).
+A matrix or category exclusion is not execution evidence. Unwaived required gaps prevent readiness.

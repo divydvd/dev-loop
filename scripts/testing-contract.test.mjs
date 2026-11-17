@@ -137,7 +137,7 @@ test("required gaps block ready claims while optional limits remain explicit", (
 
 test("CI runs the testing contract alongside existing suites", () => {
   const workflow = read(".github/workflows/check.yml");
-  for (const suite of ["testing-contract", "independent-review", "branch-maintenance", "device-handoff", "collect-metrics", "mine-pr-evidence", "run-benchmark", "portability-contract"]) {
+  for (const suite of ["testing-contract", "scan-flow-drift", "independent-review", "branch-maintenance", "device-handoff", "collect-metrics", "mine-pr-evidence", "run-benchmark", "portability-contract"]) {
     assert.ok(workflow.includes(`node --test scripts/${suite}.test.mjs`), `missing CI suite: ${suite}`);
   }
 });
@@ -388,6 +388,121 @@ test("T-IR8: infra review and project profile are host-aware across Copilot, Cla
   assert.ok(Buffer.byteLength(profile, "utf8") <= 5500, "project-profile.md must stay <= 5.5 KB");
   assert.match(profile, /plugin or extension/i);
   assert.match(profile, /precedence over skill instructions, including Superpowers/);
+});
+
+test("flow-docs and infra-review wire scan-flow-drift.mjs with manual fallback and shadow-mode telemetry", () => {
+  const flowSkill = read("skills/flow-docs/SKILL.md");
+  const beforeSection = flowSkill.split("## Before you change a flow")[1]?.split("## Update a flow doc")[0] ?? "";
+  const updateSection = flowSkill.split("## Update a flow doc")[1]?.split("## Write a new flow doc")[0] ?? "";
+
+  assert.ok(beforeSection.includes("scripts/scan-flow-drift.mjs"));
+  assert.match(beforeSection, /node <flow-docs-skill-dir>\/scripts\/scan-flow-drift\.mjs --json/);
+  assert.match(beforeSection, /git log -1 --format=%h -- <doc>/);
+  assert.match(updateSection, /node <flow-docs-skill-dir>\/scripts\/scan-flow-drift\.mjs --changed-from <base-branch> --json/);
+  assert.ok(updateSection.includes("unupdatedImpactedDocs"));
+  assert.match(updateSection, /Step 5 self-review/);
+
+  const infra = read("skills/infra-review/SKILL.md");
+  const shadow = infra.split("### Shadow-mode objective telemetry")[1]?.split("## 3. Find the faults")[0] ?? "";
+  assert.match(
+    shadow,
+    /node <dev-loop-checkout>\/skills\/flow-docs\/scripts\/scan-flow-drift\.mjs --repo-root <project-checkout> --json/,
+  );
+  assert.match(shadow, /--changed-from <mergeCommit>\^1 --changed-to <mergeCommit> --json/);
+  assert.match(shadow, /unupdatedImpactedDocs/);
+  assert.match(shadow, /explicitly approved worktree isolation/);
+  assert.match(shadow, /`n\/a`/);
+});
+
+test("owner gate waivers record waived status and Owner waivers slots without touching core.mdc", () => {
+  const core = read("com.github.copilot/rules/core.mdc");
+  assert.equal(core.trimEnd().split(/\r?\n/).length, 44, "core.mdc must remain at 44 lines");
+  assert.doesNotMatch(core, /\bwaived\b/i, "core.mdc must stay untouched by PR 4");
+
+  const verifyReport = guidance.split("## Verify and report")[1]?.split("## Conclusion")[0] ?? "";
+  for (const status of ["passed", "failed", "blocked", "not run", "not applicable", "waived"]) {
+    assert.match(verifyReport, new RegExp(`\\| ${status} \\|`), `missing status row: ${status}`);
+  }
+
+  for (const [label, doc] of [
+    ["testing.md", guidance],
+    ["SKILL.md", skill],
+    ["test-matrix.md", matrix],
+    ["acceptance-record.md", acceptance],
+    ["pr-body.md", pr],
+  ]) {
+    assert.match(doc, /\bwaived\b/i, `${label} must document waived status`);
+  }
+
+  for (const [label, section] of [
+    ["SKILL.md ## 8. Report", skill.split("## 8. Report")[1]?.split("## Stop conditions")[0] ?? ""],
+    ["test-matrix.md ## Coverage and remaining work", matrix.split("## Coverage and remaining work")[1] ?? ""],
+    ["acceptance-record.md ### Compact test matrix", acceptance.split("### Compact test matrix")[1] ?? ""],
+    ["pr-body.md ## Test coverage", pr.split("## Test coverage")[1]?.split("## Device handoff")[0] ?? ""],
+  ]) {
+    assert.match(section, /Owner waivers:/, `${label} must include Owner waivers slot`);
+  }
+
+  const skillDone = skill.split("- **Done:**")[1]?.split("\n")[0] ?? "";
+  const acceptanceDone = acceptance.split("  - Done:")[1]?.split("\n")[0] ?? "";
+  for (const [label, doneLine] of [
+    ["SKILL.md - **Done:**", skillDone],
+    ["acceptance-record.md - Done:", acceptanceDone],
+  ]) {
+    assert.match(doneLine, /each unwaived "done when" item has evidence at the head commit/i, `${label} must scope done-when head-commit evidence to unwaived items`);
+    assert.match(doneLine, /except any required test case explicitly marked waived by a direct typed owner chat message/i, `${label} must restrict single-line waived exception to required test cases`);
+    assert.match(doneLine, /raw status.*unverified risk/i, `${label} must require raw status and unverified risk`);
+    assert.match(doneLine, /no unwaived required coverage gaps? remain/i, `${label} must forbid unwaived required coverage gaps`);
+  }
+
+  const ship = skill.split("## 7. Ship")[1]?.split("## After an authorized merge")[0] ?? "";
+  assert.match(ship, /waived.*note|note.*waived/i, "SKILL.md ## 7. Ship must record waived cases as note, not validated or device_tested");
+  const prAcceptance = pr.split("## Acceptance record")[1]?.split("## Evidence")[0] ?? "";
+  assert.match(prAcceptance, /head-commit evidence/i, "pr-body.md ## Acceptance record must require head-commit evidence");
+  assert.match(prAcceptance, /applicable required cases all passed/i, "pr-body.md ## Acceptance record must scope pass requirement to applicable required cases");
+  assert.match(prAcceptance, /depends on a waived.*unchecked/i, "pr-body.md ## Acceptance record must keep any item depending on a waived case unchecked");
+  assert.doesNotMatch(prAcceptance, /backed only by a waived/i, "pr-body.md ## Acceptance record must not allow checking mixed-coverage waived items");
+  assert.match(pr.split("## Evidence")[1]?.split("## Test coverage")[0] ?? "", /waived/i, "pr-body.md ## Evidence must support waived (<raw status>) without false pass");
+});
+
+test("waived requires a direct typed owner chat message, preserves raw status, and forbids passed claims or safety-boundary waivers", () => {
+  const verifyReport = guidance.split("## Verify and report")[1]?.split("## Conclusion")[0] ?? "";
+  assert.match(verifyReport, /required test case or verification check/i);
+  assert.doesNotMatch(verifyReport, /required check or gate/i);
+  assert.match(verifyReport, /direct typed.*chat message|explicitly waived.*direct typed chat message/i);
+  assert.match(verifyReport, /not run, blocked, or failed/i);
+  assert.match(verifyReport, /it is not a pass/i);
+  assert.match(verifyReport, /ask_user/i);
+  assert.match(verifyReport, /away mode/i);
+  assert.match(verifyReport, /coordinator.*peer-session|subagent, coordinator, or peer-session/i);
+  assert.match(verifyReport, /kickoff/i);
+  assert.match(verifyReport, /cross_session_message/i);
+  assert.match(verifyReport, /quoted.*hypothetical|hypothetical/i);
+  assert.match(verifyReport, /earlier PR|old PR|prior PR/i);
+  assert.match(verifyReport, /design.*plan approval|feature-design.*risky-plan/i);
+  assert.match(verifyReport, /independent agent review/i);
+  assert.match(verifyReport, /Critical or Important/i);
+  assert.match(verifyReport, /head-commit.*CI|PR CI|checks pass at the head commit/i);
+  assert.match(verifyReport, /rebase.*amend.*force-push.*push to main/i);
+  assert.match(verifyReport, /merge.*deploy/i);
+  assert.match(verifyReport, /personal-data.*secret|personal data.*secret/i);
+  assert.match(verifyReport, /never report.*waived.*as passed|waived.*not.*passed/i);
+
+  const verify = skill.split("## 6. Verify")[1]?.split("## 7. Ship")[0] ?? "";
+  assert.match(verify, /device test.*not explicitly waived/i, "SKILL.md ## 6. Verify must skip device execution when explicitly waived");
+  assert.match(verify, /if an unwaived check stops/i, "SKILL.md ## 6. Verify must scope stopped-check remediation to unwaived checks");
+  const skillBlocked = skill.split("- **Blocked:**")[1]?.split("\n- **Ask the owner**")[0] ?? "";
+  const acceptanceBlocked = acceptance.split("  - Blocked:")[1]?.split("\n\n")[0] ?? "";
+  assert.match(skillBlocked, /no device for an unwaived device check/i, "SKILL.md Blocked must scope no-device stop to unwaived device checks");
+  assert.match(acceptanceBlocked, /no device for an unwaived device check/i, "acceptance-record.md Blocked must scope no-device stop to unwaived device checks");
+
+  const report = skill.split("## 8. Report")[1]?.split("## Stop conditions")[0] ?? "";
+  assert.match(report, /ready with owner waiver \(<case IDs>\)/);
+  assert.match(report, /every other Done gate is satisfied.*ready with owner waiver/i, "SKILL.md ## 8. Report must require all non-waivable Done gates before ready with owner waiver");
+  assert.match(report, /never claim.*all required checks passed/i);
+
+  const ruleMap = read("README.md").split("## Rule/check map")[1]?.split(/\n#{2,3} /)[0] ?? "";
+  assert.match(ruleMap, /\bwaived\b/i);
 });
 
 test("T-IR9: PR evidence rule miner, review checklist template, and Step-5 checklist path contract", () => {

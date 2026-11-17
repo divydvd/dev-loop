@@ -8,7 +8,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 const identity = object => digest(JSON.stringify(object));
 const runtime = ["extension.mjs", ...[
-  "approvals", "classify", "gh", "grants", "guard-switches", "local-maven", "policy", "shell", "store", "units",
+  "approvals", "classify", "gh", "grants", "guard-switches", "local-maven",
+  "outage-resume", "policy", "preferences", "shell", "store", "units",
 ].map(name => `lib/${name}.mjs`)].sort();
 const fail = message => { throw new Error(message); };
 
@@ -135,11 +136,16 @@ function configurationInput(request, installed) {
   const original = old ? read(path.join(request.installed, "config.json")) : null;
   if (original && digest(original) !== old[3]) fail("Configuration changed from the pinned snapshot.");
   const config = original ? object(original) : {};
-  const dataDir = process.env.WORK_LEDGER_DIR || (config.dataDir
-    ? String(config.dataDir).replace(/^~(?=\/|$)/, os.homedir()) : path.join(os.homedir(), ".copilot/work-ledger"));
-  if (typeof dataDir !== "string") fail("Configured ledger directory must be a path.");
-  if (!path.isAbsolute(dataDir)) fail("Ledger directory must be absolute; the runtime host working directory is unknown.");
-  const ledgerDir = path.resolve(dataDir);
+  const rawEnvDir = process.env.WORK_LEDGER_DIR;
+  if (!rawEnvDir && config.dataDir !== undefined && (typeof config.dataDir !== "string" || !config.dataDir.trim())) {
+    fail("Configured ledger directory must be a non-empty string path.");
+  }
+  if (rawEnvDir && rawEnvDir !== rawEnvDir.trim()) fail("Ledger directory must not have leading or trailing whitespace.");
+  const rawDir = rawEnvDir || (typeof config.dataDir === "string"
+    ? config.dataDir.trim().replace(/^~(?=\/|$)/, path.resolve(os.homedir())) : path.join(path.resolve(os.homedir()), ".copilot/work-ledger"));
+  const ledgerDir = rawDir.length > 1 ? rawDir.replace(/[\\/]+$/, "") : rawDir;
+  if (!path.isAbsolute(ledgerDir)) fail("Ledger directory must be absolute; the runtime host working directory is unknown.");
+  if (ledgerDir === path.parse(ledgerDir).root) fail("Ledger directory must not be the filesystem root.");
   canonical(ledgerDir);
   privateParent(request.backupParent, [request.candidate, request.installed, ledgerDir]);
   let additions = [];

@@ -137,8 +137,8 @@ Retain assignment-level gaps and required final integration checks; one ready PR
 Commit all changes first. Do this step after the last commit to the branch, so that all evidence is at the head commit.
 - Run the test tier for each changed area. Read the output.
 - Record case statuses, actual results, and tested identities under `references/testing.md`.
-  Required failures and required coverage gaps prevent a ready claim. Report optional limits separately.
-- If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, and record the result.
+  Unwaived required failures and unwaived required coverage gaps prevent a ready claim. Record any direct typed owner waiver with its raw status and unverified risk (`waived` is not `passed`), and report optional limits separately.
+- If the profile says that the change needs a device test and the owner has not explicitly waived that case under `references/testing.md`, run it yourself: install the build, run the scenario, and record the result.
   After a passing device test, keep the tested build installed. Restore only test data and device settings through the project's safe procedure.
   Do not reinstall the pretest or a fixed baseline APK after a pass, also when a monitor grant asks for it.
   Ask the monitor to correct a conflicting grant before device use. Follow the project recovery procedure after FAIL or BLOCKED.
@@ -147,7 +147,7 @@ Commit all changes first. Do this step after the last commit to the branch, so t
 - For a UI change, take a screenshot of each screen that the device test validates. Keep the screenshots in a folder outside the repo.
 - Note each gap of the test tool, each workaround and its reason, and each unreliable step for the "Test tool feedback" section of the PR body.
 - Write each result as evidence: `<check>: <command or scenario> → <result> at <sha7>`.
-- If a check stops, save the failure handoff under `references/testing.md`.
+- If an unwaived check stops, save the failure handoff under `references/testing.md`.
   For a confirmed product failure, fix the cause and do steps 4 and 5 before verification.
   For a tool or environment blocker, verify the recovered prerequisite before another full run.
   Preserve project tiers, safe recovery, access approvals, and the existing failed-fix limit.
@@ -163,7 +163,7 @@ Commit all changes first. Do this step after the last commit to the branch, so t
   - Do not commit the screenshots.
 - Each push starts CI and a Copilot review, and both cost Actions minutes. Do not push the branch before this step. Push once to open the PR, and then once for each review round.
 - Push the branch, and open a PR with a body from `assets/pr-body.md`. Fill in the evidence, the Test tool feedback, and the Dev-loop feedback.
-- After the PR opens, if `work_ledger_record` is available, record each result from step 6 with the PR number and its exact commit SHA (kind `validated` or `device_tested`). Record new results after each review fix. When `work_ledger_record` is unavailable, `## Evidence` in the PR body and the committed plan or execution ledger hold the canonical step-6 evidence (`references/hosts/README.md`).
+- After the PR opens, if `work_ledger_record` is available, record each passed result from step 6 with the PR number and its exact commit SHA (kind `validated` or `device_tested`), and record any `waived` test case as kind `note` with its raw status and owner quote (never as `validated` or `device_tested`). Record new results after each review fix. When `work_ledger_record` is unavailable, `## Evidence` in the PR body and the committed plan or execution ledger hold the canonical step-6 evidence (`references/hosts/README.md`).
 - Keep independent review evidence separate from automatic review evidence. A `review_clean` entry does not by itself prove independent review. Record the reviewer and coverage in a `note` when the work ledger is available.
 - After each push, wait for the checks and for the repository's automatic review of the head commit, regardless of your local coding host. `gh pr checks` does not show Copilot code review. Find its check run, `copilot-pull-request-reviewer`, in `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`. This review is configured on the GitHub repository, not by your local coding CLI. The review starts 1 minute or less after the push, and it can take 5 minutes. If no review starts in 2 minutes, the repo has no automatic review; record `none configured on repository` in `### GitHub Copilot review`.
 - A failed check is a new finding that you must fix. Fix it in the push of the round. If the round limit stops you, report the failed check to the owner.
@@ -200,23 +200,25 @@ Send the owner one short message. The first sentence states overall PR readiness
 Before a PR exists, use "Work is not ready" rather than inventing a PR number.
 Use these fields in order; omit only fields that do not apply:
 ```
-PR #<N> is <ready | open, not ready: reason>: <one-line summary>.
+PR #<N> is <ready | ready with owner waiver (<case IDs>) | open, not ready: reason>: <one-line summary>.
 Passed scope: <cases or behavior actually checked, result, evidence, and tested identity>.
-Required gaps: <case and status; product failure | tool failure | environment blocker | unknown cause; or none>.
+Owner waivers: <case IDs, direct owner chat quote/reference, raw status, and unverified behavior; omit when none>.
+Required gaps: <unwaived case and status; product failure | tool failure | environment blocker | unknown cause; or none>.
 Next action: <smallest permitted action that addresses the blocker or completes the remaining work>.
 Tested / published identities: <both when they differ; do not imply old CI checks cover the latest correction>.
 Independent review: <reviewer, covered commit or snapshot, later-change coverage | harmless-edit exemption and reason | unavailable>.
 Please check: <the one or two things that only a person can check>.
 ```
 Keep the passed scope narrower than the evidence: a cold process start does not itself prove a fresh installation.
+When every other Done gate is satisfied (including open PR, head-commit PR checks, independent review coverage, and stopped review rounds), all unwaived required cases pass, and one or more required test cases are `waived` by a direct typed owner chat message, lead the first sentence with `ready with owner waiver (<case IDs>)` and never claim that all required checks passed; if any non-waivable gate is unmet, report `open, not ready: <reason>`.
 When required acceptance is incomplete, report that state instead of leading with "fixed" or "yes".
 During active absence mode or owner return, include the saved decision and blocker handoff from `references/absence-mode.md`.
 Do not claim acceptance is complete when a required decision or check remains blocked.
-Include the acceptance-to-case evidence links, required blockers, and optional limits under `references/testing.md`.
+Include the acceptance-to-case evidence links, owner waivers, required blockers, and optional limits under `references/testing.md`.
 
 ## Stop conditions
-- **Done:** each "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass and no required coverage gaps remain. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
-- **Blocked:** 3 failed fixes, missing access, no device, or a product decision that the repo does not answer. Normally, stop and report what you tried, the evidence, and the decision needed. For an approved multi-milestone assignment, use `references/milestones.md` to defer the blocked milestone and its actual dependents, then select eligible independent work. During confirmed active absence mode, also use `references/absence-mode.md`. Global safety stops and three failed fixes still require a stop.
+- **Done:** each unwaived "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass (except any required test case explicitly marked waived by a direct typed owner chat message with its raw status and unverified risk recorded) and no unwaived required coverage gaps remain. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
+- **Blocked:** 3 failed fixes, missing access, no device for an unwaived device check, or a product decision that the repo does not answer. Normally, stop and report what you tried, the evidence, and the decision needed. For an approved multi-milestone assignment, use `references/milestones.md` to defer the blocked milestone and its actual dependents, then select eligible independent work. During confirmed active absence mode, also use `references/absence-mode.md`. Global safety stops and three failed fixes still require a stop.
 - **Ask the owner** only at the feature design, at a plan for a risky area, and before a destructive action. During active absence mode, record these needs for the handoff; do not execute the blocked work or replace its approval.
 
 ## After compaction, or in a new session
