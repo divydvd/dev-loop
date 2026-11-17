@@ -1155,6 +1155,71 @@ test("22. M2/M3 integration: AGENTS.md 'Checklist path' honors 'inline only', cu
   const customPacket = readFileSync(join(customOut, "single-reviewer-packet.md"), "utf8");
   assert.ok(customPacket.includes("Verify custom Checklist path rule loads automatically."), customPacket);
 
+  // Issue 1: editing only the custom operational Checklist path file ('recieve' -> 'receive') must NEVER be exempt
+  const customTypoBase = writeAndCommit(repoDir, {
+    "docs/qa/custom-checklist.md": [
+      "# Custom review checklist",
+      "",
+      "## Active rules",
+      "| Rule ID | Domain | Trigger paths or tokens | Check (observable defect to verify) | Safety? | Added | Active weeks | Confirmed catches | Source PRs |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| R-CUSTOM | arch-correctness | recieve | Verify custom Checklist path rule loads automatically. | no | 2026-11-17 | 0 | 0 | #48 |",
+      "",
+    ].join("\n"),
+  });
+  const customTypoHead = writeAndCommit(repoDir, {
+    "docs/qa/custom-checklist.md": [
+      "# Custom review checklist",
+      "",
+      "## Active rules",
+      "| Rule ID | Domain | Trigger paths or tokens | Check (observable defect to verify) | Safety? | Added | Active weeks | Confirmed catches | Source PRs |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| R-CUSTOM | arch-correctness | receive | Verify custom Checklist path rule loads automatically. | no | 2026-11-17 | 0 | 0 | #48 |",
+      "",
+    ].join("\n"),
+  });
+  assert.notEqual(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", customTypoBase, "--head", customTypoHead, "--json"]).stdout).mode,
+    "exempt"
+  );
+
+  // Issue 2: trailing notes/HTML comments, backticked `inline only` with note, and quoted/empty placeholders
+  const noteHead = writeAndCommit(repoDir, {
+    "AGENTS.md": "# Project\n\n### Review checklist\n- **Checklist path:** \"docs/qa/custom-checklist.md\" (loaded only at review) <!-- comment -->\n",
+    "src/app.js": "export const v = 31;\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", customTypoHead, "--head", noteHead, "--json"]).stdout).checklistLoaded,
+    true
+  );
+
+  const btInlineHead = writeAndCommit(repoDir, {
+    "AGENTS.md": "# Project\n\n### Review checklist\n- **Checklist path:** `inline only` (default)\n",
+    "src/app.js": "export const v = 32;\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", noteHead, "--head", btInlineHead, "--json"]).stdout).checklistLoaded,
+    false
+  );
+
+  const phHead = writeAndCommit(repoDir, {
+    "AGENTS.md": "# Project\n\n### Review checklist\n- **Checklist path:** `<docs/testing/review-checklist.md>`\n",
+    "src/app.js": "export const v = 33;\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", btInlineHead, "--head", phHead, "--json"]).stdout).checklistLoaded,
+    true
+  );
+
+  const emptyMetaHead = writeAndCommit(repoDir, {
+    "AGENTS.md": "# Project\n\n### Review checklist\n- **Checklist path:**\n",
+    "src/app.js": "export const v = 34;\n",
+  });
+  assert.equal(
+    JSON.parse(runRouterCli(["--repo-root", repoDir, "--base", phHead, "--head", emptyMetaHead, "--json"]).stdout).checklistLoaded,
+    true
+  );
+
   // 3. Escaping 'Checklist path' in AGENTS.md is rejected by repo-root containment
   const escapeBase = writeAndCommit(repoDir, {
     "AGENTS.md": "# Project\n\n### Review checklist\n- **Checklist path:** `../outside-checklist.md`\n",
