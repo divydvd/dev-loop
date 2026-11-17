@@ -1,0 +1,692 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import {
+  buildReconcilePrompt,
+  classifyTransientOutage,
+  detectAwayMode,
+  markOutagePromptSent,
+  planOutageResume,
+  progressFingerprint,
+  reconcileAwayHistory,
+  recordOutageProgress,
+  recordOwnerAwayMessage,
+} from "./lib/outage-resume.mjs";
+import { DEFAULT_CONFIG } from "./lib/policy.mjs";
+import { emptyLedger, prune } from "./lib/store.mjs";
+import { recordEvidence } from "./lib/units.mjs";
+
+function makeWorkspace(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "wl-outage-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+  return root;
+}
+
+function writeAwayProgress(root, slug = "2026-11-16-demo", active = true, {
+  sessionId = "sess-1",
+  activation = "Direct 'away mode' instruction (msg-1, 2026-11-16T09:00:00Z)",
+} = {}) {
+  const dir = path.join(root, ".superpowers", "sdd", slug);
+  fs.mkdirSync(dir, { recursive: true });
+  const progressPath = path.join(dir, "progress.md");
+  const planPath = `docs/superpowers/plans/${slug}.md`;
+  const lines = [
+    `# SDD ledger — plan: ${planPath}`,
+    "## Absence mode",
+    `active: ${active ? "true" : "false"}`,
+    `| Mode | ${active ? "Active" : "Ended"} |`,
+  ];
+  if (sessionId) lines.push(`| Scope | session: ${sessionId}, assignment: ${slug}, plan: ${planPath} |`);
+  if (activation) lines.push(`| Owner activation | ${activation} |`);
+  fs.writeFileSync(progressPath, lines.join("\n") + "\n");
+  return { progressPath, planPath };
+}
+
+test("classifyTransientOutage accepts genuine upstream and transport outages", () => {
+  const transientInputs = [
+    { status: 429, message: "Too Many Requests" },
+    { statusCode: 502, message: "Bad Gateway" },
+    { error: "HTTP 503 Service Unavailable", errorContext: "model_call" },
+    { message: "Request failed with status code 504" },
+    { errorType: "overloaded_error", message: "Upstream model overloaded" },
+    { errorType: "rate_limit_error", message: "Rate limit exceeded" },
+    { code: "ETIMEDOUT", message: "connect ETIMEDOUT" },
+    { code: "ECONNRESET", message: "read ECONNRESET" },
+    { code: "EAI_AGAIN", message: "getaddrinfo EAI_AGAIN api.githubcopilot.com" },
+    { code: "UND_ERR_SOCKET", message: "other side closed" },
+    { message: "TypeError: terminated: upstream stream disconnected" },
+    { message: "socket hang up while streaming completion" },
+  ];
+  for (const input of transientInputs) {
+    const res = classifyTransientOutage(input);
+    assert.equal(res.transient, true, `expected transient for ${JSON.stringify(input)}`);
+    assert.ok(res.code, `expected non-empty code for ${JSON.stringify(input)}`);
+  }
+});
+
+test("classifyTransientOutage rejects auth, validation, context-overflow, guard-denial, cancel, and non-HTTP numbers", () => {
+  const permanentInputs = [
+    null,
+    undefined,
+    {},
+    { status: 400, message: "Bad Request" },
+    { status: 401, message: "Unauthorized" },
+    { status: 403, message: "Forbidden" },
+    { status: 404, message: "Not Found" },
+    { statusCode: 422, message: "Unprocessable Entity" },
+    { errorType: "context_length_exceeded", message: "prompt is too long: 210000 tokens > 200000 maximum" },
+    { message: "[work-ledger] Merge is blocked without typed approval (HTTP 503 mentioned in log)" },
+    { name: "AbortError", message: "The operation was aborted by user" },
+    { message: "Request cancelled by user" },
+    { message: "Test failed on PR #503 at localhost:5020" },
+    { code: "ERR_ASSERTION", message: "Expected 200 to equal 502" },
+  ];
+  for (const input of permanentInputs) {
+    const res = classifyTransientOutage(input);
+    assert.equal(res.transient, false, `expected non-transient for ${JSON.stringify(input)}`);
+  }
+});
+
+test("planOutageResume refuses to schedule retries when away mode is inactive", (t) => {
+  const cwd = makeWorkspace(t);
+  const data = emptyLedger();
+  const res = planOutageResume(data, {
+    sessionId: "sess-1",
+    cwd,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: "1111111111111111111111111111111111111111",
+    config: DEFAULT_CONFIG,
+    now: Date.parse("2026-11-16T10:00:00Z"),
+  });
+  assert.equal(res.resume, false);
+  assert.equal(res.reason, "away_mode_inactive");
+  assert.equal(data.outageRecovery["sess-1"], undefined);
+
+  writeAwayProgress(cwd, "2026-11-16-demo", false);
+  const ended = planOutageResume(data, {
+    sessionId: "sess-1",
+    cwd,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: "1111111111111111111111111111111111111111",
+    config: DEFAULT_CONFIG,
+    now: Date.parse("2026-11-16T10:00:00Z"),
+  });
+  assert.equal(ended.resume, false);
+  assert.equal(ended.reason, "away_mode_inactive");
+});
+
+test("detectAwayMode recognizes both nested checkout progress.md and away_mode ledger notes", (t) => {
+  const root = makeWorkspace(t);
+  const subDir = path.join(root, "packages", "core");
+  fs.mkdirSync(subDir, { recursive: true });
+  const { planPath } = writeAwayProgress(root, "2026-11-16-nested", true, { sessionId: "s1" });
+
+  const fromFiles = detectAwayMode({ cwd: subDir, data: emptyLedger(), sessionId: "s1" });
+  assert.equal(fromFiles.active, true);
+  assert.equal(fromFiles.planPath, planPath);
+
+  const emptyRoot = makeWorkspace(t);
+  const data = emptyLedger();
+  recordEvidence(data, { repo: "acme/widget", pr: 9, kind: "note", text: "away_mode: active=true plan=docs/superpowers/plans/p.md activation=msg-1", sessionId: "s2" });
+  const fromLedger = detectAwayMode({ cwd: emptyRoot, data, sessionId: "s2" });
+  assert.equal(fromLedger.active, true);
+  assert.equal(fromLedger.planPath, "docs/superpowers/plans/p.md");
+
+  recordEvidence(data, { repo: "acme/widget", pr: 9, kind: "note", text: "away_mode: active=false (owner returned)", sessionId: "s2" });
+  assert.equal(detectAwayMode({ cwd: emptyRoot, data, sessionId: "s2" }).active, false);
+});
+
+test("planOutageResume schedules [30, 120, 300]s, deduplicates twin error events, and halts exhausted on failure 4", (t) => {
+  const cwd = makeWorkspace(t);
+  const { planPath } = writeAwayProgress(cwd, "2026-11-16-m5", true, { sessionId: "sess-away" });
+  const data = emptyLedger();
+  const sha = "a".repeat(40);
+  const baseNow = Date.parse("2026-11-16T12:00:00Z");
+
+  const r1 = planOutageResume(data, {
+    sessionId: "sess-away",
+    cwd,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha,
+    config: DEFAULT_CONFIG,
+    now: baseNow,
+  });
+  assert.equal(r1.resume, true);
+  assert.equal(r1.attempt, 1);
+  assert.equal(r1.maxAttempts, 3);
+  assert.equal(r1.delaySec, 30);
+  assert.equal(r1.status, "retrying");
+  assert.equal(data.outageRecovery["sess-away"].planPath, planPath);
+  assert.equal(data.outageRecovery["sess-away"].attemptsUsed, 1);
+
+  // Duplicate event from session.error while onErrorOccurred already marked "retrying".
+  const dup = planOutageResume(data, {
+    sessionId: "sess-away",
+    cwd,
+    error: { errorType: "overloaded_error", message: "HTTP 503 Service Unavailable" },
+    headSha: sha,
+    config: DEFAULT_CONFIG,
+    now: baseNow + 20,
+  });
+  assert.equal(dup.resume, false);
+  assert.equal(dup.deduplicated, true);
+  assert.equal(data.outageRecovery["sess-away"].attemptsUsed, 1);
+
+  markOutagePromptSent(data, "sess-away", baseNow + 30000);
+  assert.equal(data.outageRecovery["sess-away"].status, "resumed");
+
+  const r2 = planOutageResume(data, {
+    sessionId: "sess-away",
+    cwd,
+    error: { code: "ECONNRESET", message: "read ECONNRESET" },
+    headSha: sha,
+    config: DEFAULT_CONFIG,
+    now: baseNow + 35000,
+  });
+  assert.equal(r2.resume, true);
+  assert.equal(r2.attempt, 2);
+  assert.equal(r2.delaySec, 120);
+
+  markOutagePromptSent(data, "sess-away", baseNow + 155000);
+
+  const r3 = planOutageResume(data, {
+    sessionId: "sess-away",
+    cwd,
+    error: { status: 429, message: "HTTP 429 Too Many Requests" },
+    headSha: sha,
+    config: DEFAULT_CONFIG,
+    now: baseNow + 160000,
+  });
+  assert.equal(r3.resume, true);
+  assert.equal(r3.attempt, 3);
+  assert.equal(r3.delaySec, 300);
+
+  markOutagePromptSent(data, "sess-away", baseNow + 460000);
+
+  const r4 = planOutageResume(data, {
+    sessionId: "sess-away",
+    cwd,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha,
+    config: DEFAULT_CONFIG,
+    now: baseNow + 465000,
+  });
+  assert.equal(r4.resume, false);
+  assert.equal(r4.reason, "retry_cap_exhausted");
+  assert.equal(r4.status, "exhausted");
+  assert.equal(r4.delaySec, null);
+  assert.equal(data.outageRecovery["sess-away"].status, "exhausted");
+  assert.equal(data.outageRecovery["sess-away"].attemptsUsed, 3);
+});
+
+test("recordOutageProgress resets attemptsUsed to 0 only after new commit SHA or ledger progress", (t) => {
+  const cwd = makeWorkspace(t);
+  writeAwayProgress(cwd, "2026-11-16-reset", true, { sessionId: "sess-prog" });
+  const data = emptyLedger();
+  const sha1 = "1".repeat(40);
+  const sha2 = "2".repeat(40);
+  const t0 = Date.parse("2026-11-16T14:00:00Z");
+
+  planOutageResume(data, {
+    sessionId: "sess-prog",
+    cwd,
+    error: { status: 502, message: "HTTP 502 Bad Gateway" },
+    headSha: sha1,
+    config: DEFAULT_CONFIG,
+    now: t0,
+  });
+  markOutagePromptSent(data, "sess-prog", t0 + 30000);
+
+  // Turn completes without new commit or new ledger progress -> must NOT reset attemptsUsed.
+  assert.equal(recordOutageProgress(data, { sessionId: "sess-prog", headSha: sha1, now: t0 + 40000 }), false);
+  assert.equal(data.outageRecovery["sess-prog"].attemptsUsed, 1);
+
+  // New commit SHA advances progress -> resets attemptsUsed to 0.
+  assert.equal(recordOutageProgress(data, { sessionId: "sess-prog", headSha: sha2, now: t0 + 50000 }), true);
+  assert.equal(data.outageRecovery["sess-prog"].attemptsUsed, 0);
+  assert.equal(data.outageRecovery["sess-prog"].status, "idle");
+
+  // Trigger another outage at sha2, then record ledger evidence without changing SHA -> also resets attemptsUsed to 0.
+  planOutageResume(data, {
+    sessionId: "sess-prog",
+    cwd,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha2,
+    config: DEFAULT_CONFIG,
+    now: t0 + 60000,
+  });
+  markOutagePromptSent(data, "sess-prog", t0 + 90000);
+  const beforeFp = progressFingerprint(data);
+  recordEvidence(data, { repo: "acme/widget", pr: 5, kind: "validated", sha: sha2, text: "node --test: 6 passed", sessionId: "sess-prog", now: new Date(t0 + 95000) });
+  assert.notEqual(progressFingerprint(data), beforeFp);
+  assert.equal(recordOutageProgress(data, { sessionId: "sess-prog", headSha: sha2, now: t0 + 96000 }), true);
+  assert.equal(data.outageRecovery["sess-prog"].attemptsUsed, 0);
+});
+
+test("buildReconcilePrompt requires checking plan, progress ledger, git status, git log, and work_ledger_get before commands", () => {
+  const prompt = buildReconcilePrompt({
+    planPath: "docs/superpowers/plans/2026-11-16-m5.md",
+    progressPath: ".superpowers/sdd/2026-11-16-m5/progress.md",
+    attempt: 2,
+    maxAttempts: 3,
+    lastHeadSha: "abcdef1234567890abcdef1234567890abcdef12",
+    code: "http_503",
+  });
+  assert.match(prompt, /docs\/superpowers\/plans\/2026-11-16-m5\.md/);
+  assert.match(prompt, /\.superpowers\/sdd\/2026-11-16-m5\/progress\.md/);
+  assert.match(prompt, /git status/);
+  assert.match(prompt, /git log -n 5/);
+  assert.match(prompt, /work_ledger_get/);
+  assert.match(prompt, /before running any/i);
+  assert.match(prompt, /never duplicate|do not repeat|do not duplicate/i);
+});
+
+test("prune removes stale outageRecovery records older than 14 days while keeping recent entries", () => {
+  const now = Date.parse("2026-11-30T00:00:00Z");
+  const data = emptyLedger();
+  data.outageRecovery["stale"] = { sessionId: "stale", attemptsUsed: 2, lastOutageAt: "2026-11-01T00:00:00.000Z", status: "exhausted" };
+  data.outageRecovery["corrupt"] = { sessionId: "corrupt", attemptsUsed: 1, lastOutageAt: "not-a-date", status: "retrying" };
+  data.outageRecovery["missingTs"] = { sessionId: "missingTs", attemptsUsed: 1, status: "retrying" };
+  data.outageRecovery["recent"] = { sessionId: "recent", attemptsUsed: 1, lastOutageAt: "2026-11-29T12:00:00.000Z", status: "retrying" };
+  prune(data, now);
+  assert.equal(data.outageRecovery["stale"], undefined);
+  assert.equal(data.outageRecovery["corrupt"], undefined);
+  assert.equal(data.outageRecovery["missingTs"], undefined);
+  assert.ok(data.outageRecovery["recent"]);
+});
+
+test("reviewer regressions: classifier exclusions, strict away-mode markers, newest progress.md precedence, and per-session progress", (t) => {
+  // Classifier rejects AssertionError strings, tool_execution context, and non-transient 4xx statuses with socket text.
+  for (const sample of [
+    { error: "AssertionError [ERR_ASSERTION]: Expected HTTP 503 Service Unavailable" },
+    { name: "AssertionError", message: "Expected status code: 502" },
+    { error: "HTTP 503 Service Unavailable", errorContext: "tool_execution" },
+    { error: "ETIMEDOUT", errorContext: "user_input" },
+    { status: 413, message: "Payload Too Large (write EPIPE)" },
+    { status: 409, message: "Conflict (socket hang up)" },
+  ]) {
+    assert.equal(classifyTransientOutage(sample).transient, false, JSON.stringify(sample));
+  }
+
+  // Ordinary PR prose notes or notes from other sessions must NOT activate away mode.
+  const emptyWs = makeWorkspace(t);
+  const data = emptyLedger();
+  recordEvidence(data, {
+    repo: "acme/widget",
+    pr: 9,
+    kind: "note",
+    text: "Opened PR for away-mode outage recovery on branch m5",
+    sessionId: "sess-a",
+    now: new Date("2026-11-16T10:00:00Z"),
+  });
+  assert.equal(detectAwayMode({ cwd: emptyWs, data, sessionId: "sess-a" }).active, false);
+
+  recordEvidence(data, {
+    repo: "acme/widget",
+    pr: 9,
+    kind: "note",
+    text: "away_mode: active=true plan=docs/superpowers/plans/other.md",
+    sessionId: "other-session",
+    now: new Date("2026-11-16T10:01:00Z"),
+  });
+  assert.equal(detectAwayMode({ cwd: emptyWs, data, sessionId: "sess-a" }).active, false);
+
+  // Narrative prose inside progress.md mentioning 'active: true' must NOT activate away mode,
+  // and an ended newer progress.md must stop fallback to an older active progress.md.
+  const ws = makeWorkspace(t);
+  writeAwayProgress(ws, "2026-11-10-old", true, { sessionId: "sess-a" });
+  const oldFile = path.join(ws, ".superpowers/sdd/2026-11-10-old/progress.md");
+  fs.utimesSync(oldFile, new Date("2026-11-10T00:00:00Z"), new Date("2026-11-10T00:00:00Z"));
+
+  const currentDir = path.join(ws, ".superpowers/sdd/2026-11-16-current");
+  fs.mkdirSync(currentDir, { recursive: true });
+  const currentFile = path.join(currentDir, "progress.md");
+  fs.writeFileSync(
+    currentFile,
+    "# SDD ledger — plan: docs/superpowers/plans/current.md\n| Mode | Ended |\n| Scope | session: sess-a, plan: docs/superpowers/plans/current.md |\nTask 1 note: verified guard stays active: true when config is malformed.\n"
+  );
+  fs.utimesSync(currentFile, new Date("2026-11-16T12:00:00Z"), new Date("2026-11-16T12:00:00Z"));
+  assert.equal(detectAwayMode({ cwd: ws, data, sessionId: "sess-a" }).active, false);
+
+  // Per-session progress isolation + status === "resumed" requirement before resetting attemptsUsed.
+  const wsActive = makeWorkspace(t);
+  writeAwayProgress(wsActive, "2026-11-16-iso", true, { sessionId: "sess-a" });
+  const sha = "a".repeat(40);
+  const t0 = Date.parse("2026-11-16T15:00:00Z");
+  planOutageResume(data, {
+    sessionId: "sess-a",
+    cwd: wsActive,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: null,
+    config: DEFAULT_CONFIG,
+    now: t0,
+  });
+  // While status is still "retrying" (prompt not yet sent), late gitHead resolution must NOT reset attemptsUsed.
+  assert.equal(recordOutageProgress(data, { sessionId: "sess-a", headSha: sha, now: t0 + 100 }), false);
+  assert.equal(data.outageRecovery["sess-a"].status, "retrying");
+
+  markOutagePromptSent(data, "sess-a", t0 + 1000);
+  data.outageRecovery["sess-a"].lastHeadSha = sha;
+  data.outageRecovery["sess-a"].lastProgressFingerprint = progressFingerprint(data, "sess-a");
+
+  // Unrelated session's evidence must NOT reset sess-a's attemptsUsed.
+  recordEvidence(data, {
+    repo: "acme/widget",
+    pr: 10,
+    kind: "validated",
+    sha,
+    text: "other session test run",
+    sessionId: "sess-b",
+    now: new Date(t0 + 2000),
+  });
+  assert.equal(recordOutageProgress(data, { sessionId: "sess-a", headSha: sha, now: t0 + 3000 }), false);
+  assert.equal(data.outageRecovery["sess-a"].attemptsUsed, 1);
+});
+
+test("final review regressions: failing Gradle, null initial HEAD, mid-turn commits, and unified away timeline", (t) => {
+  const ws = makeWorkspace(t);
+  writeAwayProgress(ws, "2026-11-16-final", true, { sessionId: "s1" });
+  const progressFile = path.join(ws, ".superpowers/sdd/2026-11-16-final/progress.md");
+  const t0 = Date.parse("2026-11-16T16:00:00Z");
+  fs.utimesSync(progressFile, new Date(t0), new Date(t0));
+
+  // 1. Failing Gradle runs, dirty runs, or duplicate passing runs on the same (sha, tasks) must NOT reset attemptsUsed,
+  // and a null initial lastHeadSha must backfill on prompt send rather than falsely resetting on unchanged HEAD.
+  const data = emptyLedger();
+  const sha1 = "1".repeat(40);
+  const sha2 = "2".repeat(40);
+  data.validations.push({ sha: sha1, dirty: false, tasks: ":app:testDebugUnitTest", exit: 0, at: new Date(t0).toISOString(), sessionId: "s1" });
+
+  planOutageResume(data, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: null,
+    config: DEFAULT_CONFIG,
+    now: t0 + 1000,
+  });
+  markOutagePromptSent(data, "s1", t0 + 2000, sha1);
+  assert.equal(data.outageRecovery.s1.lastHeadSha, sha1);
+
+  // Failing Gradle run and re-run of the already-recorded clean (sha1, tasks) must NOT reset attemptsUsed.
+  data.validations.push({ sha: sha1, dirty: false, tasks: ":app:lintDebug", exit: 1, at: new Date(t0 + 3000).toISOString(), sessionId: "s1" });
+  data.validations.push({ sha: sha1, dirty: true, tasks: ":app:lintDebug", exit: 0, at: new Date(t0 + 3500).toISOString(), sessionId: "s1" });
+  data.validations.push({ sha: sha1, dirty: false, tasks: ":app:testDebugUnitTest", exit: 0, at: new Date(t0 + 4000).toISOString(), sessionId: "s1" });
+  assert.equal(recordOutageProgress(data, { sessionId: "s1", headSha: sha1, now: t0 + 5000 }), false);
+  assert.equal(data.outageRecovery.s1.attemptsUsed, 1);
+
+  // Also check when markOutagePromptSent had null headSha: observing sha1 later backfills lastHeadSha without resetting.
+  const dataNullHead = emptyLedger();
+  planOutageResume(dataNullHead, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: null,
+    config: DEFAULT_CONFIG,
+    now: t0 + 1000,
+  });
+  markOutagePromptSent(dataNullHead, "s1", t0 + 2000, null);
+  assert.equal(recordOutageProgress(dataNullHead, { sessionId: "s1", headSha: sha1, now: t0 + 3000 }), false);
+  assert.equal(dataNullHead.outageRecovery.s1.attemptsUsed, 1);
+  assert.equal(dataNullHead.outageRecovery.s1.lastHeadSha, sha1);
+
+  // 2. Mid-turn Git commit (sha1 -> sha2) before a new outage strikes in the same turn MUST reset attemptsUsed inside planOutageResume.
+  const cap1Config = { ...DEFAULT_CONFIG, outageRetryCap: 1, outageBackoffSec: [30] };
+  const dataMidTurn = emptyLedger();
+  const r1 = planOutageResume(dataMidTurn, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha1,
+    config: cap1Config,
+    now: t0 + 1000,
+  });
+  assert.equal(r1.resume, true);
+  assert.equal(r1.attempt, 1);
+  markOutagePromptSent(dataMidTurn, "s1", t0 + 2000, sha1);
+  // Mid-turn commit advances HEAD to sha2 before another 503 occurs without an intervening postToolUse reset.
+  const r2 = planOutageResume(dataMidTurn, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha2,
+    config: cap1Config,
+    now: t0 + 5000,
+  });
+  assert.equal(r2.resume, true);
+  assert.equal(r2.attempt, 1);
+
+  // 3. Subagent / checkpoint error events are rejected by classifyTransientOutage, and recordOutageProgress
+  // resets attemptsUsed after status "cancelled" or "exhausted" once real HEAD or ledger progress occurs.
+  assert.equal(classifyTransientOutage({ agentId: "sub-1", data: { message: "HTTP 503 Service Unavailable" } }).transient, false);
+  assert.equal(classifyTransientOutage({ checkpoint: true, data: { message: "HTTP 503 Service Unavailable" } }).transient, false);
+
+  const dataExh = emptyLedger();
+  const exhRes = planOutageResume(dataExh, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha1,
+    config: cap1Config,
+    now: t0 + 1000,
+  });
+  assert.equal(exhRes.resume, true);
+  markOutagePromptSent(dataExh, "s1", t0 + 2000, sha1);
+  const exhRes2 = planOutageResume(dataExh, {
+    sessionId: "s1",
+    cwd: ws,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha1,
+    config: cap1Config,
+    now: t0 + 3000,
+  });
+  assert.equal(exhRes2.status, "exhausted");
+  assert.equal(recordOutageProgress(dataExh, { sessionId: "s1", headSha: sha2, now: t0 + 4000 }), true);
+  assert.equal(dataExh.outageRecovery.s1.attemptsUsed, 0);
+
+  // 4. Newer ledger note "away_mode: active=false" overrides an older progress.md with active: true.
+  recordEvidence(data, {
+    repo: "acme/widget",
+    pr: 99,
+    kind: "note",
+    text: "away_mode: active=false (completed)",
+    sessionId: "s1",
+    now: new Date(t0 + 10000),
+  });
+  assert.equal(detectAwayMode({ cwd: ws, data, sessionId: "s1" }).active, false);
+});
+
+test("copilot review regressions: session-scoped progress.md, confirmed activation, atomic claim, and away-intent parsing", async (t) => {
+  const mod = await import("./lib/outage-resume.mjs");
+  assert.equal(typeof mod.parseOwnerAwayIntent, "function");
+  for (const q of [
+    "How does away mode work?",
+    "What is away mode?",
+    "Away mode?",
+    "Explain away mode",
+    "Do not use away mode",
+    "Don't enter away mode",
+  ]) {
+    assert.equal(mod.parseOwnerAwayIntent(q), null, `question/negation must not activate: ${q}`);
+  }
+  for (const act of [
+    "away mode",
+    "away mode: continue M5",
+    "Use away mode for this task.",
+    "Enter away mode until I type   tonight.",
+    "Please continue in away mode",
+  ]) {
+    assert.equal(mod.parseOwnerAwayIntent(act), "activate", `direct instruction must activate: ${act}`);
+  }
+  for (const ret of ["I'm back", "I am back, what changed?", "stop away mode", "end away mode", "stop"]) {
+    assert.equal(mod.parseOwnerAwayIntent(ret), "return", `return/stop instruction must end away mode: ${ret}`);
+  }
+
+  // Session A's active progress.md must NOT enable recovery for Session B in the same checkout.
+  const sharedWs = makeWorkspace(t);
+  writeAwayProgress(sharedWs, "2026-11-16-sess-a", true, { sessionId: "sess-A" });
+  const sharedData = emptyLedger();
+  assert.equal(detectAwayMode({ cwd: sharedWs, data: sharedData, sessionId: "sess-A" }).active, true);
+  assert.equal(detectAwayMode({ cwd: sharedWs, data: sharedData, sessionId: "sess-B" }).active, false);
+  assert.equal(detectAwayMode({ cwd: sharedWs, data: sharedData, sessionId: "" }).active, false);
+
+  const crossSession = planOutageResume(sharedData, {
+    sessionId: "sess-B",
+    cwd: sharedWs,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: "a".repeat(40),
+    config: DEFAULT_CONFIG,
+    now: Date.parse("2026-11-16T17:00:00Z"),
+  });
+  assert.equal(crossSession.resume, false);
+  assert.equal(crossSession.reason, "away_mode_inactive");
+
+  // Unscoped progress.md (missing session scope) or unconfirmed activation (missing Owner activation) must be refused.
+  const unscopedWs = makeWorkspace(t);
+  writeAwayProgress(unscopedWs, "2026-11-16-unscoped", true, { sessionId: null });
+  assert.equal(detectAwayMode({ cwd: unscopedWs, data: emptyLedger(), sessionId: "sess-A" }).active, false);
+
+  const noActivationWs = makeWorkspace(t);
+  writeAwayProgress(noActivationWs, "2026-11-16-noact", true, { sessionId: "sess-A", activation: null });
+  assert.equal(detectAwayMode({ cwd: noActivationWs, data: emptyLedger(), sessionId: "sess-A" }).active, false);
+
+  // Atomic claim in markOutagePromptSent refuses to overwrite a cancelled record when owner returned mid-lookup.
+  const raceData = emptyLedger();
+  const scheduled = planOutageResume(raceData, {
+    sessionId: "sess-A",
+    cwd: sharedWs,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: "a".repeat(40),
+    config: DEFAULT_CONFIG,
+    now: Date.parse("2026-11-16T17:00:00Z"),
+  });
+  assert.equal(scheduled.resume, true);
+  // Owner returns before markOutagePromptSent runs -> status becomes "cancelled".
+  raceData.outageRecovery["sess-A"].status = "cancelled";
+  raceData.outageRecovery["sess-A"].pendingPrompt = null;
+  const claimed = markOutagePromptSent(raceData, "sess-A", Date.parse("2026-11-16T17:00:30Z"), "a".repeat(40), {
+    attempt: scheduled.attempt,
+    prompt: scheduled.prompt,
+    cwd: sharedWs,
+    config: DEFAULT_CONFIG,
+  });
+  assert.equal(claimed, null);
+  assert.equal(raceData.outageRecovery["sess-A"].status, "cancelled");
+});
+
+test("round 2 review regressions: progress.md/note edits after return require new activation, and eviction does not reset budget", (t) => {
+  // 1. Editing a still-Active progress.md or adding an away_mode note after "I'm back" without a new owner activation must NOT re-enable retries.
+  const ws = makeWorkspace(t);
+  writeAwayProgress(ws, "2026-11-16-stale-edit", true, {
+    sessionId: "sess-ret",
+    activation: "Direct 'away mode' instruction (msg-1) at 2026-11-16T10:00:00Z",
+  });
+  const progFile = path.join(ws, ".superpowers/sdd/2026-11-16-stale-edit/progress.md");
+  const tAct = Date.parse("2026-11-16T10:00:00Z");
+  const tRet = Date.parse("2026-11-16T10:05:00Z");
+  const tEdit = Date.parse("2026-11-16T10:10:00Z");
+  fs.utimesSync(progFile, new Date(tAct), new Date(tAct));
+
+  const data = emptyLedger();
+  data.outageRecovery["sess-ret"] = {
+    sessionId: "sess-ret",
+    attemptsUsed: 0,
+    status: "cancelled",
+    ownerActivatedAt: new Date(tAct).toISOString(),
+    ownerReturnedAt: new Date(tRet).toISOString(),
+    lastOutageAt: new Date(tRet).toISOString(),
+  };
+
+  // Touching progress.md after ownerReturnedAt (still referencing old msg-1 activation) must stay inactive!
+  fs.utimesSync(progFile, new Date(tEdit), new Date(tEdit));
+  assert.equal(detectAwayMode({ cwd: ws, data, sessionId: "sess-ret" }).active, false);
+
+  // Appending an away_mode ledger note after ownerReturnedAt without a newer ownerActivatedAt must ALSO stay inactive!
+  recordEvidence(data, {
+    repo: "acme/widget",
+    pr: 77,
+    kind: "note",
+    text: "away_mode: active=true plan=docs/superpowers/plans/m5.md activation=msg-1",
+    sessionId: "sess-ret",
+    now: new Date(tEdit + 1000),
+  });
+  assert.equal(detectAwayMode({ cwd: ws, data, sessionId: "sess-ret" }).active, false);
+
+  // Only a newer explicit owner activation (> ownerReturnedAt) re-enables away mode.
+  data.outageRecovery["sess-ret"].ownerActivatedAt = new Date(tEdit + 5000).toISOString();
+  assert.equal(detectAwayMode({ cwd: ws, data, sessionId: "sess-ret" }).active, true);
+
+  // 2. Bounded validation/unit eviction in prune() must NOT reset attemptsUsed in recordOutageProgress.
+  const evictWs = makeWorkspace(t);
+  writeAwayProgress(evictWs, "2026-11-16-evict", true, { sessionId: "sess-evict" });
+  const evictData = emptyLedger();
+  const sha = "c".repeat(40);
+  const t0 = Date.parse("2026-11-16T12:00:00Z");
+  evictData.validations.push({
+    sha,
+    dirty: false,
+    tasks: ":app:testDebugUnitTest",
+    exit: 0,
+    at: new Date(t0).toISOString(),
+    sessionId: "sess-evict",
+  });
+
+  const p1 = planOutageResume(evictData, {
+    sessionId: "sess-evict",
+    cwd: evictWs,
+    error: { status: 503, message: "HTTP 503 Service Unavailable" },
+    headSha: sha,
+    config: DEFAULT_CONFIG,
+    now: t0 + 1000,
+  });
+  assert.equal(p1.resume, true);
+  markOutagePromptSent(evictData, "sess-evict", t0 + 2000, sha);
+  assert.equal(evictData.outageRecovery["sess-evict"].attemptsUsed, 1);
+
+  // Another session appends 305 validations, causing prune() to evict sess-evict's validation from the 300-entry window.
+  for (let i = 0; i < 305; i++) {
+    evictData.validations.push({
+      sha: "d".repeat(40),
+      dirty: false,
+      tasks: `:other:task${i}`,
+      exit: 0,
+      at: new Date(t0 + 3000 + i).toISOString(),
+      sessionId: "other-noisy-session",
+    });
+  }
+  prune(evictData, t0 + 10000);
+  assert.equal(evictData.validations.some((v) => v.sessionId === "sess-evict"), false);
+
+  // Eviction of prior evidence is NOT new progress and must NOT reset attemptsUsed!
+  assert.equal(recordOutageProgress(evictData, { sessionId: "sess-evict", headSha: sha, now: t0 + 11000 }), false);
+  assert.equal(evictData.outageRecovery["sess-evict"].attemptsUsed, 1);
+
+  // 3. reconcileAwayHistory must NOT replay an older unseen "away mode" event after a newer seen "I'm back".
+  const histWs = makeWorkspace(t);
+  writeAwayProgress(histWs, "2026-11-16-hist", true, { sessionId: "sess-hist" });
+  const histData = emptyLedger();
+  const tEarly = Date.parse("2026-11-16T09:01:00Z");
+  const tBack = Date.parse("2026-11-16T09:32:00Z");
+  // Suppose getEvents() initially failed so m-1 ("away mode") was never added to seenAwayIds, then live onUserMessage recorded m-2 ("I'm back").
+  recordOwnerAwayMessage(histData, "sess-hist", "return", "m-2", tBack);
+  assert.equal(detectAwayMode({ cwd: histWs, data: histData, sessionId: "sess-hist" }).active, false);
+
+  const transcript = [
+    { id: "m-0", type: "user.message", timestamp: "2026-11-16T09:00:00Z", data: { content: "Initial kickoff" } },
+    { id: "m-1", type: "user.message", timestamp: new Date(tEarly).toISOString(), data: { content: "away mode" } },
+    { id: "m-2", type: "user.message", timestamp: new Date(tBack).toISOString(), data: { content: "I'm back" } },
+  ];
+  reconcileAwayHistory(histData, "sess-hist", transcript, null, undefined, tBack + 5000);
+  assert.equal(detectAwayMode({ cwd: histWs, data: histData, sessionId: "sess-hist" }).active, false);
+
+  // Also if seenAwayIds has no matching IDs at all, stale events with timestamp <= ownerReturnedAt must be skipped.
+  histData.outageRecovery["sess-hist"].seenAwayIds = [];
+  reconcileAwayHistory(histData, "sess-hist", transcript, null, undefined, tBack + 6000);
+  assert.equal(detectAwayMode({ cwd: histWs, data: histData, sessionId: "sess-hist" }).active, false);
+});
+
+
+

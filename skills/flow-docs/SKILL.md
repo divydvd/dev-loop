@@ -11,8 +11,8 @@ The docs live in `docs/flows/<flow>.md`. The index is `docs/flows/INDEX.md`.
 
 ## Before you change a flow
 1. Find the flow in `docs/flows/INDEX.md`. Read its doc.
-2. Find the last commit that changed the doc: `git log -1 --format=%h -- <doc>`. Then run `git log --oneline <that commit>..HEAD -- <key files>`.
-3. If the key files changed after that commit, or the "Last verified" line says "not yet", compare the doc with the code before you trust it. Fix the doc in your PR.
+2. Run the bundled drift scanner (`scripts/scan-flow-drift.mjs`) with Node: `node <flow-docs-skill-dir>/scripts/scan-flow-drift.mjs --json`. If Node is unavailable, use the manual Git fallback: `git log -1 --format=%h -- <doc>`, then `git log --oneline <that commit>..HEAD -- <key files>`.
+3. If the scan reports `deadRefs`, `issues`, or `commitsTouchingKeyFiles > 0` (or the "Last verified" line says "not yet"), compare the doc with the code before you trust it. Fix the doc in your PR.
 
 ## Update a flow doc (in the same PR as the code)
 - Update each section that your change makes wrong: the sequence, the key files, the invariants, and the tests.
@@ -20,6 +20,7 @@ The docs live in `docs/flows/<flow>.md`. The index is `docs/flows/INDEX.md`.
 - Add each new invariant: a fact that must stay true, and why.
 - Set "Last verified" to today, in the doc and in its index row. Do not write a commit SHA: a squash merge or a rebase merge changes it.
 - Write in short sentences. Name files and functions. Do not copy code. Link to the code instead.
+- Commit your changes first (and rerun at Step 6 after any later edits are committed), then before Step 5 self-review run `node <flow-docs-skill-dir>/scripts/scan-flow-drift.mjs --changed-from <base-branch> --json`. Confirm that `unupdatedImpactedDocs` is empty, or explain in the PR body why a listed key-file change did not change the flow behavior.
 
 ## Write a new flow doc
 Write one when a flow meets 2 or more of these conditions:

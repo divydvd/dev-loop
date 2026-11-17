@@ -25,8 +25,8 @@ No live installation, configuration, ledger, or approval data belongs in this di
 The owner approved this source location and the unchanged import on 2026-10-30.
 The import contains `extension.mjs` and eight files under `lib/`.
 All nine files match the installed source at import time.
-The existing source includes owner-specific defaults, including `defaultRepo`.
-These defaults are preserved, not recommended for other owners.
+The archival import included owner-specific defaults, including `defaultRepo`.
+The maintained release moves repository defaults out of runtime source into validated `config.json` files (`defaultRepo: null`).
 
 `BASELINE.sha256` records the original nine files and remains unchanged after later fixes.
 `SOURCE.sha256` records the maintained release files.
@@ -268,6 +268,35 @@ The guard then allows the call only when all of these are true:
 The guard does not prove what a script does. The owner reviews the script and lists its hash.
 A script change after the decision is a time-of-check risk, as for Gradle sources.
 Typed shell input (`write_bash`) never uses this list. Without a list entry, the old denial applies.
+
+## Externalized configuration and digest
+
+`lib/preferences.mjs` validates optional `config.json` files at startup and reload.
+It merges settings in this order:
+- Built-in generic defaults (`defaultRepo: null`, `reviewCap: 3`, `mergeApprovalHours: 24`, `deployApprovalHours: 2`, `reviewGrantHours: 24`, `gradleLane: true`, `gradleLockTimeoutSec: 1500`, `gradleCache: true`, `protectExtensionDir: true`, `outageRetryCap: 3`, `outageBackoffSec: [30, 120, 300]`, `debug: false`).
+- External ledger configuration in `<dataDir>/config.json`.
+- Extension-local configuration in `<extDir>/config.json`.
+
+When `defaultRepo` is `null`, unqualified PR commands resolve the repository from the local Git `origin` remote.
+Outside a Git repository, unqualified PR commands ask for an explicit `owner/repo#N` target.
+Malformed JSON, symlinked configuration files, and invalid field values record `config:` entries in `errors.log` and `[work-ledger] Config warning:` lines in the session log.
+Unrecognized custom keys are ignored without warnings so unrelated owner notes survive.
+Invalid fields fall back to safe defaults, and all runtime guards stay active.
+`work_ledger_get` prints `Config: digest=<12-hex>, defaultRepo=<repo|git-remote>` at the top of its output.
+
+## Away-mode outage recovery
+
+`lib/outage-resume.mjs` handles transient upstream model and network failures during active `away mode`.
+It accepts HTTP `429`, `502`, `503`, `504`, rate-limit, overload, and transport reset or timeout errors.
+It rejects authentication (`401`, `403`), validation (`400`, `404`, `422`), other `4xx` or `5xx` statuses (`408`, `500`), context-overflow, tool, guard-denial, and cancellation errors.
+
+Auto-resume runs only when `away mode` is active for the current session, with an explicit plan path and confirmed owner activation in `.superpowers/sdd/<plan>/progress.md` or a current-session `away_mode:` ledger note.
+A direct owner `"I'm back"` or stop-away command cancels any pending retry timer and blocks further auto-resume until a new explicit `away mode` instruction; ordinary questions about `away mode` do not re-enable it.
+Retries use `outageBackoffSec` (`[30, 120, 300]` seconds by default) up to `outageRetryCap` (clamped to `0..5`), and deduplicate twin error events while a retry timer is already pending (`status === "retrying"`).
+Each retry timer calls `.unref()` and clears on `SIGTERM` or `SIGINT` so host shutdown never hangs.
+Before running commands, the reconcile prompt instructs the agent to inspect the plan, `progress.md`, `git status`, `git log`, and `work_ledger_get`.
+Attempt counts reset to `0` only after a new `HEAD` commit SHA or new current-session ledger progress.
+If `session.send` fails when a retry timer fires, `onSessionStart` re-checks `away mode` and resumes the remaining budget.
 
 ## Checks
 

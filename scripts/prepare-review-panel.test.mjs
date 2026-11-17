@@ -1071,6 +1071,99 @@ test("21. Copilot PR review Round 2: reference-style link destinations, numeric 
   assert.doesNotMatch(singlePacket, /R-PIPE-RETIRED/);
 });
 
+test("22. M2/M3 integration: AGENTS.md 'Checklist path' honors 'inline only', custom repo path, explicit --checklist override, and repo-root containment", (t) => {
+  const { repoDir, outRoot } = makeFixtureRepo(t, {});
 
+  // 1. 'Checklist path: inline only' skips docs/testing/review-checklist.md by default and excludes metadata bullet from packet
+  const inlineBase = writeAndCommit(repoDir, {
+    "AGENTS.md": [
+      "# Project",
+      "",
+      "### Review checklist",
+      "- **Checklist path:** inline only",
+      "- Keep inline review check active.",
+      "",
+    ].join("\n"),
+    "docs/testing/review-checklist.md": [
+      "# Project review checklist",
+      "",
+      "## Active rules",
+      "| Rule ID | Domain | Trigger paths or tokens | Check (observable defect to verify) | Safety? | Added | Active weeks | Confirmed catches | Source PRs |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| R-DEFAULT | arch-correctness | `src/**` | Default external rule should stay skipped in inline-only mode. | no | 2026-11-17 | 0 | 0 | #48 |",
+      "",
+    ].join("\n"),
+    "src/app.js": "export const v = 1;\n",
+  });
+  const inlineHead = writeAndCommit(repoDir, {
+    "src/app.js": "export const v = 2;\n",
+  });
+  const inlineOut = join(outRoot, "inline-only");
+  const inlineRes = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", inlineBase, "--head", inlineHead, "--out-dir", inlineOut, "--json"]).stdout
+  );
+  assert.equal(inlineRes.checklistLoaded, false);
+  const inlinePacket = readFileSync(join(inlineOut, "single-reviewer-packet.md"), "utf8");
+  assert.ok(inlinePacket.includes("Keep inline review check active."), inlinePacket);
+  assert.equal(inlinePacket.includes("Checklist path:"), false, inlinePacket);
+  assert.equal(inlinePacket.includes("R-DEFAULT"), false, inlinePacket);
 
+  // Explicit --checklist CLI flag still overrides 'inline only'
+  const overrideRes = JSON.parse(
+    runRouterCli([
+      "--repo-root",
+      repoDir,
+      "--base",
+      inlineBase,
+      "--head",
+      inlineHead,
+      "--checklist",
+      "docs/testing/review-checklist.md",
+      "--json",
+    ]).stdout
+  );
+  assert.equal(overrideRes.checklistLoaded, true);
+
+  // 2. Custom backticked 'Checklist path' in AGENTS.md loads automatically without --checklist
+  const customBase = writeAndCommit(repoDir, {
+    "AGENTS.md": [
+      "# Project",
+      "",
+      "### Review checklist",
+      "- **Checklist path:** `docs/qa/custom-checklist.md`",
+      "- Keep inline review check active.",
+      "",
+    ].join("\n"),
+    "docs/qa/custom-checklist.md": [
+      "# Custom review checklist",
+      "",
+      "## Active rules",
+      "| Rule ID | Domain | Trigger paths or tokens | Check (observable defect to verify) | Safety? | Added | Active weeks | Confirmed catches | Source PRs |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| R-CUSTOM | arch-correctness | `src/**` | Verify custom Checklist path rule loads automatically. | no | 2026-11-17 | 0 | 0 | #48 |",
+      "",
+    ].join("\n"),
+  });
+  const customHead = writeAndCommit(repoDir, {
+    "src/app.js": "export const v = 3;\n",
+  });
+  const customOut = join(outRoot, "custom-path");
+  const customRes = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", customBase, "--head", customHead, "--out-dir", customOut, "--json"]).stdout
+  );
+  assert.equal(customRes.checklistLoaded, true);
+  const customPacket = readFileSync(join(customOut, "single-reviewer-packet.md"), "utf8");
+  assert.ok(customPacket.includes("Verify custom Checklist path rule loads automatically."), customPacket);
+
+  // 3. Escaping 'Checklist path' in AGENTS.md is rejected by repo-root containment
+  const escapeBase = writeAndCommit(repoDir, {
+    "AGENTS.md": "# Project\n\n### Review checklist\n- **Checklist path:** `../outside-checklist.md`\n",
+  });
+  const escapeHead = writeAndCommit(repoDir, {
+    "src/app.js": "export const v = 4;\n",
+  });
+  const escapeRun = runRouterCli(["--repo-root", repoDir, "--base", escapeBase, "--head", escapeHead, "--json"]);
+  assert.notEqual(escapeRun.status, 0);
+  assert.match(escapeRun.stderr, /--checklist must stay inside --repo-root/);
+});
 

@@ -142,6 +142,7 @@ function globToRegExp(pattern) {
 
 function parseAgentsProfile(agentsText) {
   const [riskyPatterns, riskyConcepts, checklistBullets] = [[], [], []];
+  let [checklistPath, inChecklistMeta] = [undefined, false];
   for (const line of extractHeadingSection(agentsText, "Risky areas").split(/\r?\n/)) {
     if (!line.trim().startsWith("-")) continue;
     const linePaths = [...line.matchAll(/`([^`\n]+)`/g)].map((m) => m[1].trim()).filter((s) => /[/.]/.test(s));
@@ -155,10 +156,15 @@ function parseAgentsProfile(agentsText) {
   }
   for (const raw of extractHeadingSection(agentsText, "Review checklist").split(/\r?\n/)) {
     const t = raw.trim();
-    if (t.startsWith("- ")) checklistBullets.push(t.slice(2).trim());
-    else if (checklistBullets.length && t && !t.startsWith("<!--")) checklistBullets[checklistBullets.length - 1] += ` ${t}`;
+    const cp = t.match(/^-\s+\*{0,2}Checklist path:?\*{0,2}:?\s*(.+)$/i);
+    if (cp) {
+      inChecklistMeta = true;
+      const val = cp[1].trim();
+      if (!val.startsWith("<")) checklistPath = /^["'`]?inline only["'`]?$/i.test(val) ? null : ((val.match(/`([^`\n]+)`/)?.[1] ?? val.replace(/^["']|["']$/g, "")).trim() || null);
+    } else if (t.startsWith("- ")) { inChecklistMeta = false; checklistBullets.push(t.slice(2).trim()); }
+    else if (!inChecklistMeta && checklistBullets.length && t && !t.startsWith("<!--")) checklistBullets[checklistBullets.length - 1] += ` ${t}`;
   }
-  return { riskyPatterns: [...new Set(riskyPatterns)], riskyConcepts: [...new Set(riskyConcepts)], checklistBullets };
+  return { riskyPatterns: [...new Set(riskyPatterns)], riskyConcepts: [...new Set(riskyConcepts)], checklistBullets, checklistPath };
 }
 function parseReviewChecklist(checklistText) {
   const activeText = extractHeadingSection(checklistText, "Active rules") || checklistText.split(/^#{2,3}\s+Retired\b/im)[0];
@@ -256,19 +262,21 @@ function prepareSafeOutDir(resolvedOutDir, realRepoRoot) {
   };
 }
 
-export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = null, agentsFile = "AGENTS.md", checklist = "docs/testing/review-checklist.md" }) {
+export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = null, agentsFile = "AGENTS.md", checklist }) {
   if (!repoRoot || !existsSync(repoRoot)) throw new Error(`Repository root does not exist: ${String(repoRoot)}`);
   validateGitRef(base, "--base");
   validateGitRef(head, "--head");
   const realRepoRoot = realpathSync(repoRoot);
   const resolvedOutDir = outDir ? resolveRealTarget(outDir) : null;
   if (resolvedOutDir && isInsideOrEqual(realRepoRoot, resolvedOutDir)) throw new Error(`--out-dir must resolve outside --repo-root (got ${resolvedOutDir} inside ${realRepoRoot})`);
-  const lexicalAgents = resolve(realRepoRoot, agentsFile);
-  const lexicalChecklist = resolve(realRepoRoot, checklist);
-  if (!isInsideOrEqual(realRepoRoot, lexicalAgents) || (head === "WORKTREE" && !isInsideOrEqual(realRepoRoot, resolveRealTarget(lexicalAgents)))) throw new Error("--agents-file must stay inside --repo-root");
-  if (!isInsideOrEqual(realRepoRoot, lexicalChecklist) || (head === "WORKTREE" && !isInsideOrEqual(realRepoRoot, resolveRealTarget(lexicalChecklist)))) throw new Error("--checklist must stay inside --repo-root");
+  const checkContained = (relPath, flag) => {
+    const lex = resolve(realRepoRoot, relPath);
+    if (!isInsideOrEqual(realRepoRoot, lex) || (head === "WORKTREE" && !isInsideOrEqual(realRepoRoot, resolveRealTarget(lex)))) throw new Error(`${flag} must stay inside --repo-root`);
+    return lex;
+  };
+  const lexicalAgents = checkContained(agentsFile, "--agents-file");
+  if (checklist) checkContained(checklist, "--checklist");
   const agentsRel = relative(realRepoRoot, lexicalAgents).replaceAll("\\", "/");
-  const checklistRel = relative(realRepoRoot, lexicalChecklist).replaceAll("\\", "/");
 
   const baseSha = runGit(realRepoRoot, ["rev-parse", "--verify", `${base}^{commit}`]).trim();
   const currentHeadSha = runGit(realRepoRoot, ["rev-parse", "--verify", "HEAD^{commit}"]).trim();
@@ -325,8 +333,10 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
     return lstatSync(real).isFile() ? readFileSync(real, "utf8") : null;
   };
   const rawAgentsText = head === "WORKTREE" ? readWorktreeConfig(lexicalAgents, "--agents-file") : gitConfigOrNull(realRepoRoot, resolvedHead, agentsRel);
-  const rawChecklistText = head === "WORKTREE" ? readWorktreeConfig(lexicalChecklist, "--checklist") : gitConfigOrNull(realRepoRoot, resolvedHead, checklistRel);
-  const { riskyPatterns, riskyConcepts, checklistBullets } = parseAgentsProfile(rawAgentsText ?? "");
+  const { riskyPatterns, riskyConcepts, checklistBullets, checklistPath } = parseAgentsProfile(rawAgentsText ?? "");
+  const effectiveChecklist = checklist !== undefined ? checklist : (checklistPath === undefined ? "docs/testing/review-checklist.md" : checklistPath);
+  const lexicalChecklist = effectiveChecklist ? checkContained(effectiveChecklist, "--checklist") : null;
+  const rawChecklistText = lexicalChecklist ? (head === "WORKTREE" ? readWorktreeConfig(lexicalChecklist, "--checklist") : gitConfigOrNull(realRepoRoot, resolvedHead, relative(realRepoRoot, lexicalChecklist).replaceAll("\\", "/"))) : null;
   const lowerCtx = diffContextText.toLowerCase();
   const matchedRiskyAreas = [...riskyPatterns.filter((pat) => changedFiles.some((f) => globToRegExp(pat).test(f.replaceAll("\\", "/")))), ...riskyConcepts.filter((phrase) => changedFiles.some((f) => !isTestOrGeneratedFile(f)) && lowerCtx.includes(phrase))];
   const touchesRiskyArea = matchedRiskyAreas.length > 0;
@@ -358,7 +368,7 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
 
 function main() {
   try {
-    const opts = { "repo-root": { type: "string" }, base: { type: "string" }, head: { type: "string", default: "HEAD" }, "out-dir": { type: "string" }, "agents-file": { type: "string", default: "AGENTS.md" }, checklist: { type: "string", default: "docs/testing/review-checklist.md" }, json: { type: "boolean", default: false } };
+    const opts = { "repo-root": { type: "string" }, base: { type: "string" }, head: { type: "string", default: "HEAD" }, "out-dir": { type: "string" }, "agents-file": { type: "string", default: "AGENTS.md" }, checklist: { type: "string" }, json: { type: "boolean", default: false } };
     const { values: v } = parseArgs({ options: opts, strict: true });
     if (!v["repo-root"] || !v.base) throw new Error("Usage: prepare-review-panel.mjs --repo-root <dir> --base <git-ref> [--head <git-ref-or-WORKTREE>] [--out-dir <temp-dir-outside-repo>] [--agents-file <rel-path>] [--checklist <rel-path>] [--json]");
     const r = prepareReviewPanel({ repoRoot: v["repo-root"], base: v.base, head: v.head, outDir: v["out-dir"] ?? null, agentsFile: v["agents-file"], checklist: v.checklist });
