@@ -12,13 +12,15 @@ import { cleanOwnerTextInfo, planOwnerMessage, applyPlan, hasWork, addPending } 
 import { prRefs } from "./lib/approvals.mjs";
 import { formatUnit, recordEvidence, EVIDENCE_KINDS, short, findUnit } from "./lib/units.mjs";
 import { directGuardText, parseGuardCommand, applyGuardCommand, guardStatus, GLOBAL_PAUSE_TEXT } from "./lib/guard-switches.mjs";
+import { resolveDataDir, loadPreferences } from "./lib/preferences.mjs";
+import { parseOwnerAwayIntent, planOutageResume, claimOutageDispatch, markOutagePromptSent, revertOutagePromptSend, recordOwnerAwayMessage, reconcileAwayHistory, recordOutageProgress } from "./lib/outage-resume.mjs";
 
-const EXT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return {}; } };
-const extCfg = readJson(path.join(EXT_DIR, "config.json"));
-const DATA_DIR = process.env.WORK_LEDGER_DIR || (extCfg.dataDir ? String(extCfg.dataDir).replace(/^~(?=\/|$)/, os.homedir()) : path.join(os.homedir(), ".copilot", "work-ledger"));
-const ledger = new Ledger(DATA_DIR);
-const config = { ...DEFAULT_CONFIG, ...readJson(path.join(DATA_DIR, "config.json")), ...extCfg };
+const EXT_DIR = path.dirname(fileURLToPath(import.meta.url)), FALLBACK_DATA_DIR = path.join(os.homedir(), ".copilot", "work-ledger");
+let { dataDir: DATA_DIR, bootstrapWarnings } = resolveDataDir({ envDir: process.env.WORK_LEDGER_DIR, extDir: EXT_DIR, homeDir: os.homedir() }), ledger;
+try { ledger = new Ledger(DATA_DIR); } catch (err) { bootstrapWarnings.push(`Cannot open ${DATA_DIR} (${err?.message || err}); falling back to ${FALLBACK_DATA_DIR}.`); ledger = new Ledger((DATA_DIR = FALLBACK_DATA_DIR)); }
+const { config, configDigest, configWarnings } = loadPreferences({ dataDir: DATA_DIR, extDir: EXT_DIR, defaults: DEFAULT_CONFIG });
+const startupWarnings = [...new Set([...bootstrapWarnings, ...configWarnings])];
+startupWarnings.forEach((w) => ledger.error(`config: ${w}`));
 const protectedDirs = [DATA_DIR, ...(config.protectExtensionDir === false ? [] : [EXT_DIR])];
 const lockFile = path.join(DATA_DIR, "gradle.lock");
 const lookups = makeLookups();
@@ -43,8 +45,14 @@ let firstUserId = null;
 const processed = new Set();
 let ready = Promise.resolve();
 let approvalWork = Promise.resolve();
+let outageChain = Promise.resolve();
 const postQueue = new Map();
 const blockedStops = new Set();
+const outageTimers = new Map();
+const clearOutageTimer = (sid) => { const e = outageTimers.get(sid); if (e) { clearTimeout(e.timer); outageTimers.delete(sid); } };
+const clearAllOutageTimers = () => { for (const [, e] of outageTimers) clearTimeout(e.timer); outageTimers.clear(); };
+for (const sig of ["SIGTERM", "SIGINT"]) process.once(sig, () => { clearAllOutageTimers(); if (process.listenerCount(sig) === 0) process.exit(0); });
+process.once("exit", clearAllOutageTimers);
 
 function waitFor(p, ms) {
   let t;
@@ -76,6 +84,42 @@ function hydration(full) {
   return `${full ? RULES : RULES_SHORT}${ledger.isDisabled() ? `\n${TAG} ${GLOBAL_PAUSE_TEXT}` : ""}\n${act.length ? `Active owner approvals: ${act.join("; ")}.` : "No active owner approvals."}`;
 }
 
+let hydratedOutage = null;
+const ackHydratedOutage = () => { if (!hydratedOutage) return; const h = hydratedOutage; hydratedOutage = null; if (ledger.update((d) => markOutagePromptSent(d, h.sid, Date.now(), h.headSha, { attempt: h.attempt, dispatchToken: h.token }))) ledger.history({ type: "outage.hydrated", sessionId: h.sid, attempt: h.attempt }); };
+const syncHistoryAway = (events) => { const sid = mySessionId(); if (sid && Array.isArray(events) && events.length) ledger.update((d) => reconcileAwayHistory(d, sid, events, firstUserId, cleanOwnerTextInfo, Date.now())); };
+async function checkOutageProgress(dir = cwdNow) {
+  ackHydratedOutage();
+  const sid = mySessionId(); if (!sid || !ledger.read().outageRecovery?.[sid]?.attemptsUsed) return;
+  const headSha = await lookups.gitHead(dir);
+  if (ledger.update((d) => recordOutageProgress(d, { sessionId: sid, headSha, now: Date.now() }))) { clearOutageTimer(sid); ledger.history({ type: "outage.reset", sessionId: sid, headSha }); }
+}
+async function runOutageCheck(rawErr, workingDir) {
+  ackHydratedOutage();
+  const dir = workingDir || cwdNow, sid = mySessionId(); if (!sid) return;
+  const headSha = await lookups.gitHead(dir); await waitFor(approvalWork, 10000); if (workingDir) cwdNow = workingDir;
+  const dec = ledger.update((d) => planOutageResume(d, { sessionId: sid, cwd: dir, error: rawErr, headSha, config, now: Date.now() }));
+  if (dec.status === "exhausted") return (clearOutageTimer(sid), ledger.history({ type: "outage.exhausted", sessionId: sid, code: dec.code, attempts: dec.attempt }), log(`${TAG} Away-mode outage recovery stopped after ${dec.attempt} unrecovered retries (${dec.code}).`, "warning"));
+  if (!dec.resume) return;
+  clearOutageTimer(sid); ledger.history({ type: "outage.scheduled", sessionId: sid, code: dec.code, attempt: dec.attempt, delaySec: dec.delaySec });
+  log(`${TAG} Transient outage (${dec.code}) in away mode; scheduling reconcile retry ${dec.attempt}/${dec.maxAttempts} in ${dec.delaySec}s.`, "warning");
+  const timer = setTimeout(() => {
+    outageTimers.delete(sid);
+    void (async () => {
+      const s0 = ledger.read().outageRecovery?.[sid]?.status; if (s0 !== "retrying" && s0 !== "dispatching") return;
+      const sendHead = await lookups.gitHead(dir); await waitFor(approvalWork, 10000);
+      const claim = ledger.update((d) => claimOutageDispatch(d, sid, Date.now(), sendHead, { attempt: dec.attempt, prompt: dec.prompt, cwd: dir, config, pid: process.pid }));
+      if (!claim) return;
+      try {
+        if (typeof session?.send !== "function") throw new Error("session.send unavailable");
+        await session.send({ prompt: claim.pendingPrompt });
+        if (ledger.update((d) => markOutagePromptSent(d, sid, Date.now(), sendHead, { attempt: dec.attempt, dispatchToken: claim.dispatchToken }))) ledger.history({ type: "outage.resumed", sessionId: sid, attempt: dec.attempt });
+      } catch (err) { ledger.error(`outage session.send failed: ${err?.message || err}`); ledger.update((d) => revertOutagePromptSend(d, sid, { attempt: dec.attempt, prompt: dec.prompt, delaySec: dec.delaySec, dispatchToken: claim.dispatchToken })); }
+    })();
+  }, dec.delaySec * 1000);
+  timer.unref?.(); outageTimers.set(sid, { timer, prompt: dec.prompt });
+}
+const queueOutageCheck = (rawErr, workingDir) => { outageChain = outageChain.then(() => runOutageCheck(rawErr, workingDir)).catch((err) => ledger.error(`outage: ${err?.stack || err}`)); return outageChain; };
+
 function remember(keys, posts) {
   const now = Date.now();
   for (const [k, v] of postQueue) if (now - v.at > 2 * 3600000) postQueue.delete(k);
@@ -90,6 +134,7 @@ function takePosts(cmd) {
 }
 
 async function preToolUse(input, inv) {
+  ackHydratedOutage();
   cwdNow = input.workingDirectory || input.cwd || cwdNow;
   if (config.debug) ledger.history({ type: "debug.pre", sessionId: inv?.sessionId, tool: input.toolName ?? (input.toolCalls || []).map((c) => c.name ?? c.toolName).join(","), batched: Array.isArray(input.toolCalls), argsType: typeof input.toolArgs, cwd: cwdNow });
   await waitFor(approvalWork, 10000);
@@ -135,9 +180,13 @@ async function preToolUse(input, inv) {
 
 async function postToolUse(input) {
   if (input.toolName !== "bash") return undefined;
-  const args = parseArgs(input.toolArgs);
-  const posts = takePosts(String(args.command ?? ""));
-  if (!posts) return undefined;
+  const args = parseArgs(input.toolArgs), cmd = String(args.command ?? "");
+  const posts = takePosts(cmd);
+  if (!posts) {
+    const code = exitCodeOf(String(input.toolResult?.textResultForLlm ?? ""));
+    if ((code === null || code === 0) && /\bgit\b[^\n]*\bcommit\b/.test(cmd)) await checkOutageProgress(cwdNow);
+    return undefined;
+  }
   const text = String(input.toolResult?.textResultForLlm ?? "");
   const code = exitCodeOf(text);
   const at = new Date().toISOString();
@@ -172,6 +221,7 @@ async function postToolUse(input) {
       ledger.history({ type: "deploy", target: p.target, exit: code, sessionId: p.sessionId });
     }
   }
+  await checkOutageProgress(cwdNow);
   return undefined;
 }
 
@@ -181,9 +231,17 @@ async function onUserMessage(e) {
   if (!e || e.agentId || processed.has(e.id)) return;
   processed.add(e.id);
   if (processed.size > 500) processed.delete(processed.values().next().value);
-  firstUserId ||= e.id;
   const d = e.data || {};
+  if (String(d.content || "").trimStart().startsWith(TAG)) return;
+  firstUserId ||= e.id;
   if (e.id === firstUserId || d.source || d.isAutopilotContinuation) return;
+  const { text, dropped } = cleanOwnerTextInfo(d.content), sid = mySessionId();
+  if (sid) {
+    clearOutageTimer(sid);
+    const awayIntent = parseOwnerAwayIntent(text), st = ledger.read().outageRecovery?.[sid]?.status;
+    if (awayIntent === "return") hydratedOutage = null;
+    if (awayIntent || st === "retrying" || st === "dispatching") ledger.update((data) => recordOwnerAwayMessage(data, sid, awayIntent, e.id, Date.now()));
+  }
   const control = directGuardText(e, firstUserId);
   if (control && !/^guards?\s+(on|off)$/i.test(control)) {
     const context = { owner: true, repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId(), messageId: e.id, globalPause: ledger.isDisabled() };
@@ -192,7 +250,6 @@ async function onUserMessage(e) {
     log(`${TAG} ${result.text}`);
     return;
   }
-  const { text, dropped } = cleanOwnerTextInfo(d.content);
   if (dropped) log(`${TAG} Part of this message was too long for the guard to read approvals from. To approve, type a short message, for example "merge #301".`, "warning");
   if (!text) return;
   const dr = await repoFor(cwdNow);
@@ -215,6 +272,7 @@ async function onUserMessage(e) {
 
 function onAssistantMessage(e) {
   if (!e || e.agentId || e.data?.parentToolCallId) return;
+  ackHydratedOutage();
   const refs = prRefs(e.data?.content || "", null);
   if (!refs.length) return;
   const id = e.data?.messageId;
@@ -229,7 +287,23 @@ const READ_ONLY_AGENTS = /^(explore|rubber-duck|code-review|research|security-re
 
 session = await joinSession({
   hooks: {
-    onSessionStart: safe("onSessionStart", async () => ({ additionalContext: hydration(true) })),
+    onSessionStart: safe("onSessionStart", async (input) => {
+      if (input?.workingDirectory || input?.cwd) cwdNow = input.workingDirectory || input.cwd;
+      await ready;
+      await waitFor(approvalWork, 10000);
+      const base = hydration(true), sid = mySessionId();
+      if (sid && ledger.read().outageRecovery?.[sid]) { try { syncHistoryAway(await session.getEvents()); } catch { /* ignore */ } }
+      const pending = sid && !outageTimers.has(sid) ? ledger.read().outageRecovery?.[sid] : null;
+      if ((pending?.status === "retrying" || pending?.status === "dispatching") && pending.pendingPrompt) {
+        const prompt = pending.pendingPrompt, headNow = await lookups.gitHead(cwdNow);
+        await waitFor(approvalWork, 10000);
+        const claim = !outageTimers.has(sid) && ledger.update((d) => claimOutageDispatch(d, sid, Date.now(), headNow, { attempt: pending.attemptsUsed, prompt, cwd: cwdNow, config, pid: process.pid }));
+        if (claim) { hydratedOutage = { sid, attempt: claim.attemptsUsed, token: claim.dispatchToken, headSha: headNow }; return { additionalContext: `${base}\n\n${prompt}` }; }
+      }
+      return { additionalContext: base };
+    }),
+    onSessionEnd: safe("onSessionEnd", async () => { const sid = mySessionId(); if (sid) clearOutageTimer(sid); return undefined; }),
+    onErrorOccurred: safe("onErrorOccurred", async (input) => { await queueOutageCheck(input, input?.workingDirectory); return undefined; }),
     onSubagentStart: safe("onSubagentStart", async (input) => {
       if (config.debug) ledger.history({ type: "debug.substart", agentName: input?.agentName, agentType: input?.agentType });
       return { additionalContext: hydration(false) };
@@ -255,10 +329,12 @@ session = await joinSession({
       skipPermission: true,
       handler: async ({ pr, repo } = {}) => {
         try {
+          ackHydratedOutage();
           const data = ledger.read();
-          const guards = `Guards: ON\n${guardStatus(data, { repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId(), globalPause: ledger.isDisabled() })}`;
+          const guards = `Guards: ON\nConfig: digest=${configDigest}, defaultRepo=${config.defaultRepo || "git-remote"}\n${guardStatus(data, { repo: await lookups.scopeRepo(cwdNow), sessionId: mySessionId(), globalPause: ledger.isDisabled() })}`;
           if (pr) {
             const r = repo || await repoFor(cwdNow);
+            if (!r) return { textResultForLlm: `Cannot resolve a GitHub repository for #${pr}. Pass repo: "owner/repo".`, resultType: "failure" };
             const h = await lookups.prHead(r, Number(pr));
             const out = formatUnit(data, r, Number(pr), h?.sha || null);
             return `${guards}\n${out}${h ? `\nGitHub state: ${h.state}` : "\n(GitHub head lookup failed; facts shown without head filter may be incomplete)"}`;
@@ -290,8 +366,11 @@ session = await joinSession({
       skipPermission: true,
       handler: async ({ pr, repo, kind, sha, evidence } = {}) => {
         try {
+          ackHydratedOutage();
           const r = repo || await repoFor(cwdNow);
+          if (!r) return { textResultForLlm: `Cannot record #${pr} without a GitHub repository. Pass repo: "owner/repo".`, resultType: "failure" };
           const entry = ledger.update((d) => recordEvidence(d, { repo: r, pr: Number(pr), kind, sha, text: evidence, sessionId: mySessionId() }));
+          await checkOutageProgress(cwdNow);
           return `Saved ${kind} for ${r}#${pr}${entry.sha ? ` at ${short(entry.sha)}` : ""}.`;
         } catch (e) {
           return { textResultForLlm: `Not saved: ${e?.message || e}`, resultType: "failure" };
@@ -301,12 +380,16 @@ session = await joinSession({
   ],
 });
 
+for (const w of startupWarnings) log(`${TAG} Config warning: ${w}`, "warning");
+
 session.on("user.message", (e) => { approvalWork = approvalWork.then(() => onUserMessage(e)).catch((err) => ledger.error(`user.message: ${err?.stack || err}`)); });
 session.on("assistant.message", (e) => { try { onAssistantMessage(e); } catch (err) { ledger.error(`assistant.message: ${err?.stack || err}`); } });
+session.on("session.error", (e) => { if (!e?.agentId && !e?.checkpoint) void queueOutageCheck(e, cwdNow); });
+session.on("session.idle", (e) => { if (!e?.agentId && !e?.checkpoint) void checkOutageProgress(cwdNow).catch((err) => ledger.error(`session.idle: ${err?.stack || err}`)); });
 
 ready = (async () => {
   if (config.debug) {
-    const auth = await lookups.prHead(config.defaultRepo, 1).catch((err) => ({ error: String(err) }));
+    const auth = config.defaultRepo ? await lookups.prHead(config.defaultRepo, 1).catch((err) => ({ error: String(err) })) : null;
     ledger.history({ type: "debug.start", node: process.version, sessionId: mySessionId(), ext: EXT_DIR, data: DATA_DIR, gh: lookups.gh, ghAuthOk: !!auth?.sha, cwd: cwdNow });
   }
   defaultRepo = await repoFor(cwdNow);
@@ -314,9 +397,10 @@ ready = (async () => {
     const events = await session.getEvents();
     if (config.debug) ledger.history({ type: "debug.events", users: events.filter((e) => e.type === "user.message").map((e) => ({ id: String(e.id).slice(0, 8), agentId: e.agentId, source: e.data?.source, auto: e.data?.isAutopilotContinuation, head: String(e.data?.content || "").slice(0, 40) })) });
     for (const e of events) {
-      if (e.type === "user.message" && !e.agentId) firstUserId ||= e.id;
+      if (e.type === "user.message" && !e.agentId && !String(e.data?.content || "").trimStart().startsWith(TAG)) firstUserId ||= e.id;
       else if (e.type === "assistant.message") onAssistantMessage(e);
     }
+    syncHistoryAway(events);
   } catch (err) {
     ledger.error(`getEvents: ${err?.stack || err}`);
   }

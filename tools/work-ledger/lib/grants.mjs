@@ -76,13 +76,17 @@ export function planOwnerMessage(text, { sessionId, pending = [], approvals = []
     else plan.notes.push(`"review again" did not match a PR in this session. Type the number, for example "review again #123".`);
   }
 
-  for (const r of parsed.revokes) add(plan.revoke, r);
+  for (const r of parsed.revokes) {
+    const sameMsg = !r.repo ? plan.merges.filter((m) => m.pr === r.pr) : [], mRepos = [...new Set(sameMsg.map((m) => m.repo).filter(Boolean))];
+    if (mRepos.length) mRepos.forEach((repo) => add(plan.revoke, { repo, pr: r.pr }));
+    else add(plan.revoke, sameMsg.length ? { ...r, cancelledSameMsg: true } : r);
+  }
   if (parsed.revokeContext) {
     approvals.filter((a) => a.kind === "merge" && a.sessionId === sessionId && !a.usedAt && Date.parse(a.expiresAt) > now).forEach((a) => add(plan.revoke, { repo: a.repo, pr: a.pr }));
     mine("merge", 24 * HOUR).forEach((p) => add(plan.revoke, { repo: p.repo, pr: p.pr }));
     lastNamed.forEach((r) => add(plan.revoke, r));
   }
-  plan.merges = plan.merges.filter((m) => !plan.revoke.some((r) => samePr(r, m)));
+  plan.merges = plan.merges.filter((m) => !plan.revoke.some((r) => r.pr === m.pr && (!r.repo || !m.repo || samePr(r, m))));
   return plan;
 }
 
@@ -104,12 +108,19 @@ export function applyPlan(data, plan, { heads, sessionId, text, config, now = Da
   data.approvals ||= [];
   data.pending ||= [];
 
-  for (const r of plan.revoke) {
+  for (const rawRevoke of plan.revoke) {
+    let r = rawRevoke;
+    if (!r.repo) {
+      const repos = [...new Set(data.approvals.filter((a) => a.kind === "merge" && active(a) && a.pr === r.pr && (!sessionId || !a.sessionId || a.sessionId === sessionId)).map((a) => a.repo).filter(Boolean))];
+      if (repos.length === 1) r = { ...r, repo: repos[0] };
+      else { if (!r.cancelledSameMsg) notes.push(`Cannot resolve a GitHub repository for #${r.pr} here. Type "don't merge owner/repo#${r.pr}".`); continue; }
+    }
     let n = 0;
     for (const a of data.approvals) if (a.kind === "merge" && active(a) && samePr(a, r)) { a.usedAt = at; a.revoked = true; n++; }
     if (n) notes.push(`Merge approval for ${r.repo}#${r.pr} cancelled.`);
   }
   for (const m of plan.merges) {
+    if (!m.repo) { notes.push(`Cannot resolve a GitHub repository for #${m.pr} here. Type "merge owner/repo#${m.pr}".`); continue; }
     const h = heads.get(`${m.repo}#${m.pr}`);
     if (!h) { notes.push(`Could not read ${m.repo}#${m.pr} from GitHub, so no approval was saved. Type it again in a minute.`); continue; }
     if (h.state && h.state !== "OPEN") { notes.push(`${m.repo}#${m.pr} is ${h.state.toLowerCase()}; nothing to approve.`); continue; }
@@ -123,6 +134,7 @@ export function applyPlan(data, plan, { heads, sessionId, text, config, now = Da
     notes.push(`Deploy approved: ${t}. Valid ${config.deployApprovalHours ?? 2} h.`);
   }
   for (const r of plan.reviews) {
+    if (!r.repo) { notes.push(`Cannot resolve a GitHub repository for #${r.pr} here. Type "review again owner/repo#${r.pr}".`); continue; }
     data.approvals.push({ id: id(), kind: "review", repo: r.repo, pr: r.pr, at, expiresAt: exp(config.reviewGrantHours ?? 24), sessionId, text: quote });
     data.pending = data.pending.filter((p) => !(p.kind === "review" && samePr(p, r)));
     notes.push(`One more Copilot review allowed for ${r.repo}#${r.pr}.`);

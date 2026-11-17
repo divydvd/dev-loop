@@ -50,7 +50,7 @@ shasum -a 256 -c SOURCE.sha256
 ```
 
 Compare both manifest hashes with the PR evidence.
-`SOURCE.sha256` pins the eleven runtime files.
+`SOURCE.sha256` pins the thirteen runtime files.
 `PACKAGE.sha256` also pins the installer, guides, the archival manifest, and the previous release manifest.
 The installer uses only Node built-ins before validating candidate code.
 It imports verified helper byte copies from a private temporary directory.
@@ -179,6 +179,14 @@ Review the monitor script first. Then record its exact hash with `shasum -a 256 
 Agents cannot write these files; the guard denies them.
 A new external file changes the `ledgerConfigHash` pin for a later request when the extension has no `localMavenScopes` field.
 See [the README](README.md#owner-listed-read-only-monitors) for the exact allowed call shape.
+
+### Validated runtime preferences
+
+At startup, `lib/preferences.mjs` validates optional `config.json` files in `<dataDir>` and `<extDir>`.
+Validated keys are `dataDir`, `defaultRepo`, `reviewCap`, `mergeApprovalHours`, `deployApprovalHours`, `reviewGrantHours`, `gradleLane`, `gradleLockTimeoutSec`, `gradleCache`, `protectExtensionDir`, `deployWorkflows`, `localMavenScopes`, `readOnlyMonitors`, `outageRetryCap`, `outageBackoffSec`, and `debug`.
+Built-in defaults keep `defaultRepo` set to `null` and resolve unqualified PR numbers from the Git `origin` remote.
+Malformed JSON, symlinked files, or invalid values record `config:` entries in `errors.log` and `[work-ledger] Config warning:` session log lines while falling back to safe defaults without disabling any guard.
+Run `work_ledger_get` after restart to confirm the `Config: digest=<12-hex>, defaultRepo=<repo|git-remote>` header and inspect `<dataDir>/errors.log` for any config warnings.
 
 ## Preview and install
 
