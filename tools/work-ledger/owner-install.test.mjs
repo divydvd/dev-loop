@@ -145,17 +145,57 @@ test("rejects unknown runtime source even with a refreshed installed snapshot", 
   await assert.rejects(f.run(), /unsupported|source/i);
 });
 
-test("upgrades only the exact previous reviewed runtime release", async t => {
+test("upgrades only the exact previous reviewed runtime release, including 11-to-13 read-only upgrades", async t => {
   const f = await fixture(t);
   const previous = fs.readFileSync(path.join(source, "PREVIOUS.sha256"), "utf8");
-  assert.equal(hash(previous), "f0d70b54e060a4109ff0c4f3c9f55ccbe53f3f5823f61f9501439a426131f5c3", "previous manifest is the PR #19 release");
+  assert.equal(hash(previous), "68af23bda605a8f0d2cf844fbf9d87d2c9fe67d06ba989fb8d86fcfc7c0eedaa", "previous manifest is the PR #41 release");
+  const prevFiles = previous.trim().split("\n").map(line => line.slice(66));
+  assert.equal(prevFiles.length, 11);
+  assert.equal(prevFiles.includes("lib/outage-resume.mjs"), false);
+  assert.equal(prevFiles.includes("lib/preferences.mjs"), false);
+
   const installer = await import(`${pathToFileURL(path.join(f.candidate, "owner-install.mjs")).href}?previous`);
-  fs.appendFileSync(path.join(f.installed, "lib/policy.mjs"), "// previous release bytes\n");
-  const entries = f.installationSnapshot(f.installed).entries.filter(e => e[1] === "file" && e[0].endsWith(".mjs"));
+  for (const added of ["lib/outage-resume.mjs", "lib/preferences.mjs"]) {
+    fs.rmSync(path.join(f.installed, added), { force: true });
+  }
+  fs.appendFileSync(path.join(f.installed, "lib/policy.mjs"), "// previous 11-file release bytes\n");
+  fs.chmodSync(path.join(f.installed, "extension.mjs"), 0o400);
+  fs.chmodSync(path.join(f.installed, "config.json"), 0o400);
+  for (const name of fs.readdirSync(path.join(f.installed, "lib"))) {
+    fs.chmodSync(path.join(f.installed, "lib", name), 0o444);
+  }
+  fs.chmodSync(path.join(f.installed, "lib"), 0o555);
+
+  const beforeUpgrade = f.installationSnapshot(f.installed);
+  const entries = beforeUpgrade.entries.filter(e => e[1] === "file" && e[0].endsWith(".mjs"));
+  assert.equal(entries.length, 11);
   fs.writeFileSync(path.join(f.candidate, "PREVIOUS.sha256"), entries.map(e => `${e[3]}  ${e[0]}`).join("\n") + "\n");
-  f.request.installedHash = f.installationSnapshot(f.installed).hash;
-  const result = await installer.prepareInstallation(f.request);
-  assert.equal(result.installed, false);
+  f.request.installedHash = beforeUpgrade.hash;
+
+  const preview = await installer.prepareInstallation(f.request);
+  assert.equal(preview.installed, false);
+
+  const upgraded = await installer.prepareInstallation(f.request, {
+    execute: true,
+    hostsStopped: true,
+    confirmation: `install ${hash(JSON.stringify(f.request))}`,
+  });
+  assert.equal(upgraded.installed, true);
+  const afterFiles = f.installationSnapshot(f.installed).entries.filter(e => e[1] === "file" && e[0].endsWith(".mjs")).map(e => e[0]);
+  assert.equal(afterFiles.length, 13);
+  assert.ok(afterFiles.includes("lib/outage-resume.mjs"));
+  assert.ok(afterFiles.includes("lib/preferences.mjs"));
+  assert.equal(fs.statSync(path.join(f.installed, "lib")).mode & 0o777, 0o555);
+
+  await installer.rollbackInstallation(upgraded.receipt, {
+    execute: true,
+    hostsStopped: true,
+    confirmation: `rollback ${hash(JSON.stringify(upgraded.receipt))}`,
+  });
+  assert.deepEqual(f.installationSnapshot(f.installed), beforeUpgrade);
+
+  fs.chmodSync(path.join(f.installed, "lib"), 0o755);
+  fs.chmodSync(path.join(f.installed, "lib/policy.mjs"), 0o644);
   fs.appendFileSync(path.join(f.installed, "lib/policy.mjs"), "// unknown change\n");
   f.request.installedHash = f.installationSnapshot(f.installed).hash;
   await assert.rejects(installer.prepareInstallation(f.request), /unsupported|source/i);
@@ -546,6 +586,20 @@ test("configured dataDir expands tilde without expanding environment paths", asy
   assert.equal(fs.existsSync(f.dataDir), false);
 });
 
+test("rejects non-string dataDir arrays instead of coercing them and trims padded string dataDir", async t => {
+  const f = await fixture(t);
+  const decoy = path.join(f.root, "decoy-ledger");
+  fs.writeFileSync(path.join(f.installed, "config.json"), JSON.stringify({ dataDir: [decoy] }));
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  await assert.rejects(f.prepareInstallation(f.request), /string|path|ledger/i);
+
+  t.mock.method(os, "homedir", () => f.root);
+  fs.writeFileSync(path.join(f.installed, "config.json"), '{"dataDir":"  ~/ledger  "}');
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  const preview = await f.prepareInstallation(f.request);
+  assert.equal(preview.validated, true);
+});
+
 for (const kind of ["configuration", "unrelated-file", "new-file", "directory-mode"]) {
   test(`rejects unapproved ${kind} edits during the staged overlay`, async t => {
     const f = await fixture(t), rename = fs.renameSync;
@@ -783,6 +837,35 @@ for (const mode of [0o500, 0o555, 0o1500]) {
     assert.equal(fs.existsSync(f.request.backupParent), false);
   });
 }
+
+test("rejects traversal, dot-segment, root, and null dataDir or WORK_LEDGER_DIR so installer and runtime never diverge", async t => {
+  const f = await fixture(t);
+  const previous = process.env.WORK_LEDGER_DIR;
+  t.after(() => {
+    if (previous === undefined) delete process.env.WORK_LEDGER_DIR;
+    else process.env.WORK_LEDGER_DIR = previous;
+  });
+
+  for (const badConfigDir of [
+    `${f.root}/state/../ledger`,
+    `${f.root}/./ledger`,
+    "/",
+    null,
+  ]) {
+    delete process.env.WORK_LEDGER_DIR;
+    fs.writeFileSync(path.join(f.installed, "config.json"), JSON.stringify({ dataDir: badConfigDir }));
+    f.request.installedHash = f.installationSnapshot(f.installed).hash;
+    await assert.rejects(f.prepareInstallation(f.request), /normalized|canonical|root|string|path|ledger/i, `expected installer to reject dataDir=${JSON.stringify(badConfigDir)}`);
+  }
+
+  fs.writeFileSync(path.join(f.installed, "config.json"), f.originalConfig);
+  f.request.installedHash = f.installationSnapshot(f.installed).hash;
+  for (const badEnvDir of [`${f.root}/state/../ledger`, `${f.root}/./ledger`, "/"]) {
+    process.env.WORK_LEDGER_DIR = badEnvDir;
+    await assert.rejects(f.prepareInstallation(f.request), /normalized|canonical|root|path|ledger/i, `expected installer to reject WORK_LEDGER_DIR=${JSON.stringify(badEnvDir)}`);
+  }
+});
+
 
 for (const failure of ["write", "rename", "directory-drift"]) {
   test(`a ${failure} failure preserves the read-only original bytes and modes`, async t => {

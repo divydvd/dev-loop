@@ -2,7 +2,7 @@
 <2–4 sentences. Link the issue or the owner's request.>
 
 ## Acceptance record
-<Copy it from the plan. For a trivial change, write "none: trivial change". Check each "done when" item that has evidence.>
+<Copy it from the plan. For a trivial change, write "none: trivial change". Check each "done when" item that has head-commit evidence and whose applicable required cases all passed; leave any item that depends on a waived required case unchecked ([ ]) and note the owner waiver.>
 
 ### Milestone scope (optional)
 <Use for a PR in a multi-milestone assignment. Otherwise write "not applicable: one focused PR".>
@@ -15,7 +15,7 @@
 | Check | Command or scenario | Result | Commit |
 | --- | --- | --- | --- |
 | Unit tests | `<command>` | <N passed> | `<sha7>` |
-| Device test | <scenario, or "not needed: reason"> | <pass or fail, and a note> | `<sha7>` |
+| Device test | <scenario, or "not needed: reason"> | <pass, fail, or waived (<raw status>), and a note> | `<sha7>` |
 
 ## Test coverage
 <Link or include the saved matrix. Use portable paths or evidence links, not machine-specific session paths.
@@ -23,7 +23,8 @@ For a harmless spelling or formatting change, write "not applicable: harmless ed
 - Acceptance mapping: <each acceptance condition -> case IDs and actual evidence; include important risks>
 - Regression selection: <inventory path; selected permanent case IDs and levels -> current evidence; triggers/exclusions; inventory updates or reason unchanged; missing setup/coverage gaps>
 - Category assessment: <relevant case IDs and exclusions with reasons>
-- Required blockers: <failed, blocked, not run, or required coverage gaps; actual dependents, or none>
+- Owner waivers: <none | waived case IDs, direct owner chat quote/reference, raw status, and unverified behavior (`waived` is not `passed`)>
+- Required blockers: <unwaived failed, blocked, not run, or required coverage gaps; actual dependents, or none>
 - Optional limits: <unexecuted optional checks, reasons, and remaining risks, or none>
 - Reassessment: <affected cases after changes; retain original tested identities for historical evidence>
 
