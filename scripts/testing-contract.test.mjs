@@ -464,8 +464,17 @@ test("waived requires a direct typed owner chat message, preserves raw status, a
   assert.match(verifyReport, /personal-data.*secret|personal data.*secret/i);
   assert.match(verifyReport, /never report.*waived.*as passed|waived.*not.*passed/i);
 
+  const verify = skill.split("## 6. Verify")[1]?.split("## 7. Ship")[0] ?? "";
+  assert.match(verify, /device test.*not explicitly waived/i, "SKILL.md ## 6. Verify must skip device execution when explicitly waived");
+  assert.match(verify, /if an unwaived check stops/i, "SKILL.md ## 6. Verify must scope stopped-check remediation to unwaived checks");
+  const skillBlocked = skill.split("- **Blocked:**")[1]?.split("\n- **Ask the owner**")[0] ?? "";
+  const acceptanceBlocked = acceptance.split("  - Blocked:")[1]?.split("\n\n")[0] ?? "";
+  assert.match(skillBlocked, /no device for an unwaived device check/i, "SKILL.md Blocked must scope no-device stop to unwaived device checks");
+  assert.match(acceptanceBlocked, /no device for an unwaived device check/i, "acceptance-record.md Blocked must scope no-device stop to unwaived device checks");
+
   const report = skill.split("## 8. Report")[1]?.split("## Stop conditions")[0] ?? "";
   assert.match(report, /ready with owner waiver \(<case IDs>\)/);
+  assert.match(report, /every other Done gate is satisfied.*ready with owner waiver/i, "SKILL.md ## 8. Report must require all non-waivable Done gates before ready with owner waiver");
   assert.match(report, /never claim.*all required checks passed/i);
 
   const ruleMap = read("README.md").split("## Rule/check map")[1]?.split(/\n#{2,3} /)[0] ?? "";

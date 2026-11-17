@@ -138,7 +138,7 @@ Commit all changes first. Do this step after the last commit to the branch, so t
 - Run the test tier for each changed area. Read the output.
 - Record case statuses, actual results, and tested identities under `references/testing.md`.
   Unwaived required failures and unwaived required coverage gaps prevent a ready claim. Record any direct typed owner waiver with its raw status and unverified risk (`waived` is not `passed`), and report optional limits separately.
-- If the profile says that the change needs a device test, run it yourself: install the build, run the scenario, and record the result.
+- If the profile says that the change needs a device test and the owner has not explicitly waived that case under `references/testing.md`, run it yourself: install the build, run the scenario, and record the result.
   After a passing device test, keep the tested build installed. Restore only test data and device settings through the project's safe procedure.
   Do not reinstall the pretest or a fixed baseline APK after a pass, also when a monitor grant asks for it.
   Ask the monitor to correct a conflicting grant before device use. Follow the project recovery procedure after FAIL or BLOCKED.
@@ -147,7 +147,7 @@ Commit all changes first. Do this step after the last commit to the branch, so t
 - For a UI change, take a screenshot of each screen that the device test validates. Keep the screenshots in a folder outside the repo.
 - Note each gap of the test tool, each workaround and its reason, and each unreliable step for the "Test tool feedback" section of the PR body.
 - Write each result as evidence: `<check>: <command or scenario> → <result> at <sha7>`.
-- If a check stops, save the failure handoff under `references/testing.md`.
+- If an unwaived check stops, save the failure handoff under `references/testing.md`.
   For a confirmed product failure, fix the cause and do steps 4 and 5 before verification.
   For a tool or environment blocker, verify the recovered prerequisite before another full run.
   Preserve project tiers, safe recovery, access approvals, and the existing failed-fix limit.
@@ -210,7 +210,7 @@ Independent review: <reviewer, covered commit or snapshot, later-change coverage
 Please check: <the one or two things that only a person can check>.
 ```
 Keep the passed scope narrower than the evidence: a cold process start does not itself prove a fresh installation.
-When all unwaived required checks pass and one or more required checks are `waived` by a direct typed owner chat message, lead the first sentence with `ready with owner waiver (<case IDs>)` and never claim that all required checks passed.
+When every other Done gate is satisfied (including open PR, head-commit PR checks, independent review coverage, and stopped review rounds), all unwaived required cases pass, and one or more required test cases are `waived` by a direct typed owner chat message, lead the first sentence with `ready with owner waiver (<case IDs>)` and never claim that all required checks passed; if any non-waivable gate is unmet, report `open, not ready: <reason>`.
 When required acceptance is incomplete, report that state instead of leading with "fixed" or "yes".
 During active absence mode or owner return, include the saved decision and blocker handoff from `references/absence-mode.md`.
 Do not claim acceptance is complete when a required decision or check remains blocked.
@@ -218,7 +218,7 @@ Include the acceptance-to-case evidence links, owner waivers, required blockers,
 
 ## Stop conditions
 - **Done:** each unwaived "done when" item has evidence at the head commit, the PR is open, the checks pass at the head commit, and the review rounds stopped. Independent review coverage accounts for the final substantive content, or a harmless-edit exemption has a recorded reason. No confirmed Critical or Important finding remains unresolved. All applicable required cases pass (except any required test case explicitly marked waived by a direct typed owner chat message with its raw status and unverified risk recorded) and no unwaived required coverage gaps remain. A case marked not applicable needs a source or requirements reference and a recorded reason; it is not a pass.
-- **Blocked:** 3 failed fixes, missing access, no device, or a product decision that the repo does not answer. Normally, stop and report what you tried, the evidence, and the decision needed. For an approved multi-milestone assignment, use `references/milestones.md` to defer the blocked milestone and its actual dependents, then select eligible independent work. During confirmed active absence mode, also use `references/absence-mode.md`. Global safety stops and three failed fixes still require a stop.
+- **Blocked:** 3 failed fixes, missing access, no device for an unwaived device check, or a product decision that the repo does not answer. Normally, stop and report what you tried, the evidence, and the decision needed. For an approved multi-milestone assignment, use `references/milestones.md` to defer the blocked milestone and its actual dependents, then select eligible independent work. During confirmed active absence mode, also use `references/absence-mode.md`. Global safety stops and three failed fixes still require a stop.
 - **Ask the owner** only at the feature design, at a plan for a risky area, and before a destructive action. During active absence mode, record these needs for the handoff; do not execute the blocked work or replace its approval.
 
 ## After compaction, or in a new session
