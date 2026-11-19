@@ -9,6 +9,11 @@ import { fileURLToPath } from "node:url";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ROUTER_PATH = join(REPO_ROOT, "skills/dev-loop/scripts/prepare-review-panel.mjs");
 
+test("the Gemini context mirror remains an operational file after renaming", async () => {
+  const { isProductionFile } = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+  assert.equal(isProductionFile("dev-loop-context.md"), true);
+});
+
 function cleanChildEnv() {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;

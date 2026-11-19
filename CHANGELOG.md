@@ -2,6 +2,12 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.22 (2026-11-19)
+- **Remove duplicate core startup text in the plugin repository.**
+  - **What:** Rename the Gemini mirror to `dev-loop-context.md`. Update the extension manifest, sync helper, checks, tests, and host references. Keep `core.mdc` unchanged.
+  - **Why:** The weekly review found Copilot loading both `core.mdc` and root `GEMINI.md`. Startup text measured 18,306 bytes, including home instructions and Superpowers. SmarType separately measured 15,020 bytes. Both exceed the 15,000-byte limit. The mirror rename reduces this repository's measured Copilot total to 13,002 bytes without removing rules.
+  - **Check:** Run the portability suite, plugin check, isolated Copilot discovery, and real offline Gemini startup. Next week, confirm one core copy per host and measure actual startup bytes again. Repository checks cannot measure another user's home or Superpowers installation.
+
 ## 0.5.21 (2026-11-17)
 - **Add deterministic Step-5 review panel router, external specialist packets, and `skeptic-judge` synthesis (Milestone M3).**
   - **What:** Add `skills/dev-loop/scripts/prepare-review-panel.mjs` (zero npm dependencies, `execFileSync` only) to classify `git diff` into `exempt` (`0` production lines, outside `### Risky areas`, and conservative transposition or repeated-letter typo/formatting edits in non-operational `.md` prose), `single` (`1`–`120` production lines, outside risky areas, `<= 1` triggered domain category), or `panel` (`> 120` production lines, any `AGENTS.md` path or fence-aware enclosing-section concept risky area, or `2+` triggered domain categories across `concurrency-state`, `security-privacy`, and `ui-a11y`, plus `arch-correctness` and `skeptic-judge`), write `routing.json` and symlink/hardlink-guarded frozen `<role>-packet.md` bundles only when `--out-dir` is outside `--repo-root`, emit `WORKTREE:<sha256>` snapshots (including untracked symlinks and file modes) for uncommitted diffs, and parse commit-pinned or worktree `AGENTS.md` (`Checklist path` aware) and `docs/testing/review-checklist.md` tables (including escaped pipes, safe in-repo symlinks, and both path-glob and diff-token triggers) with graceful fallback to `AGENTS.md` `### Review checklist` bullets when absent or `"inline only"`.

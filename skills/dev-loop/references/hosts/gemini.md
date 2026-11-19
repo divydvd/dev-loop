@@ -1,7 +1,7 @@
 # Gemini CLI host guide
 
 ## Abstract
-Gemini CLI (`0.32.1` and newer) loads the `dev-loop` extension through root `gemini-extension.json`, auto-loads root `GEMINI.md` at session startup, and discovers `skills/*` automatically.
+Gemini CLI (`0.32.1` and newer) loads the `dev-loop` extension through root `gemini-extension.json`, auto-loads root `dev-loop-context.md` at session startup, and discovers `skills/*` automatically.
 This guide defines only the `dev-loop` workflow deltas for Gemini CLI: automatic startup context sync, interactive `activate_skill` consent handling, fresh-context `generalist` review dispatch, local UI mockup and screenshot handling, `gh` milestone PR branches, and the absence of `work-ledger` runtime command guards.
 Use Superpowers `using-superpowers` (`gemini-tools.md`) for generic tool-name mappings so `dev-loop` preserves identical approval, testing, and review standards without duplicating tool tables.
 
@@ -11,12 +11,15 @@ Never select this guide from a `gemini-*` model name alone; a `gemini-*` model r
 Use Superpowers `using-superpowers` (`gemini-tools.md`) to translate generic file, shell, search, todo, and skill actions.
 
 ## Host procedures
-1. **Startup rules and sync (`gemini-extension.json` + `GEMINI.md`):** Root `gemini-extension.json` sets `"contextFileName": "GEMINI.md"`, so Gemini CLI loads root `GEMINI.md` automatically into startup context without a `read_file` call.
-   Root `GEMINI.md` mirrors the body of `com.github.copilot/rules/core.mdc` byte-for-byte (`com.github.copilot/rules/core.mdc` remains the single authoritative source).
+1. **Startup rules and sync (`gemini-extension.json` + `dev-loop-context.md`):** Root `gemini-extension.json` sets `"contextFileName": "dev-loop-context.md"`, so Gemini CLI loads root `dev-loop-context.md` automatically into startup context without a `read_file` call.
+   Root `dev-loop-context.md` mirrors the body of `com.github.copilot/rules/core.mdc` byte-for-byte (`com.github.copilot/rules/core.mdc` remains the single authoritative source).
    After any approved edit to `com.github.copilot/rules/core.mdc`, run `node <dev-loop-checkout>/scripts/sync-host-core.mjs` and `node <dev-loop-checkout>/scripts/check.mjs`.
-   Keep always-loaded startup text at or below `15 KB` (`15,000` UTF-8 bytes) both in consumer repos (`AGENTS.md` + `GEMINI.md`) and when Gemini CLI or GitHub Copilot runs inside `divydvd/dev-loop` itself (`AGENTS.md` + `2 * GEMINI.md` and `AGENTS.md` + `GEMINI.md` + `core.mdc`).
+   The host-specific filename prevents Copilot from also loading the mirror as a workspace instruction.
+   Keep startup text at or below `15,000` UTF-8 bytes, including user instructions and Superpowers startup text.
+   Count `AGENTS.md` and the extension mirror for Gemini; count `AGENTS.md` and `core.mdc` for Copilot.
+   Count any separate workspace `GEMINI.md` too. This repository does not ship one.
 2. **Skill activation consent (`activate_skill`):** Gemini CLI's default approval policy prompts the owner for consent (`decision = "ask_user"`) before `activate_skill` loads a skill body.
-   **Caution:** Do not continue a feature, bug fix, or code change from `GEMINI.md` alone after `activate_skill` consent is declined or blocked by policy.
+   **Caution:** Do not continue a feature, bug fix, or code change from `dev-loop-context.md` alone after `activate_skill` consent is declined or blocked by policy.
    Wait for owner consent when calling `activate_skill`.
    If `activate_skill` is denied in non-interactive `default` mode without a policy allowance, or if the owner declines `activate_skill` interactively (do not re-prompt unless the owner asks to retry), stop immediately without editing files or opening a PR, and report `blocked` naming the missing `activate_skill` prerequisite (`dev-loop` or the required Superpowers skill).
 3. **Owner gates (`ask_user`):** Ask real doubts, design approvals, and risky-plan approvals with Gemini CLI `ask_user`, one question at a time, with your recommended choice first.

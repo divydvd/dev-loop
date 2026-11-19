@@ -203,7 +203,7 @@ function checkManifest() {
       if (typeof plugin.description === "string" && host.description !== plugin.description) {
         fault(hostPath, "description differs from plugin.json description");
       }
-      if (host.contextFileName !== "GEMINI.md") fault(hostPath, 'contextFileName must be "GEMINI.md"');
+      if (host.contextFileName !== "dev-loop-context.md") fault(hostPath, 'contextFileName must be "dev-loop-context.md"');
     }
   }
 
@@ -268,14 +268,14 @@ function checkRules(agentsBytes) {
   }
 
   const geminiExtPath = join(root, "gemini-extension.json");
-  const geminiMdPath = join(root, "GEMINI.md");
+  const geminiMdPath = join(root, "dev-loop-context.md");
   const hasGeminiExt = pathOrLinkExists(geminiExtPath);
   const hasGeminiMd = pathOrLinkExists(geminiMdPath);
   let validGeminiMdPath = null;
   let geminiBytes = 0;
   if (hasGeminiExt || hasGeminiMd) {
-    if (!hasGeminiExt) fault(geminiExtPath, "file is missing while GEMINI.md is present");
-    validGeminiMdPath = checkExistingFileInsideDir(root, "GEMINI.md");
+    if (!hasGeminiExt) fault(geminiExtPath, "file is missing while dev-loop-context.md is present");
+    validGeminiMdPath = checkExistingFileInsideDir(root, "dev-loop-context.md");
     if (!validGeminiMdPath) {
       fault(geminiMdPath, "file is missing, is not a regular file, or escapes root");
     } else {
@@ -287,8 +287,10 @@ function checkRules(agentsBytes) {
     }
   }
 
-  checkStartupCeiling(rulesDir, agentsBytes + copilotRulesBytes + geminiBytes);
-  if (validGeminiMdPath) checkStartupCeiling(geminiMdPath, agentsBytes + 2 * geminiBytes);
+  const workspaceGemini = checkExistingFileInsideDir(root, "GEMINI.md");
+  const workspaceBytes = workspaceGemini ? utf8Bytes(readFileSync(workspaceGemini, "utf8")) : 0;
+  checkStartupCeiling(rulesDir, agentsBytes + copilotRulesBytes + workspaceBytes);
+  if (validGeminiMdPath) checkStartupCeiling(geminiMdPath, agentsBytes + geminiBytes + workspaceBytes);
 }
 
 function checkHooks(agentsBytes) {

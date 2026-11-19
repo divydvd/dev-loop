@@ -8,13 +8,13 @@ const DEFAULT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export function syncHostCore(repoRoot = DEFAULT_ROOT, { check = false } = {}) {
   const corePath = join(repoRoot, "com.github.copilot/rules/core.mdc");
-  const targetPath = join(repoRoot, "GEMINI.md");
+  const targetPath = join(repoRoot, "dev-loop-context.md");
   let targetStat = null;
   try {
     targetStat = lstatSync(targetPath);
   } catch {}
   if (targetStat && (!targetStat.isFile() || targetStat.isSymbolicLink())) {
-    throw new Error(`GEMINI.md must be a regular file, not a symlink or directory: ${targetPath}`);
+    throw new Error(`dev-loop-context.md must be a regular file, not a symlink or directory: ${targetPath}`);
   }
   const expected = stripFrontmatter(readFileSync(corePath, "utf8"));
   const current = targetStat ? readFileSync(targetPath, "utf8") : null;
@@ -50,8 +50,8 @@ if (isCli) {
   }
   const result = syncHostCore(positional[0] ? resolve(positional[0]) : DEFAULT_ROOT, { check });
   if (!result.synced) {
-    console.error("GEMINI.md differs from com.github.copilot/rules/core.mdc body; run node scripts/sync-host-core.mjs");
+    console.error("dev-loop-context.md differs from com.github.copilot/rules/core.mdc body; run node scripts/sync-host-core.mjs");
     process.exit(1);
   }
-  console.log(result.changed ? "GEMINI.md: synced" : "GEMINI.md: in sync");
+  console.log(result.changed ? "dev-loop-context.md: synced" : "dev-loop-context.md: in sync");
 }

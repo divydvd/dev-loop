@@ -57,7 +57,7 @@ export function isProductionFile(relPath) {
   const p = relPath.replaceAll("\\", "/").replace(/^\.\//, "");
   if (isTestOrGeneratedFile(p)) return false;
   if (/^(?:skills|com\.github\.copilot|hooks|\.claude-plugin|\.github)\//.test(p)) return true;
-  if (/^(?:plugin\.json|gemini-extension\.json|GEMINI\.md|AGENTS\.md|CLAUDE\.md)$/.test(p) || /^scripts\/[^/]+\.(?:mjs|cjs|js|sh|py)$/.test(p)) return true;
+  if (/^(?:plugin\.json|gemini-extension\.json|dev-loop-context\.md|GEMINI\.md|AGENTS\.md|CLAUDE\.md)$/.test(p) || /^scripts\/[^/]+\.(?:mjs|cjs|js|sh|py)$/.test(p)) return true;
   return !(/\.md$/i.test(p) || /^docs\//.test(p));
 }
 function nextFenceState(fence, line) {
