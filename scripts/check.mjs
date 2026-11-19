@@ -288,6 +288,9 @@ function checkRules(agentsBytes) {
   }
 
   const workspaceGemini = checkExistingFileInsideDir(root, "GEMINI.md");
+  if (!workspaceGemini && pathOrLinkExists(join(root, "GEMINI.md"))) {
+    fault(join(root, "GEMINI.md"), "workspace context is not a regular file or escapes root");
+  }
   const workspaceBytes = workspaceGemini ? utf8Bytes(readFileSync(workspaceGemini, "utf8")) : 0;
   checkStartupCeiling(rulesDir, agentsBytes + copilotRulesBytes + workspaceBytes);
   if (validGeminiMdPath) checkStartupCeiling(geminiMdPath, agentsBytes + geminiBytes + workspaceBytes);

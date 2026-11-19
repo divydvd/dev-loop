@@ -1391,6 +1391,28 @@ test("T-M3-1: checkRepo enforces gemini-extension.json description parity and sy
       writeFileSync(join(dir, "AGENTS.md"), `${agents}x`);
       assert.equal(hasGeminiBudgetFault(), true, `Gemini boundary +1 with workspace ${workspace} must fail`);
     }
+    const workspacePath = join(dir, "GEMINI.md");
+    const outsideWorkspace = mkdtempSync(join(tmpdir(), "dev-loop-workspace-context-"));
+    try {
+      const outsideFile = join(outsideWorkspace, "context.md");
+      writeFileSync(outsideFile, "x".repeat(15_001));
+      unlinkSync(workspacePath);
+      for (const target of [outsideFile, join(outsideWorkspace, "missing.md")]) {
+        symlinkSync(target, workspacePath);
+        assert.ok(
+          checkMod.checkRepo(dir).some((f) => f.includes("GEMINI.md") && /regular file|escapes root/.test(f)),
+          "an existing invalid workspace instruction must not count as an absent optional file",
+        );
+        unlinkSync(workspacePath);
+      }
+      mkdirSync(workspacePath);
+      assert.ok(
+        checkMod.checkRepo(dir).some((f) => f.includes("GEMINI.md") && /regular file/.test(f)),
+        "a workspace instruction directory must fail",
+      );
+    } finally {
+      rmSync(outsideWorkspace, { recursive: true, force: true });
+    }
   });
 });
 

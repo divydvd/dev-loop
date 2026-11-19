@@ -57,6 +57,11 @@ Containment, compatibility, startup limits, and consent preservation do apply.
 - Captured offline Gemini request contains exactly one core heading and the complete core body in systemInstruction.
 - Fresh Copilot startup totals 13,002 bytes: 2,088 profile + 5,426 core + 2,296 home + 3,192 Superpowers. No bytes are added to core.mdc or AGENTS.md.
 - No phone, Gradle, merge, or live user configuration change occurs. Live model compliance remains outside this loader repair's proof.
+- Automatic review round 1 confirms a containment gap: an existing optional workspace symlink outside the checkout counts as absent.
+- RED: T-M3-1 reproduces the gap. Distinguish an absent optional file from an existing invalid path. Test external and broken symlinks, plus directories.
+- The first posted remote-status note preceded the review finding. Correct it immediately; the PR is not ready until this repair is verified and reviewed.
+- Round-1 repair: all 394 applicable local tests pass, zero fail; one existing filesystem case skips. Plugin and mirror checks pass.
+- Focused independent review at WORKTREE:7902410ebebb7365a2e99e9694707df98ad4b77a14f0f02a9d2c1a26090ea2e9 reports PASS, no findings or missing cases. Only this factual ledger entry follows that review.
 
 ## Conclusion
 Use a Gemini-specific context filename and retain the same source of truth.
