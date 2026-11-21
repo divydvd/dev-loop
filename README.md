@@ -120,6 +120,8 @@ It classifies PRs into `trivial`, `small`, and `multi-task` routes, reads the la
 The existing session values remain lifetime totals, not work limited to the reporting window or the relevant owner request.
 Python module checks (`python` or `python3` with `-m unittest`, `-m pytest`, or `-m build`) enter the build/test bucket.
 Arbitrary Python scripts do not become build/test commands solely because they use Python.
+The added Python recognizer reuses the local shell splitter to exclude escaped separators and literal heredoc bodies.
+The legacy generic matcher remains unchanged; it can still match quoted tool names such as `pytest`.
 
 The added “PR-relative session timing” table uses PR creation and merge timestamps.
 `analyzeSessions()` returns each PR's `phaseTiming` with basis `session_start_and_pr_timestamps`.

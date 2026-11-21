@@ -8,11 +8,14 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Preserve lifetime fields, cumulative cost, logical tool parallelism, and the existing weekly table.
     Add valid phase sample counts and independent bucket medians.
     Recognize common Python module checks without treating quoted echo text or arbitrary scripts as new check commands.
+    Reuse the local shell splitter for escaped separators and heredoc text.
+    Retain observed terminal zero-duration calls without duplicating PR-boundary calls.
     Keep core rules, required tests, reviews, approval points, and benchmark verdicts unchanged.
   - **Why:** The timing investigation found post-merge work in lifetime totals and missed Python unittest commands.
     Synthetic tests reproduce the missing classification and missing phase summaries before implementation.
     A 10-second interval now splits into 4 and 6 seconds without increasing lifetime work.
     Shared, unmatched, and missing-data phases remain unavailable rather than becoming false zeros.
+    Independent review found the terminal-zero and shell-literal defects; focused fixtures fail before each correction and pass afterward.
   - **Check:** Run the collector and benchmark regressions, `node scripts/check.mjs`, all CI suites, and isolated Copilot discovery.
     Next week, inspect PR-relative sample counts and compare each phase with its source timestamps.
     Do not treat this measurement correction as proof of faster work.

@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
+import { basename, commandsOf } from "../tools/work-ledger/lib/shell.mjs";
 
 const DAY_MS = 86_400_000;
 const SHA_RE = /^[0-9a-f]{7,40}$/i;
@@ -222,8 +223,8 @@ function parseWorkspaceYaml(filePath) {
 }
 
 const BUILD_TEST_CMD_RE = /(?:^|[;&|]\s*|\S*\/bin\/)verdict\s+(?:run|baseline|restore|verify|capture|diff|check|--help)\b|\b(?:gradlew|gradle\.lock|node\s+--test|npm\s+(?:test|run\s+(?:test|build|lint|check))|pnpm\s+(?:test|build|lint)|yarn\s+(?:test|build|lint)|pytest|cargo\s+(?:test|build|check|clippy)|go\s+test|mvn\s+(?:test|verify|package)|dotnet\s+(?:test|build)|rspec|jest|vitest|adb\b|scripts\/check\.mjs)\b/i;
-const PYTHON_CHECK_CMD_RE = /(?:^|[;&|\n])\s*(?:[^\s'";&|]+\/)?python3?\s+-m\s+(?:unittest|pytest|build)\b/i;
-const hasPythonCheck = (cmd) => PYTHON_CHECK_CMD_RE.test(cmd.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, ""));
+const hasPythonCheck = (cmd) => commandsOf(cmd).some(({ argv }) =>
+  /^python3?$/i.test(basename(argv[0])) && argv[1] === "-m" && /^(?:unittest|pytest|build)$/.test(argv[2]));
 const POLL_GUARD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|reviewThreads|pr\s+checks|run\s+watch)\b/i;
 const POLL_CMD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|reviewThreads|pr\s+checks|run\s+watch|sleep\s+\d+(?:\.\d+)?[smh]?)\b/i;
 const HUMAN_WAIT_TOOLS = new Set(["ask_user", "relay_session_input"]);
@@ -424,15 +425,17 @@ function summarizePrPhases(pr, session, unavailableStatus = null) {
   const createdMs = Date.parse(pr.createdAt || ""), mergedMs = Date.parse(pr.mergedAt || "");
   const startMs = session?.sessionStartMs, endMs = session?.sessionEndMs;
   const reason = unavailableStatus ||
-    (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs ? "session_time_unavailable" : null) ||
+    (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs > endMs ? "session_time_unavailable" : null) ||
     (!Number.isFinite(createdMs) || !Number.isFinite(mergedMs) || createdMs > mergedMs ? "missing_pr_timestamps" : null);
   const bounds = { beforePr: [startMs, createdMs], prOpen: [createdMs, mergedMs], afterMerge: [mergedMs, endMs] };
   return {
     basis: "session_start_and_pr_timestamps",
     ...Object.fromEntries(PHASE_KEYS.map((key) => {
       const [fromMs, toMs] = bounds[key];
-      const summary = reason ? unavailableTiming(reason) : fromMs >= toMs ? unavailableTiming("no_observed_intervals")
-        : summarizeTimingWindow(session.timingIntervals, { fromMs, toMs });
+      // The terminal tick includes observed zero-duration calls; no complete interval ends beyond it.
+      const windowEndMs = key === "afterMerge" ? toMs + 1 : toMs;
+      const summary = reason ? unavailableTiming(reason) : fromMs >= windowEndMs ? unavailableTiming("no_observed_intervals")
+        : summarizeTimingWindow(session.timingIntervals, { fromMs, toMs: windowEndMs });
       return [key, { fromMs: reason ? null : fromMs, toMs: reason ? null : toMs, ...summary }];
     })),
   };

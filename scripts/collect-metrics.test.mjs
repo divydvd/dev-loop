@@ -550,6 +550,10 @@ test("P1/P2: Python command classification recognizes module checks, not echoed 
       ["cd web && /usr/bin/python3 -m unittest", 2],
       ["echo \"python3 -m unittest\"", 0],
       ["echo '; python3 -m unittest'", 0],
+      ["echo \\; python3 -m unittest", 0],
+      ["cat <<'TEXT'\npython3 -m unittest\nTEXT", 0],
+      ["bash -lc 'python3 -m unittest'", 2],
+      ["python3 -m 'unittest'", 2],
       ["python3 web/tools/build.py", 0],
     ]) {
       const path = join(dir, "events.jsonl");
@@ -595,6 +599,39 @@ test("P4: phase timing merges active tools but retains logical tool work for par
     { fromMs: 4, toMs: 4 }, { fromMs: 10, toMs: 4 },
     { fromMs: NaN, toMs: 100 }, { fromMs: 0, toMs: Infinity },
   ]) assert.throws(() => timing.summarizeTimingWindow(intervals, bounds), RangeError);
+});
+
+test("P6: phase timing retains terminal zero-duration calls without duplicating PR boundary calls", () => {
+    const root = makeTempDir("phase-zero"), epoch = Date.parse("2026-11-21T00:00:00Z");
+    const at = (ms) => new Date(epoch + ms).toISOString();
+    try {
+      const dir = join(root, "zero");
+      mkdirSync(dir);
+      writeFileSync(join(dir, "workspace.yaml"), `id: zero\nrepository: org/app\ncreated_at: ${at(0)}\n`);
+      const pr = {
+        number: 1, url: "https://github.com/org/app/pull/1", createdAt: at(1000), mergedAt: at(3000),
+        files: [{ path: "src/app.js", additions: 1, deletions: 0 }],
+      };
+      for (const [instant, observedPhase] of [[1000, "prOpen"], [3000, "afterMerge"], [5000, "afterMerge"]]) {
+        writeFileSync(join(dir, "events.jsonl"), [
+          { timestamp: at(0), type: "user.message", data: { content: pr.url } },
+          { timestamp: at(instant), type: "tool.execution_start", data: { toolCallId: "zero", toolName: "bash", arguments: { command: "echo ok" } } },
+          { timestamp: at(instant), type: "tool.execution_complete", data: { toolCallId: "zero" } },
+          { timestamp: at(5000), type: "session.usage_checkpoint", data: { totalNanoAiu: 100 } },
+        ].map((e) => JSON.stringify(e)).join("\n"));
+        const result = analyzeSessions([pr], { repo: "org/app", sessionsDir: root }).perPr[1];
+        assert.equal(result.activeSec, 0);
+        for (const key of ["beforePr", "prOpen", "afterMerge"]) {
+          assert.equal(result.phaseTiming[key].activeSec, key === observedPhase ? 0 : null, `${instant} ${key}`);
+          assert.equal(result.phaseTiming[key].status, key === observedPhase ? "ok" : "no_observed_intervals");
+        }
+        const route = collectMetrics({ repo: "org/app", prs: [pr], sessionsDir: root }).routeBuckets.small;
+        assert.equal(route.phaseTiming[observedPhase].sampleCount, 1);
+        assert.equal(route.phaseTiming[observedPhase].medianActiveSec, 0);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
 });
 
 test("P6/P7: phase timing attributes unique PRs, rejects missing evidence, and isolates post-merge work", () => {
