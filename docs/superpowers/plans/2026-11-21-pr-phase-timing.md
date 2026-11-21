@@ -44,12 +44,12 @@ Keep legacy lifetime metrics and the existing weekly table unchanged.
 | ID | Requirement | Expected result | Location | Status |
 | --- | --- | --- | --- | --- |
 | P1 | Python module checks | A 2-second unittest command counts as build/test | `scripts/collect-metrics.test.mjs` | red then green |
-| P2 | Literal command text | Echo and ordinary script input stay other I/O; known stdin code remains executable | Existing P1/P2 table and diagnostic | stdin-filename red then green; final checks pending |
+| P2 | Literal command text | Echo and ordinary script input stay other I/O; known stdin code remains executable | Existing P1/P2 table and diagnostic | stdin-filename red then green at `96b2f20` |
 | P3 | Boundary clipping | A 10-second interval splits into 4 and 6 seconds | Same | red then green |
 | P4 | Parallel calls | A 6-second window counts once; parallelism is 2.0 | Same | red then green |
 | P5 | Wait and missing data | Owner waits excluded; absent active phases stay null | Same | red then green |
 | P6 | Attribution | Shared, unmatched, and invalid timestamp records remain unavailable | Same | red then green |
-| P7 | Compatibility | Existing lifetime and benchmark regression assertions pass | Existing collector/benchmark suites | green; final-head run pending |
+| P7 | Compatibility | Existing lifetime and benchmark regression assertions pass | Existing collector/benchmark suites | green at `96b2f20` |
 
 Relevant categories are boundaries, state, concurrency, missing data, and compatibility.
 Device and app migration checks do not apply to this Node tooling change.
@@ -142,9 +142,20 @@ The existing suites are the regression inventory for this area; no new catalog i
 - Readiness red/green: The permanent fixture failed with `0 !== 2` for `bash - /dev/stdin`.
   The input-source correction then passed all 29 collector/benchmark tests.
   Harmless Bash probes and collector diagnostics also pass both previously failed stdin-filename cases.
-  Final-head verification and focused review remain pending. No runtime shell utility changed.
+  No runtime shell utility changed.
+- Readiness evidence at `96b2f20`: Plugin check has no faults; full suites have 399 passes, zero failures, and one existing filesystem skip.
+  Exact-head isolated discovery finds plugin `0.5.23`, the core instruction, and the skills.
+  Both earlier blocker diagnostics pass at this clean commit. Saved examples preserve original lifetime metrics.
+- Independent readiness review: `m1-readiness-reviewer` reviewed all five follow-up files and affected parser/collector interactions at `96b2f20`.
+  It verified 17 collector cases and nine harmless Bash probes. Findings and missing cases are empty.
+  Prior full-diff and focused reviews cover unchanged substantive content.
+  Later evidence-only documentation does not change the reviewed source.
+- Review rulings: Final suites and discovery are established by the author's executed checks, not by the review.
+  General shell evaluation and arbitrary historical symlink resolution remain documented classifier limits.
+  No runtime guard or inherited generic matcher changes are needed.
+  Final published identity and GitHub results are recorded in the PR body and persistent execution ledger.
 
 ## Conclusion
-Complete final-head checks and focused independent review before marking M1 ready.
-The input-source correction addresses the confirmed stdin-filename failure without general shell evaluation.
+The input-source correction passes the required cases and focused independent review.
+Verify the final published head and GitHub checks before marking M1 ready.
 M1 provides better measurements, not evidence of faster work. No merge is authorized.
