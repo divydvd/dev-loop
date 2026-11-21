@@ -44,7 +44,7 @@ Keep legacy lifetime metrics and the existing weekly table unchanged.
 | ID | Requirement | Expected result | Location | Status |
 | --- | --- | --- | --- | --- |
 | P1 | Python module checks | A 2-second unittest command counts as build/test | `scripts/collect-metrics.test.mjs` | red then green |
-| P2 | Literal command text | Echo and script input stay other I/O; bare stdin and explicit `-s` remain executable | Existing P1/P2 table | recovery red; final checks pending |
+| P2 | Literal command text | Echo and ordinary script input stay other I/O; actual stdin code remains executable | Existing P1/P2 table and diagnostic | required fixtures pass; stdin filename gap blocks acceptance |
 | P3 | Boundary clipping | A 10-second interval splits into 4 and 6 seconds | Same | red then green |
 | P4 | Parallel calls | A 6-second window counts once; parallelism is 2.0 | Same | red then green |
 | P5 | Wait and missing data | Owner waits excluded; absent active phases stay null | Same | red then green |
@@ -113,9 +113,23 @@ The existing suites are the regression inventory for this area; no new catalog i
 - Recovery red: The permanent P2 table failed with `2 !== 0` for `bash - /dev/null`.
   Correction: Treat lone `-` and `--` as option termination; retain explicit `-s`.
   All 29 collector/benchmark tests pass after the correction.
-  No runtime shell utility changed. Focused review and final-head evidence remain pending.
+  No runtime shell utility changed.
+- Recovery verification at `2043ff0`: Plugin check has no faults; all CI suites have 399 passes, zero failures, and one filesystem skip.
+  Exact-head isolated discovery finds plugin `0.5.23`, the core instruction, and the skills.
+  Saved examples preserve original lifetime values.
+- Focused independent review: `m1-recovery-reviewer` reviewed `2043ff0`, including the correction and affected parser interactions.
+  It confirms the focused-single scope: no approval rule or newly risky area changed.
+  It found Important F-1: `bash - /dev/stdin` and `bash - /dev/fd/0` execute stdin code but lose build/test attribution.
+  A harmless Bash probe and real collector fixtures confirm expected 2s, actual 0s for both inputs.
+  This is a required compatibility failure, not an optional parser enhancement.
+- Recovery stop: The approved pass requires stopping on another confirmed classifier defect.
+  F-1 remains unresolved. No further production correction, merge, or live benchmark is authorized or attempted.
+  PR #52 remains a draft, not ready. Later evidence-only changes do not replace the reviewed source.
+  The persistent ledger and PR body hold final identities and results.
+- Review rulings: Prior full-diff review covers unchanged branch content; this follow-up covers the source correction.
+  Final-head checks and discovery are verified by execution, not inferred from the review.
 
 ## Conclusion
-Complete M1 checks and independent review before its first push.
-M1 establishes better evidence, not a demonstrated speed improvement.
-The main risk is misattributing a reused session to one task.
+M1 remains blocked after its approved recovery pass.
+The next decision must address the classifier approach before another production correction.
+The main risk is inaccurate test timing; no speed improvement has been demonstrated.

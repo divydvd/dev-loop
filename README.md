@@ -123,6 +123,7 @@ Arbitrary Python scripts do not become build/test commands solely because they u
 The added Python recognizer reuses the local shell splitter to exclude escaped separators and literal heredoc bodies.
 It examines simple commands and explicit inline or stdin shell code; it does not evaluate general shell execution.
 Heredocs supplied to shell script files remain data, not assumed code.
+The draft currently misses stdin-code filenames after lone `-`, such as `bash - /dev/stdin`; this blocks acceptance.
 The legacy generic matcher remains unchanged; it can still match quoted tool names such as `pytest`.
 
 The added “PR-relative session timing” table uses PR creation and merge timestamps.
