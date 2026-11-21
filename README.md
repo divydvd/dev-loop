@@ -125,6 +125,8 @@ It examines simple commands and explicit inline or stdin shell code; it does not
 Heredocs supplied to shell script files remain data, not assumed code.
 Known stdin filenames `/dev/stdin` and `/dev/fd/0` remain executable input, including after option termination.
 The recognizer does not resolve arbitrary script paths or symlinks from historical commands.
+Metrics-specific inline extraction respects option termination and script filenames before considering `-c`.
+Shared guard-oriented command expansion remains unchanged.
 The legacy generic matcher remains unchanged; it can still match quoted tool names such as `pytest`.
 
 The added “PR-relative session timing” table uses PR creation and merge timestamps.

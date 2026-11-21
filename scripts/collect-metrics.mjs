@@ -223,26 +223,40 @@ function parseWorkspaceYaml(filePath) {
 }
 
 const BUILD_TEST_CMD_RE = /(?:^|[;&|]\s*|\S*\/bin\/)verdict\s+(?:run|baseline|restore|verify|capture|diff|check|--help)\b|\b(?:gradlew|gradle\.lock|node\s+--test|npm\s+(?:test|run\s+(?:test|build|lint|check))|pnpm\s+(?:test|build|lint)|yarn\s+(?:test|build|lint)|pytest|cargo\s+(?:test|build|check|clippy)|go\s+test|mvn\s+(?:test|verify|package)|dotnet\s+(?:test|build)|rspec|jest|vitest|adb\b|scripts\/check\.mjs)\b/i;
-function shellReadsStdin(argv) {
-  if (!/^(?:ba|da|z|k)?sh$/.test(basename(argv[0]))) return false;
-  let scriptFile;
+const isShell = (word) => /^(?:ba|da|z|k)?sh$/.test(basename(word));
+function unwrapMetricsCommand(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    if (!isShell(argv[i])) continue;
+    // Unwrap only the prefix so guard-oriented shell expansion cannot consume literal arguments.
+    const prefix = unwrap(argv.slice(0, i + 1));
+    if (prefix.argv.length === 1 && prefix.argv[0] === argv[i] && !prefix.inline.length) {
+      return { argv: argv.slice(i), inline: [] };
+    }
+  }
+  return unwrap(argv);
+}
+function shellInput(argv) {
+  if (!isShell(argv[0])) return null;
+  let scriptFile, explicitStdin = false;
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i];
-    if (/^-[a-zA-Z]*s[a-zA-Z]*$/.test(arg)) return true;
     if (arg === "-" || arg === "--") { scriptFile = argv[i + 1]; break; }
     if (["-o", "+o", "-O", "+O", "--rcfile", "--init-file"].includes(arg)) { i++; continue; }
+    if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(arg)) return { inline: argv[i + 1], readsStdin: false };
+    if (/^-[a-zA-Z]*s[a-zA-Z]*$/.test(arg)) explicitStdin = true;
     if (!/^[-+]/.test(arg)) { scriptFile = arg; break; }
   }
-  return scriptFile === undefined || ["/dev/stdin", "/dev/fd/0"].includes(scriptFile);
+  return { inline: null, readsStdin: explicitStdin || scriptFile === undefined || ["/dev/stdin", "/dev/fd/0"].includes(scriptFile) };
 }
 function hasPythonCheck(cmd, depth = 0) {
   if (depth > 4) return false;
   // Guard-oriented nested expansion is conservative; script-file stdin is not necessarily executable code.
   return splitCommands(cmd).filter((c) => !c.nested).some((c) => {
-    const { argv, inline } = unwrap(c.argv);
+    const { argv, inline } = unwrapMetricsCommand(c.argv), shell = shellInput(argv);
     return (/^python3?$/i.test(basename(argv[0])) && argv[1] === "-m" && /^(?:unittest|pytest|build)$/.test(argv[2])) ||
       inline.some((code) => hasPythonCheck(code, depth + 1)) ||
-      Boolean(c.heredoc && shellReadsStdin(argv) && hasPythonCheck(c.heredoc, depth + 1));
+      Boolean(shell?.inline && hasPythonCheck(shell.inline, depth + 1)) ||
+      Boolean(c.heredoc && shell?.readsStdin && hasPythonCheck(c.heredoc, depth + 1));
   });
 }
 const POLL_GUARD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|reviewThreads|pr\s+checks|run\s+watch)\b/i;

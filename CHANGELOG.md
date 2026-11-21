@@ -22,6 +22,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Its independent review found missed stdin-code filenames after lone `-`.
     Input-source selection now recognizes `/dev/stdin` and `/dev/fd/0` directly and after option termination.
     Permanent fixtures reproduce the missed 2 seconds before the correction and pass afterward.
+    GitHub review exposed inline extraction beyond option termination.
+    Metrics now identify the shell before expansion and select inline or stdin code with one input-mode analysis.
+    Literal `-c` script arguments remain other I/O; the runtime shell utility remains unchanged.
   - **Check:** Run the collector and benchmark regressions, `node scripts/check.mjs`, all CI suites, and isolated Copilot discovery.
     Next week, inspect PR-relative sample counts and compare each phase with its source timestamps.
     Do not treat this measurement correction as proof of faster work.

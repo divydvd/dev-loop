@@ -154,6 +154,20 @@ The existing suites are the regression inventory for this area; no new catalog i
   General shell evaluation and arbitrary historical symlink resolution remain documented classifier limits.
   No runtime guard or inherited generic matcher changes are needed.
   Final published identity and GitHub results are recorded in the PR body and persistent execution ledger.
+- First automatic review at `64ba337` found inline code extraction beyond option termination.
+  Comment 4651979224: `bash -- -c 'python3 -m unittest'` and `bash - -c 'python3 -m unittest'` contain literal script arguments.
+  The permanent fixture fails with `2 !== 0`, confirming the finding.
+- Automatic review correction: Keep shared wrapper unwrapping, but identify the shell before guard-oriented inline expansion.
+  One metrics-specific input analysis now selects inline code or stdin code and respects script filenames and option termination.
+  Shared runtime guards and `tools/work-ledger/lib/shell.mjs` remain unchanged.
+- Required matrix extension: Both literal `-c` cases, directly and through `env`, stay other I/O.
+  Actual inline code, option-value handling, explicit `-s` plus `-c`, and wrappers retain check recognition.
+  Wrapper arguments that happen to name a shell must not change command interpretation.
+  These cases extend the existing P1/P2 table.
+- Review-round ruling: The owner's readiness request includes the core's automatic review-fix process.
+  This is the first automatic review-fix round, not another attempt under the exhausted earlier single-pass recovery.
+  Required final checks and focused independent review remain in force. No merge or test waiver is authorized.
+- The correction passes all 29 collector/benchmark tests. Final-head evidence and focused review follow before the round's push.
 
 ## Conclusion
 The input-source correction passes the required cases and focused independent review.
