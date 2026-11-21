@@ -227,8 +227,8 @@ function shellReadsStdin(argv) {
   if (!/^(?:ba|da|z|k)?sh$/.test(basename(argv[0]))) return false;
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "-" || /^-[a-zA-Z]*s[a-zA-Z]*$/.test(arg)) return true;
-    if (arg === "--") return i === argv.length - 1;
+    if (/^-[a-zA-Z]*s[a-zA-Z]*$/.test(arg)) return true;
+    if (arg === "-" || arg === "--") return i === argv.length - 1;
     if (["-o", "+o", "-O", "+O", "--rcfile", "--init-file"].includes(arg)) { i++; continue; }
     if (!/^[-+]/.test(arg)) return false;
   }

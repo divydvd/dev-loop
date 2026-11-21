@@ -44,7 +44,7 @@ Keep legacy lifetime metrics and the existing weekly table unchanged.
 | ID | Requirement | Expected result | Location | Status |
 | --- | --- | --- | --- | --- |
 | P1 | Python module checks | A 2-second unittest command counts as build/test | `scripts/collect-metrics.test.mjs` | red then green |
-| P2 | Literal command text | Echoing the command stays other I/O | Same; additional local reproduction | blocked: Bash option-terminator case fails |
+| P2 | Literal command text | Echo and script input stay other I/O; bare stdin and explicit `-s` remain executable | Existing P1/P2 table | recovery red; final checks pending |
 | P3 | Boundary clipping | A 10-second interval splits into 4 and 6 seconds | Same | red then green |
 | P4 | Parallel calls | A 6-second window counts once; parallelism is 2.0 | Same | red then green |
 | P5 | Wait and missing data | Owner waits excluded; absent active phases stay null | Same | red then green |
@@ -102,6 +102,18 @@ The existing suites are the regression inventory for this area; no new catalog i
 - Shared-file check: Open PRs 10 and 28–33 touch other README sections or their own changelog entries.
   PRs 10 and 28 propose older-base release versions; this PR uses the current `0.5.22` base and next patch `0.5.23`.
   Their version changes can need merge conflict resolution later. No unrelated hunk was copied or replaced.
+- Approved recovery on 2026-11-21: The owner chose "Approve the focused correction (Recommended)".
+  This authorizes one focused pass with full verification and independent review, but no merge.
+  The preceding stop remains historical evidence, not permission for additional attempts.
+- Recovery matrix: P2 script-file input after lone `-` must report build/test 0s and other I/O 2s.
+  Bare `bash -` and explicit `bash -s - /dev/null` must report build/test 2s.
+  All are required fixtures in the existing P1/P2 table.
+  P7 retains collector/benchmark compatibility; plugin check, all CI suites, and isolated discovery remain required.
+  Device, UI, runtime guards, and instruction behavior are unchanged.
+- Recovery red: The permanent P2 table failed with `2 !== 0` for `bash - /dev/null`.
+  Correction: Treat lone `-` and `--` as option termination; retain explicit `-s`.
+  All 29 collector/benchmark tests pass after the correction.
+  No runtime shell utility changed. Focused review and final-head evidence remain pending.
 
 ## Conclusion
 Complete M1 checks and independent review before its first push.
