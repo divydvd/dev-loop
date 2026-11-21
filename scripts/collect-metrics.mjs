@@ -225,14 +225,15 @@ function parseWorkspaceYaml(filePath) {
 const BUILD_TEST_CMD_RE = /(?:^|[;&|]\s*|\S*\/bin\/)verdict\s+(?:run|baseline|restore|verify|capture|diff|check|--help)\b|\b(?:gradlew|gradle\.lock|node\s+--test|npm\s+(?:test|run\s+(?:test|build|lint|check))|pnpm\s+(?:test|build|lint)|yarn\s+(?:test|build|lint)|pytest|cargo\s+(?:test|build|check|clippy)|go\s+test|mvn\s+(?:test|verify|package)|dotnet\s+(?:test|build)|rspec|jest|vitest|adb\b|scripts\/check\.mjs)\b/i;
 function shellReadsStdin(argv) {
   if (!/^(?:ba|da|z|k)?sh$/.test(basename(argv[0]))) return false;
+  let scriptFile;
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i];
     if (/^-[a-zA-Z]*s[a-zA-Z]*$/.test(arg)) return true;
-    if (arg === "-" || arg === "--") return i === argv.length - 1;
+    if (arg === "-" || arg === "--") { scriptFile = argv[i + 1]; break; }
     if (["-o", "+o", "-O", "+O", "--rcfile", "--init-file"].includes(arg)) { i++; continue; }
-    if (!/^[-+]/.test(arg)) return false;
+    if (!/^[-+]/.test(arg)) { scriptFile = arg; break; }
   }
-  return true;
+  return scriptFile === undefined || ["/dev/stdin", "/dev/fd/0"].includes(scriptFile);
 }
 function hasPythonCheck(cmd, depth = 0) {
   if (depth > 4) return false;

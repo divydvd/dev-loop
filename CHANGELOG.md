@@ -19,7 +19,9 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Shared, unmatched, and missing-data phases remain unavailable rather than becoming false zeros.
     Independent review found the terminal-zero and shell-literal defects; focused fixtures fail before each correction and pass afterward.
     The approved recovery adds script-file and bare-stdin controls after the `bash - /dev/null` case failed with `2 !== 0`.
-    Its independent review found missed stdin-code filenames after lone `-`; this draft remains blocked.
+    Its independent review found missed stdin-code filenames after lone `-`.
+    Input-source selection now recognizes `/dev/stdin` and `/dev/fd/0` directly and after option termination.
+    Permanent fixtures reproduce the missed 2 seconds before the correction and pass afterward.
   - **Check:** Run the collector and benchmark regressions, `node scripts/check.mjs`, all CI suites, and isolated Copilot discovery.
     Next week, inspect PR-relative sample counts and compare each phase with its source timestamps.
     Do not treat this measurement correction as proof of faster work.

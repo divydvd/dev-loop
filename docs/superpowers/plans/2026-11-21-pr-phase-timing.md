@@ -44,7 +44,7 @@ Keep legacy lifetime metrics and the existing weekly table unchanged.
 | ID | Requirement | Expected result | Location | Status |
 | --- | --- | --- | --- | --- |
 | P1 | Python module checks | A 2-second unittest command counts as build/test | `scripts/collect-metrics.test.mjs` | red then green |
-| P2 | Literal command text | Echo and ordinary script input stay other I/O; actual stdin code remains executable | Existing P1/P2 table and diagnostic | required fixtures pass; stdin filename gap blocks acceptance |
+| P2 | Literal command text | Echo and ordinary script input stay other I/O; known stdin code remains executable | Existing P1/P2 table and diagnostic | stdin-filename red then green; final checks pending |
 | P3 | Boundary clipping | A 10-second interval splits into 4 and 6 seconds | Same | red then green |
 | P4 | Parallel calls | A 6-second window counts once; parallelism is 2.0 | Same | red then green |
 | P5 | Wait and missing data | Owner waits excluded; absent active phases stay null | Same | red then green |
@@ -128,8 +128,23 @@ The existing suites are the regression inventory for this area; no new catalog i
   The persistent ledger and PR body hold final identities and results.
 - Review rulings: Prior full-diff review covers unchanged branch content; this follow-up covers the source correction.
   Final-head checks and discovery are verified by execution, not inferred from the review.
+- Readiness authorization on 2026-11-21: The owner said "So make the PR ready to merge".
+  This requests correcting the remaining blocker and completing checks and review. It does not authorize a merge or test waiver.
+- Input-source reassessment: Identify the first script filename, including after option termination.
+  No filename or explicit `-s` selects stdin code.
+  Known stdin filenames `/dev/stdin` and `/dev/fd/0` also read supplied code.
+  Ordinary script filenames receive heredoc data. Do not resolve arbitrary historical paths or symlinks.
+- Readiness matrix: All cases are required in the existing P1/P2 table.
+  Both known stdin filenames, directly and after `-` or `--`, must report build/test 2s and other I/O 0s.
+  `/dev/null`, directly and after both terminators, must report build/test 0s and other I/O 2s.
+  Existing bare-shell, explicit `-s`, inline-code, and literal-input cases must retain their results.
+  P7, plugin checks, full CI suites, isolated discovery, and focused independent review remain required.
+- Readiness red/green: The permanent fixture failed with `0 !== 2` for `bash - /dev/stdin`.
+  The input-source correction then passed all 29 collector/benchmark tests.
+  Harmless Bash probes and collector diagnostics also pass both previously failed stdin-filename cases.
+  Final-head verification and focused review remain pending. No runtime shell utility changed.
 
 ## Conclusion
-M1 remains blocked after its approved recovery pass.
-The next decision must address the classifier approach before another production correction.
-The main risk is inaccurate test timing; no speed improvement has been demonstrated.
+Complete final-head checks and focused independent review before marking M1 ready.
+The input-source correction addresses the confirmed stdin-filename failure without general shell evaluation.
+M1 provides better measurements, not evidence of faster work. No merge is authorized.
