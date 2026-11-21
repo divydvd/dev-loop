@@ -222,6 +222,8 @@ function parseWorkspaceYaml(filePath) {
 }
 
 const BUILD_TEST_CMD_RE = /(?:^|[;&|]\s*|\S*\/bin\/)verdict\s+(?:run|baseline|restore|verify|capture|diff|check|--help)\b|\b(?:gradlew|gradle\.lock|node\s+--test|npm\s+(?:test|run\s+(?:test|build|lint|check))|pnpm\s+(?:test|build|lint)|yarn\s+(?:test|build|lint)|pytest|cargo\s+(?:test|build|check|clippy)|go\s+test|mvn\s+(?:test|verify|package)|dotnet\s+(?:test|build)|rspec|jest|vitest|adb\b|scripts\/check\.mjs)\b/i;
+const PYTHON_CHECK_CMD_RE = /(?:^|[;&|\n])\s*(?:[^\s'";&|]+\/)?python3?\s+-m\s+(?:unittest|pytest|build)\b/i;
+const hasPythonCheck = (cmd) => PYTHON_CHECK_CMD_RE.test(cmd.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, ""));
 const POLL_GUARD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|reviewThreads|pr\s+checks|run\s+watch)\b/i;
 const POLL_CMD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|reviewThreads|pr\s+checks|run\s+watch|sleep\s+\d+(?:\.\d+)?[smh]?)\b/i;
 const HUMAN_WAIT_TOOLS = new Set(["ask_user", "relay_session_input"]);
@@ -368,7 +370,7 @@ export function parseSessionEvents(eventsPath) {
     }
   }
   for (const run of allShellRuns) {
-    const bucket = !POLL_GUARD_RE.test(run.cmd) && BUILD_TEST_CMD_RE.test(run.cmd) ? buildTestIvs : POLL_CMD_RE.test(run.cmd) ? pollIvs : ioOtherIvs;
+    const bucket = !POLL_GUARD_RE.test(run.cmd) && (BUILD_TEST_CMD_RE.test(run.cmd) || hasPythonCheck(run.cmd)) ? buildTestIvs : POLL_CMD_RE.test(run.cmd) ? pollIvs : ioOtherIvs;
     for (const iv of mergeIntervals(run.ivs)) { bucket.push(iv); toolClockIvs.push(iv); toolWorkMs += iv[1] - iv[0]; }
   }
   for (const b of subagentBounds.values()) {

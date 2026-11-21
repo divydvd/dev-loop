@@ -539,6 +539,33 @@ test("T6 & T7: collectMetrics and CLI compute route medians, firstPushGreenRate,
   }
 });
 
+test("P1/P2: Python command classification recognizes module checks, not echoed text or arbitrary scripts", () => {
+  const dir = makeTempDir("python-command");
+  try {
+    for (const [command, expectedBuild] of [
+      ["python3 -m unittest discover -s web/tools -v", 2],
+      ["python -m pytest tests", 2],
+      ["python3 -m build", 2],
+      ["cd web && /usr/bin/python3 -m unittest", 2],
+      ["echo \"python3 -m unittest\"", 0],
+      ["echo '; python3 -m unittest'", 0],
+      ["python3 web/tools/build.py", 0],
+    ]) {
+      const path = join(dir, "events.jsonl");
+      writeFileSync(path, [
+        { timestamp: "2026-11-21T00:00:00Z", type: "tool.execution_start", data: { toolCallId: "check", toolName: "bash", arguments: { command } } },
+        { timestamp: "2026-11-21T00:00:02Z", type: "tool.execution_complete", data: { toolCallId: "check", success: true } },
+      ].map((e) => JSON.stringify(e)).join("\n"));
+      const result = parseSessionEvents(path);
+      assert.equal(result.activeSec, 2, command);
+      assert.equal(result.timeBuckets.buildTestSec, expectedBuild, command);
+      assert.equal(result.timeBuckets.ioOtherSec, 2 - expectedBuild, command);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("T8: fetchMergedPrs uses bounded GraphQL without authors and normalizes nested files and commits", () => {
   const calls = [];
   const fakeExec = (cmd, args) => {
