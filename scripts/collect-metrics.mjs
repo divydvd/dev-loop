@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
-import { basename, commandsOf } from "../tools/work-ledger/lib/shell.mjs";
+import { basename, splitCommands, unwrap } from "../tools/work-ledger/lib/shell.mjs";
 
 const DAY_MS = 86_400_000;
 const SHA_RE = /^[0-9a-f]{7,40}$/i;
@@ -223,8 +223,27 @@ function parseWorkspaceYaml(filePath) {
 }
 
 const BUILD_TEST_CMD_RE = /(?:^|[;&|]\s*|\S*\/bin\/)verdict\s+(?:run|baseline|restore|verify|capture|diff|check|--help)\b|\b(?:gradlew|gradle\.lock|node\s+--test|npm\s+(?:test|run\s+(?:test|build|lint|check))|pnpm\s+(?:test|build|lint)|yarn\s+(?:test|build|lint)|pytest|cargo\s+(?:test|build|check|clippy)|go\s+test|mvn\s+(?:test|verify|package)|dotnet\s+(?:test|build)|rspec|jest|vitest|adb\b|scripts\/check\.mjs)\b/i;
-const hasPythonCheck = (cmd) => commandsOf(cmd).some(({ argv }) =>
-  /^python3?$/i.test(basename(argv[0])) && argv[1] === "-m" && /^(?:unittest|pytest|build)$/.test(argv[2]));
+function shellReadsStdin(argv) {
+  if (!/^(?:ba|da|z|k)?sh$/.test(basename(argv[0]))) return false;
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "-" || /^-[a-zA-Z]*s[a-zA-Z]*$/.test(arg)) return true;
+    if (arg === "--") return i === argv.length - 1;
+    if (["-o", "+o", "-O", "+O", "--rcfile", "--init-file"].includes(arg)) { i++; continue; }
+    if (!/^[-+]/.test(arg)) return false;
+  }
+  return true;
+}
+function hasPythonCheck(cmd, depth = 0) {
+  if (depth > 4) return false;
+  // Guard-oriented nested expansion is conservative; script-file stdin is not necessarily executable code.
+  return splitCommands(cmd).filter((c) => !c.nested).some((c) => {
+    const { argv, inline } = unwrap(c.argv);
+    return (/^python3?$/i.test(basename(argv[0])) && argv[1] === "-m" && /^(?:unittest|pytest|build)$/.test(argv[2])) ||
+      inline.some((code) => hasPythonCheck(code, depth + 1)) ||
+      Boolean(c.heredoc && shellReadsStdin(argv) && hasPythonCheck(c.heredoc, depth + 1));
+  });
+}
 const POLL_GUARD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|reviewThreads|pr\s+checks|run\s+watch)\b/i;
 const POLL_CMD_RE = /\b(?:check-runs|pulls\/\d+\/(?:reviews|comments)|reviewThreads|pr\s+checks|run\s+watch|sleep\s+\d+(?:\.\d+)?[smh]?)\b/i;
 const HUMAN_WAIT_TOOLS = new Set(["ask_user", "relay_session_input"]);

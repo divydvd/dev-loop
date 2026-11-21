@@ -121,6 +121,8 @@ The existing session values remain lifetime totals, not work limited to the repo
 Python module checks (`python` or `python3` with `-m unittest`, `-m pytest`, or `-m build`) enter the build/test bucket.
 Arbitrary Python scripts do not become build/test commands solely because they use Python.
 The added Python recognizer reuses the local shell splitter to exclude escaped separators and literal heredoc bodies.
+It examines simple commands and explicit inline or stdin shell code; it does not evaluate general shell execution.
+Heredocs supplied to shell script files remain data, not assumed code.
 The legacy generic matcher remains unchanged; it can still match quoted tool names such as `pytest`.
 
 The added “PR-relative session timing” table uses PR creation and merge timestamps.

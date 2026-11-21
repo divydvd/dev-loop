@@ -72,7 +72,9 @@ The existing suites are the regression inventory for this area; no new catalog i
   They found lost terminal zero-duration work and false Python matches in escaped separators and heredoc bodies.
   Both findings have reproducing tests: `2 !== 0` for literal text; `null !== 0` for the terminal point.
   Both corrections pass those tests and all 29 collector/benchmark tests.
-  A focused review of the correction follows before publication.
+  Focused review at `190bbfa` verified the terminal fix and found a shell-script stdin subcase.
+  Its fixture failed with `2 !== 0`; explicit input-mode recognition then passed all 29 regressions.
+  A final focused review covers that input-mode correction before publication.
 - Final verification: At `a38ef24`, all current suites reported 398 passes, zero failures, and one case-insensitive-filesystem skip.
   The final code commit must rerun the plugin check, all current suites, and temporary-home discovery.
   The PR Evidence section and persistent session ledger record final tested identities and results.
@@ -81,6 +83,9 @@ The existing suites are the regression inventory for this area; no new catalog i
 - Ruling: The strict helper rejects invalid bounds; unavailable phase bounds receive explicit null status instead.
 - Ruling: Reuse `tools/work-ledger/lib/shell.mjs` for Python recognition instead of adding another shell parser.
   It is an existing local utility; no package or runtime guard changes.
+- Ruling: Its guard-oriented automatic nested expansion is conservative.
+  Metrics instead use parsed simple commands and explicit inline or stdin shell code.
+  Shell script files receive heredocs as data. Non-simple shell execution remains an attribution limit.
 - Ruling: The final summary includes the terminal millisecond tick for observed zero-duration calls.
   Reported bounds remain the exact session endpoint. Complete intervals cannot extend past that observed endpoint.
 - Ruling: The old broad quoted-`pytest` match stays unchanged under the approved compatibility scope.

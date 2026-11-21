@@ -9,6 +9,7 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Add valid phase sample counts and independent bucket medians.
     Recognize common Python module checks without treating quoted echo text or arbitrary scripts as new check commands.
     Reuse the local shell splitter for escaped separators and heredoc text.
+    Distinguish explicit stdin shell code from data supplied to shell script files.
     Retain observed terminal zero-duration calls without duplicating PR-boundary calls.
     Keep core rules, required tests, reviews, approval points, and benchmark verdicts unchanged.
   - **Why:** The timing investigation found post-merge work in lifetime totals and missed Python unittest commands.

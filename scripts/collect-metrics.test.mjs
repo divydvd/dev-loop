@@ -554,6 +554,10 @@ test("P1/P2: Python command classification recognizes module checks, not echoed 
       ["cat <<'TEXT'\npython3 -m unittest\nTEXT", 0],
       ["bash -lc 'python3 -m unittest'", 2],
       ["python3 -m 'unittest'", 2],
+      ["bash /dev/null <<'TEXT'\npython3 -m unittest\nTEXT", 0],
+      ["bash -c 'cat' <<'TEXT'\npython3 -m unittest\nTEXT", 0],
+      ["bash <<'TEXT'\npython3 -m unittest\nTEXT", 2],
+      ["bash -s argument <<'TEXT'\npython3 -m unittest\nTEXT", 2],
       ["python3 web/tools/build.py", 0],
     ]) {
       const path = join(dir, "events.jsonl");
