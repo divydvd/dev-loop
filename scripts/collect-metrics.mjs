@@ -238,6 +238,26 @@ export function mergeIntervals(intervals = []) {
   return out;
 }
 const sumMergedSec = (ivs) => mergeIntervals(ivs).reduce((acc, [s, e]) => acc + (e - s), 0) / 1000;
+const TIMING_BUCKET_KEYS = ["modelSec", "buildTestSec", "pollSec", "subagentSec", "ioOtherSec"];
+
+export function summarizeTimingWindow(intervals, { fromMs, toMs }) {
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) {
+    throw new RangeError("Timing bounds must be finite and ordered");
+  }
+  const clip = (ivs = []) => ivs.filter(([s, e]) => Number.isFinite(s) && Number.isFinite(e) && e >= s &&
+    (s === e ? s >= fromMs && s < toMs : e > fromMs && s < toMs))
+    .map(([s, e]) => [Math.max(s, fromMs), Math.min(e, toMs)]);
+  const buckets = Object.fromEntries(TIMING_BUCKET_KEYS.map((k) => [k, clip(intervals[k])]));
+  const active = mergeIntervals(Object.values(buckets).flat()), waits = clip(intervals.humanWaitSec);
+  const toolWork = clip(intervals.toolWorkIntervals), toolClockSec = sumMergedSec(toolWork);
+  return {
+    status: active.length ? "ok" : "no_observed_intervals",
+    activeSec: active.length ? sumMergedSec(active) : null,
+    humanWaitSec: active.length || waits.length ? sumMergedSec(waits) : null,
+    parallelismFactor: toolClockSec > 0 ? toolWork.reduce((sum, [s, e]) => sum + (e - s), 0) / 1000 / toolClockSec : null,
+    timeBuckets: active.length ? Object.fromEntries(TIMING_BUCKET_KEYS.map((k) => [k, sumMergedSec(buckets[k])])) : null,
+  };
+}
 const resolveTurnKey = (turnId, openTurns) => {
   if (turnId !== undefined && turnId !== null && turnId !== "") return String(turnId);
   if (openTurns.has("")) return "";
@@ -257,7 +277,8 @@ function parseShellFooter(resText) {
 
 export function parseSessionEvents(eventsPath) {
   const lines = readFileSync(eventsPath, "utf8").split(/\r?\n/);
-  let latestNanoAiu = null, modelCalls = 0, compactions = 0, totalReadChars = 0, duplicateReadChars = 0, ownerRepeatMessages = 0, seenKickoff = false, toolWorkMs = 0;
+  let latestNanoAiu = null, modelCalls = 0, compactions = 0, totalReadChars = 0, duplicateReadChars = 0, ownerRepeatMessages = 0, seenKickoff = false;
+  let sessionStartMs = null, sessionEndMs = null;
   const toolStarts = new Map(), seenReadsByPath = new Map(), openTurns = new Map(), openCompactions = new Map(), latestShellById = new Map(), allShellRuns = [], subagentBounds = new Map(), callIdByAgentId = new Map();
   const modelIvs = [], buildTestIvs = [], pollIvs = [], subagentIvs = [], ioOtherIvs = [], humanIvs = [], toolClockIvs = [];
   for (const line of lines) {
@@ -265,6 +286,10 @@ export function parseSessionEvents(eventsPath) {
     let evt;
     try { evt = JSON.parse(line); } catch { continue; }
     const { type, data = {} } = evt, ts = Date.parse(evt.timestamp || ""), isMain = !evt.agentId;
+    if (Number.isFinite(ts)) {
+      sessionStartMs = sessionStartMs === null ? ts : Math.min(sessionStartMs, ts);
+      sessionEndMs = sessionEndMs === null ? ts : Math.max(sessionEndMs, ts);
+    }
     if (type === "assistant.turn_start") {
       modelCalls += 1;
       if (isMain && Number.isFinite(ts)) { openTurns.clear(); openTurns.set(String(data.turnId ?? ""), ts); }
@@ -312,7 +337,7 @@ export function parseSessionEvents(eventsPath) {
       if (!start) continue;
       const resText = String(typeof data.result === "string" ? data.result : data.result?.content ?? "");
       if (start.isMain && Number.isFinite(start.startMs) && Number.isFinite(ts) && ts >= start.startMs) {
-        const iv = [start.startMs, ts], dur = ts - start.startMs;
+        const iv = [start.startMs, ts];
         if (HUMAN_WAIT_TOOLS.has(start.toolName)) humanIvs.push(iv);
         else if (start.toolName === "task") {
           const entry = subagentBounds.get(data.toolCallId) || { subStartMs: null, ivs: [] };
@@ -338,9 +363,9 @@ export function parseSessionEvents(eventsPath) {
         } else if (start.toolName === "stop_bash") {
           const run = start.shellId ? latestShellById.get(start.shellId) : null;
           if (run && run.runStartMs !== null && data.success !== false) { run.ivs.push([run.runStartMs, ts]); run.runStartMs = null; }
-          else { ioOtherIvs.push(iv); toolClockIvs.push(iv); toolWorkMs += dur; }
+          else { ioOtherIvs.push(iv); toolClockIvs.push(iv); }
         } else {
-          toolClockIvs.push(iv); toolWorkMs += dur;
+          toolClockIvs.push(iv);
           if (start.toolName === "read_agent") subagentIvs.push(iv);
           else ioOtherIvs.push(iv);
         }
@@ -371,23 +396,23 @@ export function parseSessionEvents(eventsPath) {
   }
   for (const run of allShellRuns) {
     const bucket = !POLL_GUARD_RE.test(run.cmd) && (BUILD_TEST_CMD_RE.test(run.cmd) || hasPythonCheck(run.cmd)) ? buildTestIvs : POLL_CMD_RE.test(run.cmd) ? pollIvs : ioOtherIvs;
-    for (const iv of mergeIntervals(run.ivs)) { bucket.push(iv); toolClockIvs.push(iv); toolWorkMs += iv[1] - iv[0]; }
+    for (const iv of mergeIntervals(run.ivs)) { bucket.push(iv); toolClockIvs.push(iv); }
   }
   for (const b of subagentBounds.values()) {
-    for (const iv of mergeIntervals(b.ivs)) { subagentIvs.push(iv); toolClockIvs.push(iv); toolWorkMs += iv[1] - iv[0]; }
+    for (const iv of mergeIntervals(b.ivs)) { subagentIvs.push(iv); toolClockIvs.push(iv); }
   }
-  const allActiveIvs = [...modelIvs, ...buildTestIvs, ...pollIvs, ...subagentIvs, ...ioOtherIvs];
-  const mergedActive = mergeIntervals(allActiveIvs), mergedTools = mergeIntervals(toolClockIvs);
-  const mergedToolSec = mergedTools.reduce((a, [s, e]) => a + (e - s), 0) / 1000;
-  const timeBuckets = mergedActive.length > 0 ? { modelSec: sumMergedSec(modelIvs), buildTestSec: sumMergedSec(buildTestIvs), pollSec: sumMergedSec(pollIvs), subagentSec: sumMergedSec(subagentIvs), ioOtherSec: sumMergedSec(ioOtherIvs) } : null;
+  const timingIntervals = { modelSec: modelIvs, buildTestSec: buildTestIvs, pollSec: pollIvs, subagentSec: subagentIvs, ioOtherSec: ioOtherIvs, humanWaitSec: humanIvs, toolWorkIntervals: toolClockIvs };
+  const mergedActive = mergeIntervals(TIMING_BUCKET_KEYS.flatMap((k) => timingIntervals[k])), mergedTools = mergeIntervals(toolClockIvs);
+  // Include observed zero-duration calls without inventing an unfinished call's endpoint.
+  const lifetime = sessionStartMs === null ? { activeSec: null, humanWaitSec: null, parallelismFactor: null, timeBuckets: null }
+    : summarizeTimingWindow(timingIntervals, { fromMs: sessionStartMs, toMs: sessionEndMs + 1 });
   return {
-    lines, activeIntervals: mergedActive, toolIntervals: mergedTools, toolWorkSec: toolWorkMs / 1000,
+    lines, timingIntervals, sessionStartMs, sessionEndMs,
+    activeIntervals: mergedActive, toolIntervals: mergedTools, toolWorkSec: toolClockIvs.reduce((sum, [s, e]) => sum + (e - s), 0) / 1000,
     totalNanoAiu: latestNanoAiu, modelCalls, compactions, totalReadChars, duplicateReadChars,
     duplicateReadRate: totalReadChars > 0 ? duplicateReadChars / totalReadChars : null, ownerRepeatMessages,
-    activeSec: mergedActive.length > 0 ? mergedActive.reduce((a, [s, e]) => a + (e - s), 0) / 1000 : null,
-    humanWaitSec: mergedActive.length > 0 || humanIvs.length > 0 ? sumMergedSec(humanIvs) : null,
-    parallelismFactor: mergedToolSec > 0 ? (toolWorkMs / 1000) / mergedToolSec : null,
-    timeBuckets,
+    activeSec: lifetime.activeSec, humanWaitSec: lifetime.humanWaitSec,
+    parallelismFactor: lifetime.parallelismFactor, timeBuckets: lifetime.timeBuckets,
   };
 }
 
@@ -434,7 +459,7 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNu
       sharedPrNumbers.push(pr.number);
       perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", ...NULL_SESSION_METRICS };
     } else {
-      const { lines: _lines, activeIntervals: _ai, toolIntervals: _ti, toolWorkSec: _tw, createdAt: _c, id, ...metrics } = s;
+      const { lines: _lines, timingIntervals: _ivs, sessionStartMs: _start, sessionEndMs: _end, activeIntervals: _ai, toolIntervals: _ti, toolWorkSec: _tw, createdAt: _c, id, ...metrics } = s;
       perPr[pr.number] = { sessionId: id, sharedSession: false, attribution: "unique", ...metrics };
     }
   }

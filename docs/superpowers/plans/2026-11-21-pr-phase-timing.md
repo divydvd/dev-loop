@@ -44,9 +44,9 @@ Keep legacy lifetime metrics and the existing weekly table unchanged.
 | --- | --- | --- | --- | --- |
 | P1 | Python module checks | A 2-second unittest command counts as build/test | `scripts/collect-metrics.test.mjs` | red then green |
 | P2 | Literal command text | Echoing the command stays other I/O | Same | green with P1 |
-| P3 | Boundary clipping | A 10-second interval splits into 4 and 6 seconds | Same | not run |
-| P4 | Parallel calls | A 6-second window counts once; parallelism is 2.0 | Same | not run |
-| P5 | Wait and missing data | Owner waits excluded; absent active phases stay null | Same | not run |
+| P3 | Boundary clipping | A 10-second interval splits into 4 and 6 seconds | Same | red then green |
+| P4 | Parallel calls | A 6-second window counts once; parallelism is 2.0 | Same | red then green |
+| P5 | Wait and missing data | Owner waits excluded; absent active phases stay null | Same | red then green |
 | P6 | Attribution | Shared, unmatched, and invalid timestamp records remain unavailable | Same | not run |
 | P7 | Compatibility | Existing lifetime and benchmark regression assertions pass | Existing collector/benchmark suites | not run |
 
@@ -56,7 +56,8 @@ The existing suites are the regression inventory for this area; no new catalog i
 
 ## Execution ledger
 - Task 1: Python classification passed all 19 collector tests after the unittest fixture failed with `0 !== 2`.
-- Task 2: pending.
+- Task 2: All 27 collector/benchmark tests passed after both new window tests failed with missing results.
+  Existing zero-second calls, cumulative cost, background shells, and nested-agent controls remain green.
 - Task 3: pending.
 - Independent review: not run.
 - Final verification: not run.

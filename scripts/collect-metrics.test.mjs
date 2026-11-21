@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import * as timing from "./collect-metrics.mjs";
 
 import {
   analyzeSessions,
@@ -566,6 +567,36 @@ test("P1/P2: Python command classification recognizes module checks, not echoed 
   }
 });
 
+test("P3/P5: phase timing clips crossing work and excludes owner waits without inventing empty work", () => {
+  const intervals = { modelSec: [[0, 10000]], humanWaitSec: [[10000, 7210000]] };
+  assert.deepEqual(timing.summarizeTimingWindow?.(intervals, { fromMs: 0, toMs: 4000 }), {
+    status: "ok", activeSec: 4, humanWaitSec: 0, parallelismFactor: null,
+    timeBuckets: { modelSec: 4, buildTestSec: 0, pollSec: 0, subagentSec: 0, ioOtherSec: 0 },
+  });
+  assert.equal(timing.summarizeTimingWindow(intervals, { fromMs: 4000, toMs: 10000 }).activeSec, 6);
+  assert.deepEqual(timing.summarizeTimingWindow(intervals, { fromMs: 10000, toMs: 7210000 }), {
+    status: "no_observed_intervals", activeSec: null, humanWaitSec: 7200, parallelismFactor: null, timeBuckets: null,
+  });
+  assert.deepEqual(timing.summarizeTimingWindow(intervals, { fromMs: 7210000, toMs: 7211000 }), {
+    status: "no_observed_intervals", activeSec: null, humanWaitSec: null, parallelismFactor: null, timeBuckets: null,
+  });
+});
+
+test("P4: phase timing merges active tools but retains logical tool work for parallelism", () => {
+  const intervals = {
+    buildTestSec: [[0, 10000], [0, 10000]],
+    toolWorkIntervals: [[0, 10000], [0, 10000]],
+  };
+  assert.deepEqual(timing.summarizeTimingWindow?.(intervals, { fromMs: 2000, toMs: 8000 }), {
+    status: "ok", activeSec: 6, humanWaitSec: 0, parallelismFactor: 2,
+    timeBuckets: { modelSec: 0, buildTestSec: 6, pollSec: 0, subagentSec: 0, ioOtherSec: 0 },
+  });
+  for (const bounds of [
+    { fromMs: 4, toMs: 4 }, { fromMs: 10, toMs: 4 },
+    { fromMs: NaN, toMs: 100 }, { fromMs: 0, toMs: Infinity },
+  ]) assert.throws(() => timing.summarizeTimingWindow(intervals, bounds), RangeError);
+});
+
 test("T8: fetchMergedPrs uses bounded GraphQL without authors and normalizes nested files and commits", () => {
   const calls = [];
   const fakeExec = (cmd, args) => {
@@ -1107,6 +1138,13 @@ test("S-T3: parseSessionEvents deduplicates parallel subagents, ignores nested e
     );
     const p = parseSessionEvents(evPath);
     assert.equal(p.timeBuckets.modelSec, 10, "4s turn + 6s compaction, ignoring nested sub-1 turn");
+    const phase = timing.summarizeTimingWindow(p.timingIntervals, {
+      fromMs: Date.parse("2026-11-14T10:00:10Z"), toMs: Date.parse("2026-11-14T10:00:20Z"),
+    });
+    assert.equal(phase.activeSec, 10);
+    assert.equal(phase.timeBuckets.subagentSec, 10);
+    assert.equal(phase.timeBuckets.modelSec, 0);
+    assert.equal(phase.parallelismFactor, 3);
     assert.equal(p.timeBuckets.subagentSec, 60, "3x60s parallel task calls merge to 60s");
     assert.equal(p.timeBuckets.buildTestSec, 20);
     assert.equal(p.timeBuckets.pollSec, 30);
