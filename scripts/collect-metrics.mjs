@@ -417,6 +417,26 @@ export function parseSessionEvents(eventsPath) {
 }
 
 const NULL_SESSION_METRICS = { totalNanoAiu: null, modelCalls: null, duplicateReadRate: null, ownerRepeatMessages: null, activeSec: null, humanWaitSec: null, parallelismFactor: null, timeBuckets: null };
+const PHASE_KEYS = ["beforePr", "prOpen", "afterMerge"];
+const unavailableTiming = (status) => ({ status, activeSec: null, humanWaitSec: null, parallelismFactor: null, timeBuckets: null });
+
+function summarizePrPhases(pr, session, unavailableStatus = null) {
+  const createdMs = Date.parse(pr.createdAt || ""), mergedMs = Date.parse(pr.mergedAt || "");
+  const startMs = session?.sessionStartMs, endMs = session?.sessionEndMs;
+  const reason = unavailableStatus ||
+    (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs ? "session_time_unavailable" : null) ||
+    (!Number.isFinite(createdMs) || !Number.isFinite(mergedMs) || createdMs > mergedMs ? "missing_pr_timestamps" : null);
+  const bounds = { beforePr: [startMs, createdMs], prOpen: [createdMs, mergedMs], afterMerge: [mergedMs, endMs] };
+  return {
+    basis: "session_start_and_pr_timestamps",
+    ...Object.fromEntries(PHASE_KEYS.map((key) => {
+      const [fromMs, toMs] = bounds[key];
+      const summary = reason ? unavailableTiming(reason) : fromMs >= toMs ? unavailableTiming("no_observed_intervals")
+        : summarizeTimingWindow(session.timingIntervals, { fromMs, toMs });
+      return [key, { fromMs: reason ? null : fromMs, toMs: reason ? null : toMs, ...summary }];
+    })),
+  };
+}
 
 export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNumbers = null } = {}) {
   if (!sessionsDir || !existsSync(sessionsDir)) return { status: "unavailable", mappedCount: 0, totalOwnerRepeatMessages: null, unmatchedPrNumbers: [], sharedPrNumbers: [], sharedSessions: [], perPr: {} };
@@ -451,16 +471,18 @@ export function analyzeSessions(prs, { sessionsDir = null, repo = "", windowPrNu
     const s = chosenByPr.get(pr.number);
     if (!s) {
       unmatchedPrNumbers.push(pr.number);
-      perPr[pr.number] = { sessionId: null, sharedSession: false, attribution: "unmatched_non_copilot_or_missing_session", ...NULL_SESSION_METRICS };
+      perPr[pr.number] = { sessionId: null, sharedSession: false, attribution: "unmatched_non_copilot_or_missing_session", ...NULL_SESSION_METRICS,
+        phaseTiming: summarizePrPhases(pr, null, "unmatched_non_copilot_or_missing_session") };
       continue;
     }
     mappedCount += 1; distinctSessions.set(s.id, s);
     if ((prsBySession.get(s.id)?.length || 0) > 1) {
       sharedPrNumbers.push(pr.number);
-      perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", ...NULL_SESSION_METRICS };
+      perPr[pr.number] = { sessionId: s.id, sharedSession: true, attribution: "ambiguous", ...NULL_SESSION_METRICS,
+        phaseTiming: summarizePrPhases(pr, s, "shared_session") };
     } else {
       const { lines: _lines, timingIntervals: _ivs, sessionStartMs: _start, sessionEndMs: _end, activeIntervals: _ai, toolIntervals: _ti, toolWorkSec: _tw, createdAt: _c, id, ...metrics } = s;
-      perPr[pr.number] = { sessionId: id, sharedSession: false, attribution: "unique", ...metrics };
+      perPr[pr.number] = { sessionId: id, sharedSession: false, attribution: "unique", ...metrics, phaseTiming: summarizePrPhases(pr, s) };
     }
   }
   for (const [id, s] of distinctSessions) {
@@ -527,6 +549,13 @@ export function collectMetrics({ repo = "", prs = [], prsTruncated = false, from
       medianDuplicateReadRate: median(u.map((i) => i.session.duplicateReadRate)),
       medianActiveSec: median(u.map((i) => i.session.activeSec)), medianParallelism: median(u.map((i) => i.session.parallelismFactor)),
       dominantBottleneck, dominantBottleneckShare, bucketMediansSec,
+      phaseTiming: Object.fromEntries(PHASE_KEYS.map((key) => {
+        const phases = u.map((i) => i.session.phaseTiming[key]).filter((p) => p.status === "ok");
+        return [key, {
+          sampleCount: phases.length, medianActiveSec: median(phases.map((p) => p.activeSec)),
+          bucketMediansSec: phases.length ? Object.fromEntries(TIMING_BUCKET_KEYS.map((k) => [k, median(phases.map((p) => p.timeBuckets[k]))])) : null,
+        }];
+      })),
     }];
   }));
   const allVerifiable = verifiableCount === windowPrs.length;
@@ -566,7 +595,18 @@ export function formatMarkdownReport(r) {
     const parCell = b.medianParallelism !== null && b.medianParallelism !== undefined ? `${b.medianParallelism.toFixed(2)}x` : "n/a";
     return `| ${route} | ${b.count} | ${b.uniqueSessions} | ${fmtNum(b.medianProdLines, 0)} | ${b.medianNanoAiu !== null ? b.medianNanoAiu.toExponential(2) : "n/a"} | ${fmtNum(b.meanModelCalls, 1)} | ${b.medianDuplicateReadRate !== null ? `${(b.medianDuplicateReadRate * 100).toFixed(1)}%` : "n/a"} | ${fmtNum(b.medianActiveSec, 1)} | ${domCell} | ${parCell} |`;
   });
-  return [`### Shadow-mode objective telemetry (${r.repo || "repo"})`, "| Objective measure | Value | Target |", "| --- | --- | --- |", `| Durable first-pass yield | ${yieldCell} | 90.0% or higher |`, `| Code survival rate (${r.window.maturityDays}d) | ${survivalCell} | 95.0% or higher |`, `| Fix-up PRs (${r.window.maturityDays}d, ref + blame) | ${fixupCell} | 0 |`, `| Ledger + ancestry verified merges | ${verifyCell} | 100.0% |`, `| First-push green rate | ${greenCell} | 70.0% or higher |`, `| Owner repeat-rule messages (matched sessions) | ${repeatCell} | 0 |`, `| Shared-session PRs (excluded from per-PR cost/speed) | ${sharedNote} | observe |`, `| Unmatched PRs (non-Copilot or missing session) | ${unmatchedNote} | observe |`, "", "| Task route | PRs | Unique sessions | Median prod lines | Median `totalNanoAiu` | Mean model calls | Median duplicate read | Median active (s) | Dominant bottleneck | Median parallelism |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |", ...routeRows].join("\n");
+  const labels = { beforePr: "Session before PR creation", prOpen: "PR open", afterMerge: "After merge" };
+  const phaseRows = ["trivial", "small", "multi-task"].flatMap((route) => PHASE_KEYS.map((key) => {
+    const p = r.routeBuckets[route].phaseTiming?.[key];
+    const cells = [p?.sampleCount ?? 0, fmtNum(p?.medianActiveSec), ...TIMING_BUCKET_KEYS.map((k) => fmtNum(p?.bucketMediansSec?.[k]))];
+    return `| ${route} | ${labels[key]} | ${cells.join(" | ")} |`;
+  }));
+  return [`### Shadow-mode objective telemetry (${r.repo || "repo"})`, "| Objective measure | Value | Target |", "| --- | --- | --- |", `| Durable first-pass yield | ${yieldCell} | 90.0% or higher |`, `| Code survival rate (${r.window.maturityDays}d) | ${survivalCell} | 95.0% or higher |`, `| Fix-up PRs (${r.window.maturityDays}d, ref + blame) | ${fixupCell} | 0 |`, `| Ledger + ancestry verified merges | ${verifyCell} | 100.0% |`, `| First-push green rate | ${greenCell} | 70.0% or higher |`, `| Owner repeat-rule messages (matched sessions) | ${repeatCell} | 0 |`, `| Shared-session PRs (excluded from per-PR cost/speed) | ${sharedNote} | observe |`, `| Unmatched PRs (non-Copilot or missing session) | ${unmatchedNote} | observe |`, "", "| Task route | PRs | Unique sessions | Median prod lines | Median `totalNanoAiu` | Mean model calls | Median duplicate read | Median active (s) | Dominant bottleneck | Median parallelism |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |", ...routeRows,
+    "", "### PR-relative session timing", "",
+    "These are session phases, not task-only time. Sessions can be reused.",
+    "Bucket intervals can overlap. Independent bucket medians do not add to median active time.",
+    "", "| Task route | Phase | Valid samples | Median active (s) | Model (s) | Build/test (s) | Poll (s) | Subagent (s) | Other I/O (s) |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |", ...phaseRows].join("\n");
 }
 
 const PR_GRAPHQL_QUERY = "query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(states:MERGED,first:50,after:$cursor,orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor} nodes{number title url body createdAt mergedAt updatedAt headRefOid mergeCommit{oid} files(first:100){pageInfo{hasNextPage} nodes{path additions deletions}} commits(last:50){totalCount nodes{commit{committedDate}}}}}}}";

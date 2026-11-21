@@ -47,8 +47,8 @@ Keep legacy lifetime metrics and the existing weekly table unchanged.
 | P3 | Boundary clipping | A 10-second interval splits into 4 and 6 seconds | Same | red then green |
 | P4 | Parallel calls | A 6-second window counts once; parallelism is 2.0 | Same | red then green |
 | P5 | Wait and missing data | Owner waits excluded; absent active phases stay null | Same | red then green |
-| P6 | Attribution | Shared, unmatched, and invalid timestamp records remain unavailable | Same | not run |
-| P7 | Compatibility | Existing lifetime and benchmark regression assertions pass | Existing collector/benchmark suites | not run |
+| P6 | Attribution | Shared, unmatched, and invalid timestamp records remain unavailable | Same | red then green |
+| P7 | Compatibility | Existing lifetime and benchmark regression assertions pass | Existing collector/benchmark suites | green; final-head run pending |
 
 Relevant categories are boundaries, state, concurrency, missing data, and compatibility.
 Device and app migration checks do not apply to this Node tooling change.
@@ -58,12 +58,23 @@ The existing suites are the regression inventory for this area; no new catalog i
 - Task 1: Python classification passed all 19 collector tests after the unittest fixture failed with `0 !== 2`.
 - Task 2: All 27 collector/benchmark tests passed after both new window tests failed with missing results.
   Existing zero-second calls, cumulative cost, background shells, and nested-agent controls remain green.
-- Task 3: pending.
+- Task 3: The new phase-record fixture failed before implementation; all 22 collector tests then passed.
+  Post-merge fixture work changes only `afterMerge`, not the earlier phases.
+  Internal interval data does not appear in per-PR JSON.
+  Documentation and synchronized `0.5.23` manifests are updated.
+  All 28 collector/benchmark tests pass. Final-head suites, smoke installation, and review remain pending.
+- Saved examples: Three original sessions were recomputed read-only against the baseline collector.
+  Lifetime active time, owner waits, parallelism, cost, and model calls remain exactly equal.
+  The saved website example changes from zero to 2.318 seconds of main build/test work.
+  Nested reviewer tests remain outside the main bucket; phase labels still do not prove task-only attribution.
 - Independent review: not run.
 - Final verification: not run.
 - PR: not opened.
 - Ruling: Retain session artifacts outside the repository; keep this acceptance and evidence record in the PR.
 - Ruling: The strict helper rejects invalid bounds; unavailable phase bounds receive explicit null status instead.
+- Shared-file check: Open PRs 10 and 28–33 touch other README sections or their own changelog entries.
+  PRs 10 and 28 propose older-base release versions; this PR uses the current `0.5.22` base and next patch `0.5.23`.
+  Their version changes can need merge conflict resolution later. No unrelated hunk was copied or replaced.
 
 ## Conclusion
 Complete M1 checks and independent review before its first push.

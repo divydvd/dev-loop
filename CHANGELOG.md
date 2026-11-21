@@ -2,6 +2,21 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.23 (2026-11-21)
+- **Separate PR-relative session timing from lifetime totals.**
+  - **What:** Add clipped before-PR, PR-open, and after-merge timing for unique sessions.
+    Preserve lifetime fields, cumulative cost, logical tool parallelism, and the existing weekly table.
+    Add valid phase sample counts and independent bucket medians.
+    Recognize common Python module checks without treating quoted echo text or arbitrary scripts as new check commands.
+    Keep core rules, required tests, reviews, approval points, and benchmark verdicts unchanged.
+  - **Why:** The timing investigation found post-merge work in lifetime totals and missed Python unittest commands.
+    Synthetic tests reproduce the missing classification and missing phase summaries before implementation.
+    A 10-second interval now splits into 4 and 6 seconds without increasing lifetime work.
+    Shared, unmatched, and missing-data phases remain unavailable rather than becoming false zeros.
+  - **Check:** Run the collector and benchmark regressions, `node scripts/check.mjs`, all CI suites, and isolated Copilot discovery.
+    Next week, inspect PR-relative sample counts and compare each phase with its source timestamps.
+    Do not treat this measurement correction as proof of faster work.
+
 ## 0.5.22 (2026-11-19)
 - **Remove duplicate core startup text in the plugin repository.**
   - **What:** Rename the Gemini mirror to `dev-loop-context.md`. Update the extension manifest, sync helper, checks, tests, and host references. Keep `core.mdc` unchanged.

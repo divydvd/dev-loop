@@ -597,6 +597,96 @@ test("P4: phase timing merges active tools but retains logical tool work for par
   ]) assert.throws(() => timing.summarizeTimingWindow(intervals, bounds), RangeError);
 });
 
+test("P6/P7: phase timing attributes unique PRs, rejects missing evidence, and isolates post-merge work", () => {
+  const root = makeTempDir("phase-records"), epoch = Date.parse("2026-11-21T00:00:00Z");
+  const at = (ms) => new Date(epoch + ms).toISOString();
+  const makePr = (number, changes = {}) => ({
+    number, url: `https://github.com/org/app/pull/${number}`,
+    createdAt: at(4000), mergedAt: at(12000),
+    files: [{ path: "src/app.js", additions: 10, deletions: 0 }], ...changes,
+  });
+  const writeSession = (id, numbers, timestamped = true) => {
+    const dir = join(root, id);
+    mkdirSync(dir);
+    writeFileSync(join(dir, "workspace.yaml"), `id: ${id}\nrepository: org/app\ncreated_at: ${at(0)}\n`);
+    const events = [
+      { timestamp: at(0), type: "assistant.turn_start", data: { turnId: "main" } },
+      { timestamp: at(10000), type: "assistant.message", data: { turnId: "main", content: numbers.map((n) => `https://github.com/org/app/pull/${n}`).join(" ") } },
+      { timestamp: at(10000), type: "tool.execution_start", data: { toolCallId: "owner", toolName: "ask_user" } },
+      { timestamp: at(12000), type: "tool.execution_complete", data: { toolCallId: "owner" } },
+      { timestamp: at(14000), type: "tool.execution_start", data: { toolCallId: "release", toolName: "bash", arguments: { command: "publish-site" } } },
+      { timestamp: at(22000), type: "tool.execution_complete", data: { toolCallId: "release" } },
+      { timestamp: at(23000), type: "session.usage_checkpoint", data: { totalNanoAiu: 200 } },
+    ];
+    writeFileSync(join(dir, "events.jsonl"), events.map((e) => JSON.stringify(timestamped ? e : { type: e.type, data: e.data })).join("\n"));
+    return { path: join(dir, "events.jsonl"), events };
+  };
+  try {
+    const unique = writeSession("unique", [101]);
+    writeSession("shared", [201, 202]);
+    writeSession("bad-creation", [401]);
+    writeSession("missing-creation", [402]);
+    writeSession("bad-order", [403]);
+    writeSession("no-time", [501], false);
+    const prs = [
+      makePr(101), makePr(201), makePr(202), makePr(301),
+      makePr(401, { createdAt: "invalid" }), makePr(402, { createdAt: null }),
+      makePr(403, { createdAt: at(12000), mergedAt: at(4000) }), makePr(501),
+    ];
+    const analyzed = analyzeSessions(prs, { sessionsDir: root, repo: "org/app" });
+    const phase = analyzed.perPr[101].phaseTiming;
+    assert.equal(phase?.basis, "session_start_and_pr_timestamps");
+    assert.deepEqual(phase.beforePr, {
+      fromMs: epoch, toMs: epoch + 4000, status: "ok", activeSec: 4,
+      humanWaitSec: 0, parallelismFactor: null,
+      timeBuckets: { modelSec: 4, buildTestSec: 0, pollSec: 0, subagentSec: 0, ioOtherSec: 0 },
+    });
+    assert.equal(phase.prOpen.activeSec, 6);
+    assert.equal(phase.prOpen.humanWaitSec, 2);
+    assert.equal(phase.afterMerge.activeSec, 8);
+    assert.equal(analyzed.perPr[101].activeSec, 18);
+    assert.equal(analyzed.perPr[101].totalNanoAiu, 200);
+    assert.equal(Object.hasOwn(analyzed.perPr[101], "timingIntervals"), false);
+    assert.equal(Object.hasOwn(analyzed.perPr[101], "sessionStartMs"), false);
+    for (const [number, status] of [
+      [201, "shared_session"], [202, "shared_session"],
+      [301, "unmatched_non_copilot_or_missing_session"],
+      [401, "missing_pr_timestamps"], [402, "missing_pr_timestamps"], [403, "missing_pr_timestamps"],
+      [501, "session_time_unavailable"],
+    ]) {
+      for (const key of ["beforePr", "prOpen", "afterMerge"]) {
+        assert.equal(analyzed.perPr[number].phaseTiming[key].status, status);
+        assert.equal(analyzed.perPr[number].phaseTiming[key].activeSec, null);
+        assert.equal(analyzed.perPr[number].phaseTiming[key].timeBuckets, null);
+      }
+    }
+    const metrics = collectMetrics({ repo: "org/app", prs, sessionsDir: root });
+    assert.deepEqual(metrics.routeBuckets.small.phaseTiming.beforePr, {
+      sampleCount: 1, medianActiveSec: 4,
+      bucketMediansSec: { modelSec: 4, buildTestSec: 0, pollSec: 0, subagentSec: 0, ioOtherSec: 0 },
+    });
+    assert.equal(metrics.routeBuckets.small.phaseTiming.prOpen.medianActiveSec, 6);
+    assert.equal(metrics.routeBuckets.small.phaseTiming.afterMerge.medianActiveSec, 8);
+    assert.equal(collectMetrics({ repo: "org/app", prs, sessionsDir: root, prsTruncated: true }).routeBuckets.small.phaseTiming.beforePr.sampleCount, 0);
+    const markdown = formatMarkdownReport(metrics);
+    assert.match(markdown, /PR-relative session timing/);
+    assert.match(markdown, /Session before PR creation/);
+    assert.doesNotMatch(markdown, /Implementation time/);
+    writeFileSync(unique.path, unique.events.filter((e) => e.data.toolCallId !== "release").map((e) => JSON.stringify(e)).join("\n"));
+    const withoutRelease = analyzeSessions(prs, { sessionsDir: root, repo: "org/app" }).perPr[101];
+    assert.deepEqual(withoutRelease.phaseTiming.beforePr, phase.beforePr);
+    assert.deepEqual(withoutRelease.phaseTiming.prOpen, phase.prOpen);
+    assert.equal(withoutRelease.phaseTiming.afterMerge.status, "no_observed_intervals");
+    assert.equal(withoutRelease.phaseTiming.afterMerge.activeSec, null);
+    assert.equal(withoutRelease.activeSec, 10);
+    const absent = collectMetrics({ repo: "org/app", prs });
+    assert.equal(absent.routeBuckets.small.phaseTiming.beforePr.sampleCount, 0);
+    assert.equal(absent.routeBuckets.small.phaseTiming.beforePr.medianActiveSec, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("T8: fetchMergedPrs uses bounded GraphQL without authors and normalizes nested files and commits", () => {
   const calls = [];
   const fakeExec = (cmd, args) => {
@@ -1576,6 +1666,13 @@ test("T-M5-1: mixed-host Copilot and non-Copilot PRs preserve Git/GitHub metrics
         humanWaitSec: null,
         parallelismFactor: null,
         timeBuckets: null,
+        phaseTiming: {
+          basis: "session_start_and_pr_timestamps",
+          ...Object.fromEntries(["beforePr", "prOpen", "afterMerge"].map((key) => [key, {
+            fromMs: null, toMs: null, status: "unmatched_non_copilot_or_missing_session",
+            activeSec: null, humanWaitSec: null, parallelismFactor: null, timeBuckets: null,
+          }])),
+        },
       });
     }
 

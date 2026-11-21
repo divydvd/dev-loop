@@ -117,6 +117,24 @@ Run `node scripts/collect-metrics.mjs --repo <owner/repo> --checkout <path> --fr
 The script evaluates 14-day production line survival on mature PRs (`mergedAt <= to - 14d`) and detects 14-day fix-up PRs from explicit `#<N>` references and bug-fix `git blame` churn.
 It checks `work-ledger` validations at `headRefOid` and across docs-only first-parent Git ancestors while rejecting untested production edits after a tested SHA.
 It classifies PRs into `trivial`, `small`, and `multi-task` routes, reads the latest cumulative `totalNanoAiu` checkpoint, resets duplicate file-read tracking after edits, computes merged `activeSec` (excluding `humanWaitSec` and idle gaps) across five bottleneck buckets (`modelSec`, `buildTestSec`, `pollSec`, `subagentSec`, `ioOtherSec`) plus `parallelismFactor`, and marks shared multi-PR sessions `ambiguous` instead of duplicating cost or speed.
+The existing session values remain lifetime totals, not work limited to the reporting window or the relevant owner request.
+Python module checks (`python` or `python3` with `-m unittest`, `-m pytest`, or `-m build`) enter the build/test bucket.
+Arbitrary Python scripts do not become build/test commands solely because they use Python.
+
+The added “PR-relative session timing” table uses PR creation and merge timestamps.
+`analyzeSessions()` returns each PR's `phaseTiming` with basis `session_start_and_pr_timestamps`.
+The phases are `beforePr` (“Session before PR creation”), `prOpen`, and `afterMerge`.
+Each phase records millisecond bounds, observed active time, owner waits, parallelism, and the five buckets.
+Complete intervals crossing a boundary are clipped; unfinished calls receive no invented endpoint.
+Raw interval arrays remain internal and do not appear in per-PR JSON.
+Route summaries add `phaseTiming.<phase>.sampleCount`, `medianActiveSec`, and `bucketMediansSec`.
+Only valid unique-session phases enter those medians.
+Missing PR timestamps, missing session times, empty phases, shared sessions, and unmatched PRs have explicit unavailable statuses and null work values.
+
+These phases do not establish task-only time.
+A reused session can contain unrelated work before PR creation.
+Bucket intervals can overlap, and independent bucket medians do not add to median active time.
+The timing correction does not prove a runtime saving or permit weaker quality checks.
 When `~/.copilot/session-state` exists (`sessionAnalysis.status === "ok"`), `scripts/collect-metrics.mjs` still computes all Git and GitHub durability and verification measures for non-Copilot PRs (such as Claude Code or Gemini CLI PRs) or missing transcripts, marks each unmatched PR as `unmatched_non_copilot_or_missing_session` with `null` session-only fields, and reports `n/a (unmatched_non_copilot_or_missing_session)` instead of `0` for repeat messages (and for `Durable first-pass yield` once ledger and fix-up prerequisites pass) when `mappedCount === 0` while `mergedPrCount > 0`.
 When `~/.copilot/session-state` is absent, session analysis preserves `unavailable` (`n/a (unavailable)` for repeat messages and unmatched PRs, and `sessions_unavailable` or an earlier prerequisite status such as `ledger_unavailable` for `Durable first-pass yield`).
 In Section 4 of `infra-review`, keep `Durable first-pass yield` at `90.0%` or higher before prioritizing route-bucketed `totalNanoAiu`, duplicate-read, or `dominantBottleneck` (`activeSec` / `parallelismFactor`) reductions.
