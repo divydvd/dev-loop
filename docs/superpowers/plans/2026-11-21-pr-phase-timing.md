@@ -44,7 +44,7 @@ Keep legacy lifetime metrics and the existing weekly table unchanged.
 | ID | Requirement | Expected result | Location | Status |
 | --- | --- | --- | --- | --- |
 | P1 | Python module checks | A 2-second unittest command counts as build/test | `scripts/collect-metrics.test.mjs` | red then green |
-| P2 | Literal command text | Echoing the command stays other I/O | Same | green with P1 |
+| P2 | Literal command text | Echoing the command stays other I/O | Same; additional local reproduction | blocked: Bash option-terminator case fails |
 | P3 | Boundary clipping | A 10-second interval splits into 4 and 6 seconds | Same | red then green |
 | P4 | Parallel calls | A 6-second window counts once; parallelism is 2.0 | Same | red then green |
 | P5 | Wait and missing data | Owner waits excluded; absent active phases stay null | Same | red then green |
@@ -79,6 +79,13 @@ The existing suites are the regression inventory for this area; no new catalog i
   The final code commit must rerun the plugin check, all current suites, and temporary-home discovery.
   The PR Evidence section and persistent session ledger record final tested identities and results.
 - PR: not opened.
+- Three-attempt stop: Final focused review at `aa144f9` found `bash - /dev/null` still treating heredoc input data as code.
+  A two-second fixture reports build/test 2 seconds instead of 0.
+  `-` ends option parsing; a following filename still selects script-file execution.
+  A harmless real Bash probe confirms this distinction.
+  M1 is not ready. No fourth source fix or merge is authorized by this execution.
+  The existing suites pass, but they do not cover this required counterexample.
+  Preserve the draft PR and obtain an owner decision before a focused recovery pass.
 - Ruling: Retain session artifacts outside the repository; keep this acceptance and evidence record in the PR.
 - Ruling: The strict helper rejects invalid bounds; unavailable phase bounds receive explicit null status instead.
 - Ruling: Reuse `tools/work-ledger/lib/shell.mjs` for Python recognition instead of adding another shell parser.
