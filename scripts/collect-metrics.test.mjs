@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import * as timing from "./collect-metrics.mjs";
 
 import {
   analyzeSessions,
@@ -536,6 +537,214 @@ test("T6 & T7: collectMetrics and CLI compute route medians, firstPushGreenRate,
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(gitDir, { recursive: true, force: true });
+  }
+});
+
+test("P1/P2: Python command classification recognizes module checks, not echoed text or arbitrary scripts", () => {
+  const dir = makeTempDir("python-command");
+  try {
+    for (const [command, expectedBuild] of [
+      ["python3 -m unittest discover -s web/tools -v", 2],
+      ["python -m pytest tests", 2],
+      ["python3 -m build", 2],
+      ["cd web && /usr/bin/python3 -m unittest", 2],
+      ["echo \"python3 -m unittest\"", 0],
+      ["echo '; python3 -m unittest'", 0],
+      ["echo \\; python3 -m unittest", 0],
+      ["cat <<'TEXT'\npython3 -m unittest\nTEXT", 0],
+      ["bash -lc 'python3 -m unittest'", 2],
+      ["python3 -m 'unittest'", 2],
+      ["bash /dev/null <<'TEXT'\npython3 -m unittest\nTEXT", 0],
+      ["bash - /dev/null <<'TEXT'\npython3 -m unittest\nTEXT", 0],
+      ["bash - <<'TEXT'\npython3 -m unittest\nTEXT", 2],
+      ["bash -s - /dev/null <<'TEXT'\npython3 -m unittest\nTEXT", 2],
+      ["bash - /dev/stdin <<'TEXT'\npython3 -m unittest\nTEXT", 2],
+      ["bash - /dev/fd/0 <<'TEXT'\npython3 -m unittest\nTEXT", 2],
+      ["bash /dev/stdin <<'TEXT'\npython3 -m unittest\nTEXT", 2],
+      ["bash /dev/fd/0 <<'TEXT'\npython3 -m unittest\nTEXT", 2],
+      ["bash -- /dev/stdin <<'TEXT'\npython3 -m unittest\nTEXT", 2],
+      ["bash -- /dev/fd/0 <<'TEXT'\npython3 -m unittest\nTEXT", 2],
+      ["bash -- /dev/null <<'TEXT'\npython3 -m unittest\nTEXT", 0],
+      ["bash -- -c 'python3 -m unittest'", 0],
+      ["bash - -c 'python3 -m unittest'", 0],
+      ["env bash -- -c 'python3 -m unittest'", 0],
+      ["env bash - -c 'python3 -m unittest'", 0],
+      ["bash --rcfile /dev/null -c 'python3 -m unittest'", 2],
+      ["env bash -lc 'python3 -m unittest'", 2],
+      ["bash -s -c 'python3 -m unittest'", 2],
+      ["env -u bash python3 -m unittest", 2],
+      ["timeout 10 bash -- -c 'python3 -m unittest'", 0],
+      ["bash /dev/null bash -c 'python3 -m unittest'", 0],
+      ["bash -c 'cat' <<'TEXT'\npython3 -m unittest\nTEXT", 0],
+      ["bash <<'TEXT'\npython3 -m unittest\nTEXT", 2],
+      ["bash -s argument <<'TEXT'\npython3 -m unittest\nTEXT", 2],
+      ["python3 web/tools/build.py", 0],
+    ]) {
+      const path = join(dir, "events.jsonl");
+      writeFileSync(path, [
+        { timestamp: "2026-11-21T00:00:00Z", type: "tool.execution_start", data: { toolCallId: "check", toolName: "bash", arguments: { command } } },
+        { timestamp: "2026-11-21T00:00:02Z", type: "tool.execution_complete", data: { toolCallId: "check", success: true } },
+      ].map((e) => JSON.stringify(e)).join("\n"));
+      const result = parseSessionEvents(path);
+      assert.equal(result.activeSec, 2, command);
+      assert.equal(result.timeBuckets.buildTestSec, expectedBuild, command);
+      assert.equal(result.timeBuckets.ioOtherSec, 2 - expectedBuild, command);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("P3/P5: phase timing clips crossing work and excludes owner waits without inventing empty work", () => {
+  const intervals = { modelSec: [[0, 10000]], humanWaitSec: [[10000, 7210000]] };
+  assert.deepEqual(timing.summarizeTimingWindow?.(intervals, { fromMs: 0, toMs: 4000 }), {
+    status: "ok", activeSec: 4, humanWaitSec: 0, parallelismFactor: null,
+    timeBuckets: { modelSec: 4, buildTestSec: 0, pollSec: 0, subagentSec: 0, ioOtherSec: 0 },
+  });
+  assert.equal(timing.summarizeTimingWindow(intervals, { fromMs: 4000, toMs: 10000 }).activeSec, 6);
+  assert.deepEqual(timing.summarizeTimingWindow(intervals, { fromMs: 10000, toMs: 7210000 }), {
+    status: "no_observed_intervals", activeSec: null, humanWaitSec: 7200, parallelismFactor: null, timeBuckets: null,
+  });
+  assert.deepEqual(timing.summarizeTimingWindow(intervals, { fromMs: 7210000, toMs: 7211000 }), {
+    status: "no_observed_intervals", activeSec: null, humanWaitSec: null, parallelismFactor: null, timeBuckets: null,
+  });
+});
+
+test("P4: phase timing merges active tools but retains logical tool work for parallelism", () => {
+  const intervals = {
+    buildTestSec: [[0, 10000], [0, 10000]],
+    toolWorkIntervals: [[0, 10000], [0, 10000]],
+  };
+  assert.deepEqual(timing.summarizeTimingWindow?.(intervals, { fromMs: 2000, toMs: 8000 }), {
+    status: "ok", activeSec: 6, humanWaitSec: 0, parallelismFactor: 2,
+    timeBuckets: { modelSec: 0, buildTestSec: 6, pollSec: 0, subagentSec: 0, ioOtherSec: 0 },
+  });
+  for (const bounds of [
+    { fromMs: 4, toMs: 4 }, { fromMs: 10, toMs: 4 },
+    { fromMs: NaN, toMs: 100 }, { fromMs: 0, toMs: Infinity },
+  ]) assert.throws(() => timing.summarizeTimingWindow(intervals, bounds), RangeError);
+});
+
+test("P6: phase timing retains terminal zero-duration calls without duplicating PR boundary calls", () => {
+    const root = makeTempDir("phase-zero"), epoch = Date.parse("2026-11-21T00:00:00Z");
+    const at = (ms) => new Date(epoch + ms).toISOString();
+    try {
+      const dir = join(root, "zero");
+      mkdirSync(dir);
+      writeFileSync(join(dir, "workspace.yaml"), `id: zero\nrepository: org/app\ncreated_at: ${at(0)}\n`);
+      const pr = {
+        number: 1, url: "https://github.com/org/app/pull/1", createdAt: at(1000), mergedAt: at(3000),
+        files: [{ path: "src/app.js", additions: 1, deletions: 0 }],
+      };
+      for (const [instant, observedPhase] of [[1000, "prOpen"], [3000, "afterMerge"], [5000, "afterMerge"]]) {
+        writeFileSync(join(dir, "events.jsonl"), [
+          { timestamp: at(0), type: "user.message", data: { content: pr.url } },
+          { timestamp: at(instant), type: "tool.execution_start", data: { toolCallId: "zero", toolName: "bash", arguments: { command: "echo ok" } } },
+          { timestamp: at(instant), type: "tool.execution_complete", data: { toolCallId: "zero" } },
+          { timestamp: at(5000), type: "session.usage_checkpoint", data: { totalNanoAiu: 100 } },
+        ].map((e) => JSON.stringify(e)).join("\n"));
+        const result = analyzeSessions([pr], { repo: "org/app", sessionsDir: root }).perPr[1];
+        assert.equal(result.activeSec, 0);
+        for (const key of ["beforePr", "prOpen", "afterMerge"]) {
+          assert.equal(result.phaseTiming[key].activeSec, key === observedPhase ? 0 : null, `${instant} ${key}`);
+          assert.equal(result.phaseTiming[key].status, key === observedPhase ? "ok" : "no_observed_intervals");
+        }
+        const route = collectMetrics({ repo: "org/app", prs: [pr], sessionsDir: root }).routeBuckets.small;
+        assert.equal(route.phaseTiming[observedPhase].sampleCount, 1);
+        assert.equal(route.phaseTiming[observedPhase].medianActiveSec, 0);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("P6/P7: phase timing attributes unique PRs, rejects missing evidence, and isolates post-merge work", () => {
+  const root = makeTempDir("phase-records"), epoch = Date.parse("2026-11-21T00:00:00Z");
+  const at = (ms) => new Date(epoch + ms).toISOString();
+  const makePr = (number, changes = {}) => ({
+    number, url: `https://github.com/org/app/pull/${number}`,
+    createdAt: at(4000), mergedAt: at(12000),
+    files: [{ path: "src/app.js", additions: 10, deletions: 0 }], ...changes,
+  });
+  const writeSession = (id, numbers, timestamped = true) => {
+    const dir = join(root, id);
+    mkdirSync(dir);
+    writeFileSync(join(dir, "workspace.yaml"), `id: ${id}\nrepository: org/app\ncreated_at: ${at(0)}\n`);
+    const events = [
+      { timestamp: at(0), type: "assistant.turn_start", data: { turnId: "main" } },
+      { timestamp: at(10000), type: "assistant.message", data: { turnId: "main", content: numbers.map((n) => `https://github.com/org/app/pull/${n}`).join(" ") } },
+      { timestamp: at(10000), type: "tool.execution_start", data: { toolCallId: "owner", toolName: "ask_user" } },
+      { timestamp: at(12000), type: "tool.execution_complete", data: { toolCallId: "owner" } },
+      { timestamp: at(14000), type: "tool.execution_start", data: { toolCallId: "release", toolName: "bash", arguments: { command: "publish-site" } } },
+      { timestamp: at(22000), type: "tool.execution_complete", data: { toolCallId: "release" } },
+      { timestamp: at(23000), type: "session.usage_checkpoint", data: { totalNanoAiu: 200 } },
+    ];
+    writeFileSync(join(dir, "events.jsonl"), events.map((e) => JSON.stringify(timestamped ? e : { type: e.type, data: e.data })).join("\n"));
+    return { path: join(dir, "events.jsonl"), events };
+  };
+  try {
+    const unique = writeSession("unique", [101]);
+    writeSession("shared", [201, 202]);
+    writeSession("bad-creation", [401]);
+    writeSession("missing-creation", [402]);
+    writeSession("bad-order", [403]);
+    writeSession("no-time", [501], false);
+    const prs = [
+      makePr(101), makePr(201), makePr(202), makePr(301),
+      makePr(401, { createdAt: "invalid" }), makePr(402, { createdAt: null }),
+      makePr(403, { createdAt: at(12000), mergedAt: at(4000) }), makePr(501),
+    ];
+    const analyzed = analyzeSessions(prs, { sessionsDir: root, repo: "org/app" });
+    const phase = analyzed.perPr[101].phaseTiming;
+    assert.equal(phase?.basis, "session_start_and_pr_timestamps");
+    assert.deepEqual(phase.beforePr, {
+      fromMs: epoch, toMs: epoch + 4000, status: "ok", activeSec: 4,
+      humanWaitSec: 0, parallelismFactor: null,
+      timeBuckets: { modelSec: 4, buildTestSec: 0, pollSec: 0, subagentSec: 0, ioOtherSec: 0 },
+    });
+    assert.equal(phase.prOpen.activeSec, 6);
+    assert.equal(phase.prOpen.humanWaitSec, 2);
+    assert.equal(phase.afterMerge.activeSec, 8);
+    assert.equal(analyzed.perPr[101].activeSec, 18);
+    assert.equal(analyzed.perPr[101].totalNanoAiu, 200);
+    assert.equal(Object.hasOwn(analyzed.perPr[101], "timingIntervals"), false);
+    assert.equal(Object.hasOwn(analyzed.perPr[101], "sessionStartMs"), false);
+    for (const [number, status] of [
+      [201, "shared_session"], [202, "shared_session"],
+      [301, "unmatched_non_copilot_or_missing_session"],
+      [401, "missing_pr_timestamps"], [402, "missing_pr_timestamps"], [403, "missing_pr_timestamps"],
+      [501, "session_time_unavailable"],
+    ]) {
+      for (const key of ["beforePr", "prOpen", "afterMerge"]) {
+        assert.equal(analyzed.perPr[number].phaseTiming[key].status, status);
+        assert.equal(analyzed.perPr[number].phaseTiming[key].activeSec, null);
+        assert.equal(analyzed.perPr[number].phaseTiming[key].timeBuckets, null);
+      }
+    }
+    const metrics = collectMetrics({ repo: "org/app", prs, sessionsDir: root });
+    assert.deepEqual(metrics.routeBuckets.small.phaseTiming.beforePr, {
+      sampleCount: 1, medianActiveSec: 4,
+      bucketMediansSec: { modelSec: 4, buildTestSec: 0, pollSec: 0, subagentSec: 0, ioOtherSec: 0 },
+    });
+    assert.equal(metrics.routeBuckets.small.phaseTiming.prOpen.medianActiveSec, 6);
+    assert.equal(metrics.routeBuckets.small.phaseTiming.afterMerge.medianActiveSec, 8);
+    assert.equal(collectMetrics({ repo: "org/app", prs, sessionsDir: root, prsTruncated: true }).routeBuckets.small.phaseTiming.beforePr.sampleCount, 0);
+    const markdown = formatMarkdownReport(metrics);
+    assert.match(markdown, /PR-relative session timing/);
+    assert.match(markdown, /Session before PR creation/);
+    assert.doesNotMatch(markdown, /Implementation time/);
+    writeFileSync(unique.path, unique.events.filter((e) => e.data.toolCallId !== "release").map((e) => JSON.stringify(e)).join("\n"));
+    const withoutRelease = analyzeSessions(prs, { sessionsDir: root, repo: "org/app" }).perPr[101];
+    assert.deepEqual(withoutRelease.phaseTiming.beforePr, phase.beforePr);
+    assert.deepEqual(withoutRelease.phaseTiming.prOpen, phase.prOpen);
+    assert.equal(withoutRelease.phaseTiming.afterMerge.status, "no_observed_intervals");
+    assert.equal(withoutRelease.phaseTiming.afterMerge.activeSec, null);
+    assert.equal(withoutRelease.activeSec, 10);
+    const absent = collectMetrics({ repo: "org/app", prs });
+    assert.equal(absent.routeBuckets.small.phaseTiming.beforePr.sampleCount, 0);
+    assert.equal(absent.routeBuckets.small.phaseTiming.beforePr.medianActiveSec, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -1080,6 +1289,13 @@ test("S-T3: parseSessionEvents deduplicates parallel subagents, ignores nested e
     );
     const p = parseSessionEvents(evPath);
     assert.equal(p.timeBuckets.modelSec, 10, "4s turn + 6s compaction, ignoring nested sub-1 turn");
+    const phase = timing.summarizeTimingWindow(p.timingIntervals, {
+      fromMs: Date.parse("2026-11-14T10:00:10Z"), toMs: Date.parse("2026-11-14T10:00:20Z"),
+    });
+    assert.equal(phase.activeSec, 10);
+    assert.equal(phase.timeBuckets.subagentSec, 10);
+    assert.equal(phase.timeBuckets.modelSec, 0);
+    assert.equal(phase.parallelismFactor, 3);
     assert.equal(p.timeBuckets.subagentSec, 60, "3x60s parallel task calls merge to 60s");
     assert.equal(p.timeBuckets.buildTestSec, 20);
     assert.equal(p.timeBuckets.pollSec, 30);
@@ -1511,6 +1727,13 @@ test("T-M5-1: mixed-host Copilot and non-Copilot PRs preserve Git/GitHub metrics
         humanWaitSec: null,
         parallelismFactor: null,
         timeBuckets: null,
+        phaseTiming: {
+          basis: "session_start_and_pr_timestamps",
+          ...Object.fromEntries(["beforePr", "prOpen", "afterMerge"].map((key) => [key, {
+            fromMs: null, toMs: null, status: "unmatched_non_copilot_or_missing_session",
+            activeSec: null, humanWaitSec: null, parallelismFactor: null, timeBuckets: null,
+          }])),
+        },
       });
     }
 
