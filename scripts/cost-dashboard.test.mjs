@@ -6,6 +6,8 @@ import { join } from "node:path";
 import {
   parseCostSession,
   attributeCostChains,
+  fetchRepoActionsCost,
+  buildCostDashboardReport,
 } from "./cost-dashboard.mjs";
 
 function makeTempSessionsDir(t) {
@@ -478,3 +480,169 @@ test("T5: attributeCostChains retains pre-window exclusive parent for in-window 
   });
   assert.equal(workspaceWide.totals.scopedTotalPru, 32); // includes 5 unscoped chat when repos filter is empty
 });
+
+test("T6: buildCostDashboardReport keeps colliding PR numbers distinct across repos, rolls up route medians, and computes 1x-cap simulator baseline", (t) => {
+  const dir = makeTempSessionsDir(t);
+  writeSession(
+    dir,
+    "80808080-1111-1111-1111-111111111111",
+    { repository: "org/a", created_at: "2026-11-20T10:00:00.000Z" },
+    [
+      { type: "assistant.turn_start", timestamp: "2026-11-20T10:00:00.000Z", data: { turnId: "1" } },
+      { type: "assistant.message", timestamp: "2026-11-20T10:00:10.000Z", data: { turnId: "1", model: "gpt-6.1-sol", content: "Opened https://github.com/org/a/pull/12" } },
+      {
+        type: "session.shutdown",
+        timestamp: "2026-11-20T10:00:15.000Z",
+        data: {
+          accountingSnapshot: {
+            totalUserRequests: 10,
+            totalPremiumRequestCost: 10,
+            totalNanoAiu: 10_000_000_000,
+            modelMetrics: { "gpt-6.1-sol": { requests: { count: 10, cost: 10, nanoAiu: 10_000_000_000 }, usage: { inputTokens: 2000, outputTokens: 400 } } },
+            agentMetrics: { main: { agentName: "main", requests: { count: 10, cost: 10, nanoAiu: 10_000_000_000 } } },
+          },
+        },
+      },
+    ],
+  );
+
+  writeSession(
+    dir,
+    "80808080-2222-2222-2222-222222222222",
+    { repository: "org/b", created_at: "2026-11-20T11:00:00.000Z" },
+    [
+      { type: "assistant.turn_start", timestamp: "2026-11-20T11:00:00.000Z", data: { turnId: "1" } },
+      { type: "assistant.message", timestamp: "2026-11-20T11:00:30.000Z", data: { turnId: "1", model: "claude-opus-5.5", content: "Opened https://github.com/org/b/pull/12" } },
+      {
+        type: "session.shutdown",
+        timestamp: "2026-11-20T11:00:35.000Z",
+        data: {
+          accountingSnapshot: {
+            totalUserRequests: 4,
+            totalPremiumRequestCost: 30,
+            totalNanoAiu: 30_000_000_000,
+            modelMetrics: {
+              "claude-opus-5.5": { requests: { count: 2, cost: 30, nanoAiu: 30_000_000_000 }, usage: { inputTokens: 5000, outputTokens: 1000 } },
+            },
+            agentMetrics: {
+              main: { agentName: "main", requests: { count: 3, cost: 15, nanoAiu: 15_000_000_000 } },
+              rev: { agentName: "code-review", requests: { count: 1, cost: 15, nanoAiu: 15_000_000_000 } },
+            },
+          },
+        },
+      },
+    ],
+  );
+
+  const prsByRepo = {
+    "org/a": [
+      { number: 12, title: "Small A", url: "https://github.com/org/a/pull/12", createdAt: "2026-11-20T10:00:09.000Z", mergedAt: "2026-11-20T10:05:00.000Z", files: [{ path: "src/a.mjs", additions: 20, deletions: 5 }] },
+    ],
+    "org/b": [
+      { number: 12, title: "Multi B", url: "https://github.com/org/b/pull/12", createdAt: "2026-11-20T11:00:29.000Z", mergedAt: "2026-11-20T11:10:00.000Z", files: [{ path: "src/b.mjs", additions: 160, deletions: 10 }] },
+    ],
+  };
+
+  const report = buildCostDashboardReport({
+    prsByRepo,
+    repos: ["org/a", "org/b"],
+    sessionsDir: dir,
+    from: "2026-11-19T00:00:00.000Z",
+    to: "2026-11-22T00:00:00.000Z",
+    pruUsd: 0.04,
+  });
+
+  assert.equal(report.prRows.length, 2);
+  assert.deepEqual(report.prRows.map((r) => r.prKey).sort(), ["org/a#12", "org/b#12"]);
+  assert.equal(report.routeBuckets.small.count, 1);
+  assert.equal(report.routeBuckets.small.medianChainPru, 10);
+  assert.equal(report.routeBuckets.small.medianChainUsd, 0.4);
+  assert.equal(report.routeBuckets["multi-task"].count, 1);
+  assert.equal(report.routeBuckets["multi-task"].medianChainPru, 30);
+  assert.equal(report.routeBuckets["multi-task"].medianChainUsd, 1.2);
+  assert.equal(report.routeBuckets.trivial.count, 0);
+  assert.equal(report.routeBuckets.trivial.medianChainPru, null);
+
+  const opus = report.modelBreakdown.find((m) => m.model === "claude-opus-5.5");
+  assert.equal(opus.multiplier, 15);
+  assert.equal(opus.pruCost, 30);
+  assert.equal(report.agentBreakdown.review.pruCost, 15);
+  // Total userRequests = 14 across 40 PRUs -> observed 1x cap saves (40 - 14) / 40 = 0.65 (65%).
+  assert.equal(report.simulatorBaseline.totalSnapshotPru, 40);
+  assert.equal(report.simulatorBaseline.totalSnapshotUserRequests, 14);
+  assert.ok(Math.abs(report.simulatorBaseline.observedOneXCapSavingsRate - 0.65) < 1e-9);
+  assert.equal(report.simulatorBaseline.defaultTurnReductionPct, 25);
+
+  // Repo org/a alone uses only 1x models -> observedOneXCapSavingsRate === 0.
+  const oneXOnlyReport = buildCostDashboardReport({
+    prsByRepo: { "org/a": prsByRepo["org/a"] },
+    repos: ["org/a"],
+    sessionsDir: dir,
+    from: "2026-11-19T00:00:00.000Z",
+    to: "2026-11-22T00:00:00.000Z",
+    pruUsd: 0.04,
+  });
+  assert.equal(oneXOnlyReport.simulatorBaseline.observedOneXCapSavingsRate, 0);
+  assert.equal(oneXOnlyReport.actionsCost.status, "disabled");
+});
+
+test("T7: fetchRepoActionsCost sums billable Ubuntu minutes, respects maxRuns truncation, and stays separate from Copilot PRU budget", (t) => {
+  const dir = makeTempSessionsDir(t);
+  writeSession(
+    dir,
+    "90909090-1111-1111-1111-111111111111",
+    { repository: "org/a", created_at: "2026-11-20T10:00:00.000Z" },
+    [
+      { type: "assistant.message", timestamp: "2026-11-20T10:01:00.000Z", data: { content: "Opened https://github.com/org/a/pull/1" } },
+      { type: "session.shutdown", timestamp: "2026-11-20T10:02:00.000Z", data: { accountingSnapshot: { totalUserRequests: 5, totalPremiumRequestCost: 5, totalNanoAiu: 5_000_000_000, modelMetrics: {}, agentMetrics: {} } } },
+    ],
+  );
+
+  const calls = [];
+  const mockExec = (_bin, args) => {
+    const endpoint = args[1];
+    calls.push(endpoint);
+    if (endpoint.includes("/actions/runs?")) {
+      return JSON.stringify({
+        workflow_runs: [
+          { id: 103, created_at: "2026-11-20T12:05:00.000Z" },
+          { id: 102, created_at: "2026-11-20T11:05:00.000Z" },
+          { id: 101, created_at: "2026-11-20T10:05:00.000Z" },
+        ],
+      });
+    }
+    if (endpoint.endsWith("/103/timing")) return JSON.stringify({ billable: { UBUNTU: { total_ms: 120_000 } } });
+    if (endpoint.endsWith("/102/timing")) return JSON.stringify({ billable: { UBUNTU: { total_ms: 180_000 } } });
+    throw new Error(`Unexpected endpoint ${endpoint}`);
+  };
+
+  const act = fetchRepoActionsCost("org/a", {
+    from: "2026-11-19T00:00:00.000Z",
+    to: "2026-11-22T00:00:00.000Z",
+    maxRuns: 2,
+    usdPerMin: 0.006,
+    execFn: mockExec,
+  });
+  assert.equal(act.status, "ok");
+  assert.equal(act.runsCounted, 2);
+  assert.equal(act.truncated, true);
+  assert.equal(act.ubuntuMinutes, 5);
+  assert.ok(Math.abs(act.usdCost - 0.03) < 1e-9);
+
+  const report = buildCostDashboardReport({
+    prsByRepo: { "org/a": [{ number: 1, title: "A1", url: "https://github.com/org/a/pull/1", createdAt: "2026-11-20T10:00:50.000Z", mergedAt: "2026-11-20T10:10:00.000Z", files: [{ path: "a.js", additions: 5, deletions: 0 }] }] },
+    repos: ["org/a"],
+    sessionsDir: dir,
+    from: "2026-11-19T00:00:00.000Z",
+    to: "2026-11-22T00:00:00.000Z",
+    pruUsd: 0.04,
+    includeActions: true,
+    maxActionsRuns: 2,
+    actionsUsdPerMin: 0.006,
+    execFn: mockExec,
+  });
+  assert.equal(report.actionsCost.ubuntuMinutes, 5);
+  assert.equal(report.totals.scopedTotalPru, 5);
+  assert.equal(report.simulatorBaseline.medianFeatureChainPru, 5);
+});
+

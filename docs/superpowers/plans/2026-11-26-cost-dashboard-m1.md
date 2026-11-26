@@ -147,7 +147,7 @@ git commit -m "feat: add session accounting parser and parent-chain attribution"
   - `fetchRepoActionsCost(repo, { from, to, maxRuns, usdPerMin, execFn }) -> ActionsCostSummary`
   - `buildCostDashboardReport(options) -> CostDashboardReport`
 
-- [ ] **Step 1: Add failing tests `T6` and `T7` in `scripts/cost-dashboard.test.mjs`**
+- [x] **Step 1: Add failing tests `T6` and `T7` in `scripts/cost-dashboard.test.mjs`**
 
 Cover:
 - `T6`: Multi-repo input (`org/a#12` `small` and `org/b#12` `multi-task`) preserves both PRs, computes `routeBuckets` (`trivial`, `small`, `multi-task` median `directPruCost`, `chainPruCost`, `chainUsdCost`, `chainNanoAiu`, `activeSec`), aggregates `modelBreakdown` with exact `multiplier = cost / count`, and computes `simulatorBaseline` (`observedOneXCapSavingsRate` from `1 - sum(userRequests) / sum(pruCost)` on snapshot sessions, `0` when all `1x`).
@@ -158,16 +158,16 @@ Cover:
 Run: `node --test scripts/cost-dashboard.test.mjs`
 Expected: FAIL (`buildCostDashboardReport` / `fetchRepoActionsCost` not exported).
 
-- [ ] **Step 3: Implement `fetchRepoActionsCost` and `buildCostDashboardReport` in `scripts/cost-dashboard.mjs`**
+- [x] **Step 3: Implement `fetchRepoActionsCost` and `buildCostDashboardReport` in `scripts/cost-dashboard.mjs`**
 
 Keep Actions lookup optional (`includeActions: false` default -> `{ status: "disabled", runsCounted: 0, truncated: false, ubuntuMinutes: null, usdCost: null }`). On `gh api` error, return `{ status: "unavailable", ... }` instead of crashing offline reports.
 
-- [ ] **Step 4: Run `node --test scripts/cost-dashboard.test.mjs` to verify GREEN**
+- [x] **Step 4: Run `node --test scripts/cost-dashboard.test.mjs` to verify GREEN**
 
 Run: `node --test scripts/cost-dashboard.test.mjs`
 Expected: PASS (`T1`–`T7` green).
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```bash
 git add scripts/cost-dashboard.mjs scripts/cost-dashboard.test.mjs

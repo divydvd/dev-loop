@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Read-only ideation-to-merge cost dashboard for dev-loop repositories.
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { classifyRoute, parseSessionEvents, productionLinesChanged } from "./collect-metrics.mjs";
@@ -283,28 +284,112 @@ export function attributeCostChains({ prsByRepo = {}, repos = [], sessionsDir = 
   }
   const unscopedPru = unscopedChats.reduce((acc, c) => acc + (c.pruCost ?? 0), 0);
   return {
-    prRows,
-    countedSessions: [...countedSessionIds].map((idKey) => sessionsById.get(idKey)),
+    prRows, countedSessions: [...countedSessionIds].map((idKey) => sessionsById.get(idKey)),
     unattributed: {
-      sharedPrSessions,
-      sharedCoordinators,
-      unmergedSessions,
-      unmatchedPrKeys,
-      unscopedChatSpend: {
-        includedInScopedTotals: repoFilter.size === 0,
-        sessionCount: unscopedChats.length,
-        pruCost: unscopedPru,
-        usdCost: unscopedPru * pruUsd,
-        sessions: unscopedChats,
-      },
+      sharedPrSessions, sharedCoordinators, unmergedSessions, unmatchedPrKeys,
+      unscopedChatSpend: { includedInScopedTotals: repoFilter.size === 0, sessionCount: unscopedChats.length, pruCost: unscopedPru, usdCost: unscopedPru * pruUsd, sessions: unscopedChats },
     },
-    totals: {
-      scopedSessionCount: countedSessionIds.size,
-      scopedSnapshotCount,
-      scopedMissingSnapshotCount,
-      scopedTotalPru,
-      scopedTotalUsd: scopedTotalPru * pruUsd,
-      scopedNanoAiu,
+    totals: { scopedSessionCount: countedSessionIds.size, scopedSnapshotCount, scopedMissingSnapshotCount, scopedTotalPru, scopedTotalUsd: scopedTotalPru * pruUsd, scopedNanoAiu },
+  };
+}
+
+function median(values) {
+  const nums = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  if (!nums.length) return null;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 === 1 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+}
+const mean = (values) => { const n = values.filter((v) => Number.isFinite(v)); return n.length ? n.reduce((a, b) => a + b, 0) / n.length : null; };
+
+export function fetchRepoActionsCost(repo, { from = null, to = null, maxRuns = 100, usdPerMin = 0.006, execFn = execFileSync } = {}) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(String(repo || ""))) return { status: "unavailable", runsCounted: 0, truncated: false, ubuntuMinutes: null, usdCost: null };
+  const fromMs = from ? Date.parse(from) : -Infinity, toMs = to ? Date.parse(to) : Infinity;
+  try {
+    const inWin = [];
+    let truncated = false;
+    for (let page = 1; page <= 5; page++) {
+      const payload = JSON.parse(execFn("gh", ["api", `repos/${repo}/actions/runs?per_page=100&page=${page}`], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }));
+      const runs = payload?.workflow_runs || [];
+      if (!runs.length) break;
+      let passedLower = false;
+      for (const r of runs) {
+        const ms = Date.parse(r.created_at || "");
+        if (Number.isFinite(toMs) && Number.isFinite(ms) && ms >= toMs) continue;
+        if (Number.isFinite(fromMs) && Number.isFinite(ms) && ms < fromMs) { passedLower = true; continue; }
+        if (inWin.length >= maxRuns) { truncated = true; break; }
+        inWin.push(r);
+      }
+      if (truncated || passedLower || runs.length < 100) break;
+      if (page === 5) truncated = true;
+    }
+    let totalMs = 0;
+    for (const r of inWin) {
+      const timing = JSON.parse(execFn("gh", ["api", `repos/${repo}/actions/runs/${r.id}/timing`], { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 }));
+      totalMs += Number(timing?.billable?.UBUNTU?.total_ms || 0);
+    }
+    const ubuntuMinutes = totalMs / 60_000;
+    return { status: "ok", runsCounted: inWin.length, truncated, ubuntuMinutes, usdCost: ubuntuMinutes * usdPerMin };
+  } catch {
+    return { status: "unavailable", runsCounted: 0, truncated: false, ubuntuMinutes: null, usdCost: null };
+  }
+}
+
+export function buildCostDashboardReport({
+  prsByRepo = {}, repos = [], sessionsDir = null, from = null, to = null, pruUsd = 0.04, checkoutByRepo = {},
+  includeActions = false, actionsUsdPerMin = 0.006, maxActionsRuns = 100, execFn = execFileSync,
+} = {}) {
+  const attr = attributeCostChains({ prsByRepo, repos, sessionsDir, from, to, pruUsd, checkoutByRepo });
+  const routeBuckets = Object.fromEntries(["trivial", "small", "multi-task"].map((route) => {
+    const items = attr.prRows.filter((r) => r.route === route), u = items.filter((r) => r.attribution === "unique");
+    return [route, {
+      count: items.length, uniqueCount: u.length, medianProdLines: median(items.map((r) => r.prodLines)),
+      medianDirectPru: median(u.map((r) => r.directPruCost)), medianChainPru: median(u.map((r) => r.chainPruCost)),
+      medianChainUsd: median(u.map((r) => r.chainUsdCost)), meanChainPru: mean(u.map((r) => r.chainPruCost)),
+      medianChainNanoAiu: median(u.map((r) => r.chainNanoAiu)), medianActiveSec: median(u.map((r) => r.chainActiveSec)),
+    }];
+  }));
+  const modelMap = new Map(), agentTotals = { main: { requests: 0, pruCost: 0, nanoAiu: 0 }, review: { requests: 0, pruCost: 0, nanoAiu: 0 }, otherSubagents: { requests: 0, pruCost: 0, nanoAiu: 0 } };
+  let snapPru = 0, snapReqs = 0;
+  for (const s of attr.countedSessions) {
+    if (s.pruCost !== null && s.userRequests !== null) { snapPru += s.pruCost; snapReqs += s.userRequests; }
+    for (const [mName, m] of Object.entries(s.models || {})) {
+      const cur = modelMap.get(mName) || { model: mName, requests: 0, pruCost: 0, nanoAiu: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+      cur.requests += m.requests; cur.pruCost += m.pruCost; cur.nanoAiu += m.nanoAiu;
+      cur.inputTokens += m.usage.inputTokens; cur.outputTokens += m.usage.outputTokens; cur.cacheReadTokens += m.usage.cacheReadTokens; cur.cacheWriteTokens += m.usage.cacheWriteTokens;
+      modelMap.set(mName, cur);
+    }
+    for (const k of ["main", "review", "otherSubagents"]) {
+      agentTotals[k].requests += s.agentBuckets[k].requests; agentTotals[k].pruCost += s.agentBuckets[k].pruCost; agentTotals[k].nanoAiu += s.agentBuckets[k].nanoAiu;
+    }
+  }
+  const modelBreakdown = [...modelMap.values()].map((m) => ({ ...m, multiplier: m.requests > 0 ? m.pruCost / m.requests : null, usdCost: m.pruCost * pruUsd }))
+    .sort((a, b) => b.pruCost - a.pruCost || b.requests - a.requests);
+  const totalAgentPru = agentTotals.main.pruCost + agentTotals.review.pruCost + agentTotals.otherSubagents.pruCost;
+  const agentBreakdown = Object.fromEntries(Object.entries(agentTotals).map(([k, v]) => [k, { ...v, usdCost: v.pruCost * pruUsd, share: totalAgentPru > 0 ? v.pruCost / totalAgentPru : null }]));
+  const uniqueChains = attr.prRows.filter((r) => r.attribution === "unique" && r.chainPruCost !== null);
+  const targetRepos = repos.length ? repos : Object.keys(prsByRepo);
+  let actionsCost = { status: "disabled", runsCounted: 0, truncated: false, ubuntuMinutes: null, usdCost: null, perRepo: {} };
+  if (includeActions) {
+    const perRepo = Object.fromEntries(targetRepos.map((r) => [r, fetchRepoActionsCost(r, { from, to, maxRuns: maxActionsRuns, usdPerMin: actionsUsdPerMin, execFn })]));
+    const vals = Object.values(perRepo), okVals = vals.filter((v) => v.status === "ok");
+    const mins = okVals.length ? okVals.reduce((a, v) => a + v.ubuntuMinutes, 0) : null;
+    actionsCost = { status: vals.length && vals.every((v) => v.status === "ok") ? "ok" : okVals.length ? "partial" : "unavailable", runsCounted: vals.reduce((a, v) => a + v.runsCounted, 0), truncated: vals.some((v) => v.truncated), ubuntuMinutes: mins, usdCost: mins !== null ? mins * actionsUsdPerMin : null, perRepo };
+  }
+  return {
+    generatedAt: new Date().toISOString(), window: { from, to }, repos: targetRepos, pruUsd,
+    totals: attr.totals, routeBuckets, modelBreakdown, agentBreakdown, prRows: attr.prRows, unattributed: attr.unattributed, actionsCost,
+    simulatorBaseline: {
+      totalSnapshotPru: snapPru, totalSnapshotUserRequests: snapReqs,
+      observedOneXCapSavingsRate: snapPru > 0 ? Math.max(0, 1 - snapReqs / snapPru) : 0,
+      medianFeatureChainPru: median(uniqueChains.map((r) => r.chainPruCost)),
+      meanFeatureChainPru: mean(uniqueChains.map((r) => r.chainPruCost)),
+      defaultTurnReductionPct: 25,
+      plans: [
+        { id: "pro-10", label: "$10 Pro", monthlyUsd: 10, includedPru: 300 },
+        { id: "budget-20", label: "$20 Budget", monthlyUsd: 20, includedPru: 500 },
+        { id: "pro-plus-39", label: "$39 Pro+", monthlyUsd: 39, includedPru: 1500 },
+      ],
     },
   };
 }
+
