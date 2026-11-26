@@ -11,6 +11,7 @@ import {
   buildCostDashboardReport,
   renderCostDashboardHtml,
   formatCostMarkdown,
+  runCli,
 } from "./cost-dashboard.mjs";
 
 function makeTempSessionsDir(t) {
@@ -853,5 +854,189 @@ test("T9: CLI supports offline json/markdown/html generation and rejects invalid
     assert.ok(bad.stderr.trim().length > 0);
   }
 });
+
+test("T11: review-panel regressions cover repo-less PR guard, array prs-file, partial shutdown, Actions query/rate, legacy null totals, AIU rendering, and simulator DOM states", async (t) => {
+  const vm = await import("node:vm");
+  const dir = makeTempSessionsDir(t);
+
+  // SJ-3, SJ-4, SJ-15, SJ-16: substring "tool.execution_complete" in first user.message & create_session, empty shutdown snapshot, non-enumerable _lines, prototype keys
+  const childPaths = writeSession(
+    dir,
+    "c1111111-1111-1111-1111-111111111111",
+    { repository: "org/app", created_at: "2026-11-20T10:00:00.000Z" },
+    [
+      { type: "user.message", timestamp: "2026-11-20T10:00:01.000Z", data: { source: "agent-a1111111-1111-1111-1111-111111111111", content: "Inspect tool.execution_complete handling; SECRET_RAW_LINE_42" } },
+      { type: "tool.execution_start", timestamp: "2026-11-20T10:00:02.000Z", data: { toolCallId: "tc-1", toolName: "create_session", arguments: { prompt: "Handle tool.execution_complete" } } },
+      { type: "tool.execution_complete", timestamp: "2026-11-20T10:00:03.000Z", data: { toolCallId: "tc-1", success: true, result: { content: "Created session (id: d1111111-1111-1111-1111-111111111111)" } } },
+      { type: "session.usage_checkpoint", timestamp: "2026-11-20T10:04:00.000Z", data: { accountingSnapshot: { totalUserRequests: 2, totalPremiumRequestCost: 6, totalNanoAiu: 6_000_000_000, modelMetrics: { constructor: { requests: { count: 2, cost: 6 }, usage: { inputTokens: 10, outputTokens: 5 } } }, agentMetrics: {} } } },
+      { type: "session.shutdown", timestamp: "2026-11-20T10:05:00.000Z", data: { accountingSnapshot: {} } },
+    ],
+  );
+  const parsed = parseCostSession("c1111111-1111-1111-1111-111111111111", childPaths.wsPath, childPaths.evPath);
+  assert.equal(parsed.kickoffParentId, "a1111111-1111-1111-1111-111111111111", "SJ-3: must not skip first user.message containing tool.execution_complete");
+  assert.equal(parsed.creationCallCount, 1, "SJ-3: must not skip first create_session start containing tool.execution_complete");
+  assert.equal(parsed.pruCost, 6, "SJ-4: trailing empty shutdown accountingSnapshot must not overwrite valid checkpoint");
+  assert.equal(parsed.models.constructor.pruCost, 6, "SJ-15: constructor key in modelMetrics must work safely");
+  assert.ok(!JSON.stringify(parsed).includes("SECRET_RAW_LINE_42"), "SJ-16: _lines must be non-enumerable on parseCostSession output");
+
+  // SJ-1, SJ-10, SJ-11: repo-less chat mentioning PR URL + legacy-only window + pre-window shared coordinator
+  const dir2 = makeTempSessionsDir(t);
+  writeSession(
+    dir2,
+    "c0a00000-0000-0000-0000-000000000001",
+    { created_at: "2026-11-20T09:00:00.000Z" },
+    [{ type: "user.message", timestamp: "2026-11-20T09:01:00.000Z", data: { content: "Check https://github.com/org/app/pull/99" } }],
+  );
+  writeSession(
+    dir2,
+    "c00d0000-0000-0000-0000-000000000001",
+    { repository: "org/app", created_at: "2026-11-01T09:00:00.000Z" },
+    [
+      { type: "tool.execution_start", timestamp: "2026-11-01T09:01:00.000Z", data: { toolCallId: "k1", toolName: "create_session" } },
+      { type: "tool.execution_complete", timestamp: "2026-11-01T09:01:05.000Z", data: { toolCallId: "k1", success: true, result: "id: e1000000-0000-0000-0000-000000000001" } },
+      { type: "tool.execution_start", timestamp: "2026-11-01T09:02:00.000Z", data: { toolCallId: "k2", toolName: "create_session" } },
+      { type: "tool.execution_complete", timestamp: "2026-11-01T09:02:05.000Z", data: { toolCallId: "k2", success: true, result: "id: e2000000-0000-0000-0000-000000000002" } },
+    ],
+  );
+  writeSession(
+    dir2,
+    "e1000000-0000-0000-0000-000000000001",
+    { repository: "org/app", created_at: "2026-11-01T10:00:00.000Z" },
+    [{ type: "assistant.message", timestamp: "2026-11-20T10:00:00.000Z", data: { content: "Opened https://github.com/org/app/pull/100" } }],
+  );
+  writeSession(
+    dir2,
+    "e2000000-0000-0000-0000-000000000002",
+    { repository: "org/app", created_at: "2026-11-01T11:00:00.000Z" },
+    [{ type: "assistant.message", timestamp: "2026-11-20T11:00:00.000Z", data: { content: "Opened https://github.com/org/app/pull/101" } }],
+  );
+  const legacyAttr = attributeCostChains({
+    prsByRepo: {
+      "org/app": [
+        { number: 99, title: "External PR", url: "https://github.com/org/app/pull/99", mergedAt: "2026-11-20T12:00:00.000Z", files: [] },
+        { number: 100, title: "Legacy 1", url: "https://github.com/org/app/pull/100", mergedAt: "2026-11-20T12:05:00.000Z", files: [] },
+        { number: 101, title: "Legacy 2", url: "https://github.com/org/app/pull/101", mergedAt: "2026-11-20T12:10:00.000Z", files: [] },
+      ],
+    },
+    repos: ["org/app"],
+    sessionsDir: dir2,
+    from: "2026-11-19T00:00:00.000Z",
+    to: "2026-11-22T00:00:00.000Z",
+  });
+  const pr99 = legacyAttr.prRows.find((r) => r.number === 99);
+  assert.equal(pr99.attribution, "unmatched_non_copilot_or_missing_session", "SJ-1: repo-less chat must not match direct PR");
+  assert.equal(legacyAttr.unattributed.sharedCoordinators.length, 1, "SJ-11: pre-window coordinator with in-window merged PR children must appear in sharedCoordinators");
+  assert.equal(legacyAttr.totals.scopedTotalPru, null, "SJ-10: legacy-only window with 0 snapshots must return null PRU total, not 0");
+  assert.equal(legacyAttr.totals.scopedTotalUsd, null, "SJ-10: legacy-only window with 0 snapshots must return null USD total, not 0");
+
+  // SJ-2: Array --prs-file without --repo infers repo from PR URL
+  const arrayPrsPath = join(dir2, "array-prs.json");
+  writeFileSync(arrayPrsPath, JSON.stringify([{ number: 100, title: "Legacy 1", url: "https://github.com/org/app/pull/100", mergedAt: "2026-11-20T12:05:00.000Z", files: [] }]), "utf8");
+  const cliRes = runCli(["--prs-file", arrayPrsPath, "--sessions-dir", dir2, "--from", "2026-11-19T00:00:00.000Z", "--to", "2026-11-22T00:00:00.000Z", "--format", "json"]);
+  const cliReport = JSON.parse(cliRes.stdout);
+  assert.equal(cliReport.prRows[0].repo, "org/app", "SJ-2: array --prs-file without --repo must infer owner/name from PR url");
+  assert.equal(cliReport.prRows[0].attribution, "unique", "SJ-2: inferred repo must match workspace session");
+
+  // SJ-5 & SJ-13: Actions created filter, default $0.008/min, deduplicated run IDs across pages
+  const apiPaths = [];
+  const actRes = fetchRepoActionsCost("org/app", {
+    from: "2026-11-01T00:00:00.000Z",
+    to: "2026-11-08T00:00:00.000Z",
+    maxRuns: 3,
+    execFn: (_cmd, args) => {
+      apiPaths.push(args[1]);
+      if (args[1].includes("/actions/runs?")) {
+        return JSON.stringify({
+          workflow_runs: [
+            { id: 501, created_at: "2026-11-05T00:00:00.000Z" },
+            { id: 501, created_at: "2026-11-05T00:00:00.000Z" },
+            { id: 502, created_at: "2026-11-04T00:00:00.000Z" },
+          ],
+        });
+      }
+      return JSON.stringify({ billable: { UBUNTU: { total_ms: 60_000 } } });
+    },
+  });
+  assert.ok(apiPaths[0].includes("created="), "SJ-5: Actions API call must pass created filter");
+  assert.equal(actRes.runsCounted, 2, "SJ-13: duplicate workflow run IDs must be deduplicated");
+  assert.ok(Math.abs(actRes.usdCost - 0.016) < 1e-9, "SJ-5: default Actions rate must be $0.008/min (2 min = $0.016)");
+
+  // SJ-6, SJ-7, SJ-8, SJ-9, SJ-14, SJ-17: HTML accessibility, AIU display, truncated Actions text, and simulator DOM state machine
+  const dir3 = makeTempSessionsDir(t);
+  writeSession(
+    dir3,
+    "a3000000-0000-0000-0000-000000000001",
+    { repository: "org/sim", created_at: "2026-11-20T08:00:00.000Z" },
+    [
+      { type: "assistant.message", timestamp: "2026-11-20T08:05:00.000Z", data: { content: "https://github.com/org/sim/pull/1" } },
+      { type: "session.shutdown", timestamp: "2026-11-20T08:06:00.000Z", data: { accountingSnapshot: { totalUserRequests: 1, totalPremiumRequestCost: 0.3, totalNanoAiu: 2_500_000_000, modelMetrics: {}, agentMetrics: { main: { agentName: "main", totalNanoAiu: 2_500_000_000, modelMetrics: { "gpt-mini": { requests: { count: 1, cost: 0.3 } } } } } } } },
+    ],
+  );
+  const simReport = buildCostDashboardReport({
+    prsByRepo: {
+      "org/sim": [
+        { number: 1, title: "Low PRU", url: "https://github.com/org/sim/pull/1", mergedAt: "2026-11-20T12:00:00+02:00", files: [{ path: "a.js", additions: 5, deletions: 0 }] },
+        { number: 2, title: "Bad URL", url: "javascript:alert(1)", mergedAt: "2026-11-20T11:00:00.000Z", files: [{ path: "b.js", additions: 2, deletions: 0 }] },
+      ],
+    },
+    repos: ["org/sim"],
+    sessionsDir: dir3,
+    from: "2026-11-19T00:00:00.000Z",
+    to: "2026-11-22T00:00:00.000Z",
+    pruUsd: 0.02,
+    includeActions: true,
+    maxActionsRuns: 1,
+    execFn: (_c, args) => args[1].includes("/actions/runs?")
+      ? JSON.stringify({ workflow_runs: [{ id: 1, created_at: "2026-11-20T01:00:00.000Z" }, { id: 2, created_at: "2026-11-20T00:30:00.000Z" }] })
+      : JSON.stringify({ billable: { UBUNTU: { total_ms: 120_000 } } }),
+  });
+  const simHtml = renderCostDashboardHtml(simReport);
+  const simMd = formatCostMarkdown(simReport);
+  assert.ok(simHtml.includes(":focus-visible") && simHtml.includes("aria-pressed=") && simHtml.includes('role="status"') && simHtml.includes('aria-live="polite"'), "SJ-8: must include focus-visible, aria-pressed, and live-region semantics");
+  assert.ok(simHtml.includes("color-scheme:") && simHtml.includes("a{color:var(--accent)}") && simHtml.includes("--warn-soft:"), "SJ-7: must include WCAG AA dark/light contrast tokens");
+  assert.ok(simHtml.includes("overflow-x:auto") && simHtml.includes("minmax("), "SJ-17: must prevent narrow-viewport bar collapse and table overflow");
+  assert.ok(simHtml.includes("AIU") && simHtml.includes("Mean:") && simMd.includes("AIU"), "SJ-9: HTML and Markdown must display AIU figures and mean chain PRU");
+  assert.ok(simHtml.includes("truncated"), "SJ-5: HTML Actions KPI must surface truncated status");
+
+  // Execute embedded script in minimal DOM harness to verify SJ-6 & SJ-14
+  const scriptMatch = simHtml.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(scriptMatch, "Embedded script must exist");
+  const els = {
+    themeBtn: { onclick: null, setAttribute(k, v) { this[k] = v; } },
+    turnSlider: { value: "25", oninput: null },
+    turnVal: { textContent: "" },
+    simSummary: { textContent: "" },
+    customUsd: { value: "20", oninput: null },
+    repoFilter: { value: "", onchange: null },
+    routeFilter: { value: "", onchange: null },
+    sortBy: { value: "date", onchange: null },
+    prBody: { innerHTML: "" },
+  };
+  const planBtnList = simReport.simulatorBaseline.plans.map((p, i) => ({
+    dataset: { pru: String(p.includedPru), usd: String(p.monthlyUsd) },
+    active: i === 1,
+    "aria-pressed": i === 1 ? "true" : "false",
+    classList: { add() { this.active = true; }, remove() { this.active = false; } },
+    setAttribute(k, v) { this[k] = v; },
+    onclick: null,
+  }));
+  vm.runInNewContext(scriptMatch[1], {
+    window: { matchMedia: () => ({ matches: false }) },
+    document: {
+      documentElement: { dataset: { theme: "light" } },
+      getElementById: (id) => els[id],
+      querySelectorAll: () => planBtnList,
+    },
+  });
+  assert.ok(els.simSummary.textContent.includes("1000 PRUs"), `SJ-6: $20 at $0.02/PRU must initialize 1000 PRUs, got: ${els.simSummary.textContent}`);
+  assert.ok(!els.simSummary.textContent.includes("(0.5 PRU/feature)"), `SJ-6: median 0.3 PRU must not clamp UP to 0.5 PRU, got: ${els.simSummary.textContent}`);
+  els.customUsd.oninput({ target: { value: "0" } });
+  assert.equal(planBtnList[1]["aria-pressed"], "false", "SJ-8: custom input must set preset aria-pressed=false");
+  assert.ok(!els.simSummary.textContent.includes("1000 PRUs"), "SJ-6: zero custom budget must clear stale 1000 PRU output");
+  els.sortBy.onchange();
+  assert.ok(els.prBody.innerHTML.indexOf("org/sim#2") < els.prBody.innerHTML.indexOf("org/sim#1"), "SJ-14: 11:00Z (#2) must sort newer than 12:00+02:00 = 10:00Z (#1)");
+  assert.ok(els.prBody.innerHTML.includes('href="#"'), "Security: javascript: URL must sanitize to href=\"#\"");
+});
+
 
 
