@@ -91,6 +91,64 @@ test("T1: parseCostSession keeps latest valid accountingSnapshot and preserves n
     cacheWriteTokens: 300,
   });
 
+  // Real Copilot CLI nested accountingSnapshot schema: tokenDetails.*.tokenCount, modelMetrics.*.totalNanoAiu,
+  // and agentMetrics[id].modelMetrics[model].requests + agentMetrics[id].totalNanoAiu.
+  const sReal = writeSession(
+    dir,
+    "12121212-1212-1212-1212-121212121212",
+    { repository: "divydvd/dev-loop", created_at: "2026-11-20T12:00:00.000Z" },
+    [
+      {
+        type: "session.shutdown",
+        timestamp: "2026-11-20T12:10:00.000Z",
+        data: {
+          accountingSnapshot: {
+            totalPremiumRequestCost: 6,
+            totalUserRequests: 6,
+            totalNanoAiu: 100_000_000_000,
+            totalApiDurationMs: 510_644,
+            tokenDetails: {
+              input: { tokenCount: 108 },
+              cache_read: { tokenCount: 3_402_304 },
+              cache_write: { tokenCount: 172_144 },
+              output: { tokenCount: 19_805 },
+            },
+            modelMetrics: {
+              "gpt-6.1-sol": {
+                requests: { count: 36, cost: 6 },
+                usage: { inputTokens: 3_574_556, outputTokens: 19_805, cacheReadTokens: 3_402_304, cacheWriteTokens: 172_144 },
+                totalNanoAiu: 100_000_000_000,
+              },
+            },
+            agentMetrics: {
+              main: {
+                totalNanoAiu: 75_000_000_000,
+                modelMetrics: { "gpt-6.1-sol": { requests: { count: 22, cost: 6 } } },
+              },
+              "3748ef9f-b6db-42f4-a36e-ee400f140672": {
+                agentName: "code-review",
+                agentDisplayName: "Step 5 review",
+                totalNanoAiu: 25_000_000_000,
+                modelMetrics: { "gpt-6.1-sol": { requests: { count: 14, cost: 0 } } },
+              },
+            },
+          },
+        },
+      },
+    ],
+  );
+  const parsedReal = parseCostSession("12121212-1212-1212-1212-121212121212", sReal.wsPath, sReal.evPath, { pruUsd: 0.04 });
+  assert.deepEqual(parsedReal.tokenDetails, {
+    inputTokens: 108,
+    outputTokens: 19_805,
+    cacheReadTokens: 3_402_304,
+    cacheWriteTokens: 172_144,
+  });
+  assert.equal(parsedReal.models["gpt-6.1-sol"].nanoAiu, 100_000_000_000);
+  assert.equal(parsedReal.models["gpt-6.1-sol"].multiplier, 1); // 6 PRU / 6 user turns, NOT 6 / 36 API calls!
+  assert.deepEqual(parsedReal.agentBuckets.main, { requests: 22, pruCost: 6, nanoAiu: 75_000_000_000 });
+  assert.deepEqual(parsedReal.agentBuckets.review, { requests: 14, pruCost: 0, nanoAiu: 25_000_000_000 });
+
   // Legacy session without accountingSnapshot keeps totalNanoAiu and marks PRU unavailable (null, never 0).
   const s2 = writeSession(
     dir,
@@ -521,16 +579,38 @@ test("T6: buildCostDashboardReport keeps colliding PR numbers distinct across re
         timestamp: "2026-11-20T11:00:35.000Z",
         data: {
           accountingSnapshot: {
-            totalUserRequests: 4,
+            totalUserRequests: 2,
             totalPremiumRequestCost: 30,
             totalNanoAiu: 30_000_000_000,
             modelMetrics: {
-              "claude-opus-5.5": { requests: { count: 2, cost: 30, nanoAiu: 30_000_000_000 }, usage: { inputTokens: 5000, outputTokens: 1000 } },
+              "claude-opus-5.5": { requests: { count: 24, cost: 30 }, totalNanoAiu: 30_000_000_000, usage: { inputTokens: 5000, outputTokens: 1000 } },
             },
             agentMetrics: {
-              main: { agentName: "main", requests: { count: 3, cost: 15, nanoAiu: 15_000_000_000 } },
-              rev: { agentName: "code-review", requests: { count: 1, cost: 15, nanoAiu: 15_000_000_000 } },
+              main: { totalNanoAiu: 15_000_000_000, modelMetrics: { "claude-opus-5.5": { requests: { count: 16, cost: 30 } } } },
+              rev: { agentName: "code-review", totalNanoAiu: 15_000_000_000, modelMetrics: { "claude-opus-5.5": { requests: { count: 8, cost: 0 } } } },
             },
+          },
+        },
+      },
+    ],
+  );
+
+  // Add a 0x-model unmerged session in org/a (10 user turns, 0 PRU): 0x sessions must NOT cancel out org/b's 15x excess!
+  writeSession(
+    dir,
+    "80808080-3333-3333-3333-333333333333",
+    { repository: "org/a", created_at: "2026-11-20T11:30:00.000Z" },
+    [
+      {
+        type: "session.shutdown",
+        timestamp: "2026-11-20T11:35:00.000Z",
+        data: {
+          accountingSnapshot: {
+            totalUserRequests: 10,
+            totalPremiumRequestCost: 0,
+            totalNanoAiu: 2_000_000_000,
+            modelMetrics: { "gpt-6-luna": { requests: { count: 25, cost: 0 }, totalNanoAiu: 2_000_000_000, usage: { inputTokens: 800, outputTokens: 200 } } },
+            agentMetrics: { main: { totalNanoAiu: 2_000_000_000, modelMetrics: { "gpt-6-luna": { requests: { count: 25, cost: 0 } } } } },
           },
         },
       },
@@ -567,13 +647,17 @@ test("T6: buildCostDashboardReport keeps colliding PR numbers distinct across re
   assert.equal(report.routeBuckets.trivial.medianChainPru, null);
 
   const opus = report.modelBreakdown.find((m) => m.model === "claude-opus-5.5");
-  assert.equal(opus.multiplier, 15);
+  assert.equal(opus.multiplier, 15); // 30 PRU / 2 user turns (not 30 / 24 API calls)
+  assert.equal(opus.requests, 24);
   assert.equal(opus.pruCost, 30);
-  assert.equal(report.agentBreakdown.review.pruCost, 15);
-  // Total userRequests = 14 across 40 PRUs -> observed 1x cap saves (40 - 14) / 40 = 0.65 (65%).
+  // Review subagent has 0 direct PRU (billed under main user request) but 15B / 42B compute share!
+  assert.equal(report.agentBreakdown.review.requests, 8);
+  assert.equal(report.agentBreakdown.review.nanoAiu, 15_000_000_000);
+  assert.ok(Math.abs(report.agentBreakdown.review.share - 15 / 42) < 1e-9);
+  // Per-session excess PRUs: max(0,10-10)=0 + max(0,30-2)=28 + max(0,0-10)=0 -> 28 / 40 = 0.70 (70%).
   assert.equal(report.simulatorBaseline.totalSnapshotPru, 40);
-  assert.equal(report.simulatorBaseline.totalSnapshotUserRequests, 14);
-  assert.ok(Math.abs(report.simulatorBaseline.observedOneXCapSavingsRate - 0.65) < 1e-9);
+  assert.equal(report.simulatorBaseline.totalSnapshotUserRequests, 22);
+  assert.ok(Math.abs(report.simulatorBaseline.observedOneXCapSavingsRate - 0.7) < 1e-9);
   assert.equal(report.simulatorBaseline.defaultTurnReductionPct, 25);
 
   // Repo org/a alone uses only 1x models -> observedOneXCapSavingsRate === 0.

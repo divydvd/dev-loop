@@ -31,7 +31,8 @@ export function parseCostSession(sessionId, wsPath, eventsPath, { pruUsd = 0.04 
   let latestSnap = null, kickoffParentId = null, seenFirstUserMsg = false, creationCallCount = 0;
   const creationCalls = new Set(), spawnedTargetIds = [];
   for (const line of base.lines) {
-    if (!line.trim()) continue;
+    if (!line.trim() || (!line.includes("session.") && !line.includes("user.message") && !line.includes("tool.execution_"))) continue;
+    if (line.includes("tool.execution_complete") && creationCalls.size === 0) continue;
     let evt; try { evt = JSON.parse(line); } catch { continue; }
     const { type, data = {} } = evt, isMain = !evt.agentId;
     if ((type === "session.usage_checkpoint" || type === "session.shutdown") && data.accountingSnapshot && typeof data.accountingSnapshot === "object") {
@@ -51,25 +52,28 @@ export function parseCostSession(sessionId, wsPath, eventsPath, { pruUsd = 0.04 
     }
   }
   const pruCost = latestSnap ? finiteOrNull(latestSnap.totalPremiumRequestCost) : null, hasSnap = pruCost !== null, models = {};
-  for (const [modelName, m] of Object.entries(latestSnap?.modelMetrics || {})) {
-    const requests = Number(m?.requests?.count || 0), mCost = Number(m?.requests?.cost || 0), nanoAiu = Number(m?.requests?.nanoAiu || 0), u = m?.usage || {};
-    models[modelName] = { requests, pruCost: mCost, nanoAiu, multiplier: requests > 0 ? mCost / requests : null, usage: { inputTokens: Number(u.inputTokens || 0), outputTokens: Number(u.outputTokens || 0), cacheReadTokens: Number(u.cacheReadTokens || 0), cacheWriteTokens: Number(u.cacheWriteTokens || 0) } };
+  const userRequests = latestSnap ? finiteOrNull(latestSnap.totalUserRequests) : null;
+  const mEntries = Object.entries(latestSnap?.modelMetrics || {}), sumApiReqs = mEntries.reduce((a, [, m]) => a + Number(m?.requests?.count || 0), 0);
+  for (const [modelName, m] of mEntries) {
+    const requests = Number(m?.requests?.count || 0), mCost = Number(m?.requests?.cost || 0), nanoAiu = Number(m?.totalNanoAiu ?? m?.requests?.nanoAiu ?? 0), u = m?.usage || {};
+    const userTurns = userRequests !== null && userRequests > 0 ? (mEntries.length === 1 ? userRequests : sumApiReqs === userRequests ? requests : null) : null;
+    models[modelName] = { requests, userTurns, pruCost: mCost, nanoAiu, multiplier: userTurns ? mCost / userTurns : null, usage: { inputTokens: Number(u.inputTokens || 0), outputTokens: Number(u.outputTokens || 0), cacheReadTokens: Number(u.cacheReadTokens || 0), cacheWriteTokens: Number(u.cacheWriteTokens || 0) } };
   }
   const agentBuckets = { main: { requests: 0, pruCost: 0, nanoAiu: 0 }, review: { requests: 0, pruCost: 0, nanoAiu: 0 }, otherSubagents: { requests: 0, pruCost: 0, nanoAiu: 0 } };
   for (const [key, ag] of Object.entries(latestSnap?.agentMetrics || {})) {
     const bucket = key === "main" || /^main$/i.test(String(ag?.agentName || "")) ? "main" : REVIEW_AGENT_RE.test(`${ag?.agentName || ""} ${ag?.agentDisplayName || ""}`) ? "review" : "otherSubagents";
-    agentBuckets[bucket].requests += Number(ag?.requests?.count || 0);
-    agentBuckets[bucket].pruCost += Number(ag?.requests?.cost || 0);
-    agentBuckets[bucket].nanoAiu += Number(ag?.requests?.nanoAiu || 0);
+    const mList = Object.values(ag?.modelMetrics || {});
+    agentBuckets[bucket].requests += mList.length ? mList.reduce((a, x) => a + Number(x?.requests?.count || 0), 0) : Number(ag?.requests?.count || 0);
+    agentBuckets[bucket].pruCost += mList.length ? mList.reduce((a, x) => a + Number(x?.requests?.cost || 0), 0) : Number(ag?.requests?.cost || 0);
+    agentBuckets[bucket].nanoAiu += Number(ag?.totalNanoAiu ?? ag?.requests?.nanoAiu ?? 0);
   }
   const td = latestSnap?.tokenDetails, idStr = String(ws.id || sessionId);
   return {
     sessionId: idStr, idKey: idStr.toLowerCase(), repository: ws.repository || null, createdAt: ws.created_at || null,
-    pruAttribution: hasSnap ? "exact" : "snapshot_unavailable", pruCost, usdCost: hasSnap ? pruCost * pruUsd : null,
-    userRequests: latestSnap ? finiteOrNull(latestSnap.totalUserRequests) : null,
+    pruAttribution: hasSnap ? "exact" : "snapshot_unavailable", pruCost, usdCost: hasSnap ? pruCost * pruUsd : null, userRequests,
     totalNanoAiu: (latestSnap ? finiteOrNull(latestSnap.totalNanoAiu) : null) ?? base.totalNanoAiu ?? null,
     totalApiDurationMs: latestSnap ? finiteOrNull(latestSnap.totalApiDurationMs) : null,
-    tokenDetails: td ? { inputTokens: Number(td.inputTokens || 0), outputTokens: Number(td.outputTokens || 0), cacheReadTokens: Number(td.cacheReadTokens || 0), cacheWriteTokens: Number(td.cacheWriteTokens || 0) } : null,
+    tokenDetails: td ? { inputTokens: Number(td.input?.tokenCount ?? td.inputTokens ?? 0), outputTokens: Number(td.output?.tokenCount ?? td.outputTokens ?? 0), cacheReadTokens: Number(td.cache_read?.tokenCount ?? td.cacheReadTokens ?? 0), cacheWriteTokens: Number(td.cache_write?.tokenCount ?? td.cacheWriteTokens ?? 0) } : null,
     models, agentBuckets, modelCalls: base.modelCalls, activeSec: base.activeSec, timeBuckets: base.timeBuckets,
     kickoffParentId, creationCallCount, spawnedTargetIds, _lines: base.lines,
   };
@@ -239,19 +243,20 @@ export function buildCostDashboardReport({ prsByRepo = {}, repos = [], sessionsD
     return [route, { count: items.length, uniqueCount: u.length, medianProdLines: median(items.map((r) => r.prodLines)), medianDirectPru: median(u.map((r) => r.directPruCost)), medianChainPru: median(u.map((r) => r.chainPruCost)), medianChainUsd: median(u.map((r) => r.chainUsdCost)), meanChainPru: mean(u.map((r) => r.chainPruCost)), medianChainNanoAiu: median(u.map((r) => r.chainNanoAiu)), medianActiveSec: median(u.map((r) => r.chainActiveSec)) }];
   }));
   const modelMap = new Map(), agentTotals = { main: { requests: 0, pruCost: 0, nanoAiu: 0 }, review: { requests: 0, pruCost: 0, nanoAiu: 0 }, otherSubagents: { requests: 0, pruCost: 0, nanoAiu: 0 } };
-  let snapPru = 0, snapReqs = 0;
+  let snapPru = 0, snapReqs = 0, excessOneXPru = 0;
   for (const s of attr.countedSessions) {
-    if (s.pruCost !== null && s.userRequests !== null) { snapPru += s.pruCost; snapReqs += s.userRequests; }
+    if (s.pruCost !== null && s.userRequests !== null) { snapPru += s.pruCost; snapReqs += s.userRequests; excessOneXPru += Math.max(0, s.pruCost - s.userRequests); }
     for (const [mName, m] of Object.entries(s.models || {})) {
-      const cur = modelMap.get(mName) || { model: mName, requests: 0, pruCost: 0, nanoAiu: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+      const cur = modelMap.get(mName) || { model: mName, requests: 0, observedTurns: 0, observedTurnPru: 0, pruCost: 0, nanoAiu: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
       cur.requests += m.requests; cur.pruCost += m.pruCost; cur.nanoAiu += m.nanoAiu; cur.inputTokens += m.usage.inputTokens; cur.outputTokens += m.usage.outputTokens; cur.cacheReadTokens += m.usage.cacheReadTokens; cur.cacheWriteTokens += m.usage.cacheWriteTokens;
+      if (m.userTurns) { cur.observedTurns += m.userTurns; cur.observedTurnPru += m.pruCost; }
       modelMap.set(mName, cur);
     }
     for (const k of ["main", "review", "otherSubagents"]) { agentTotals[k].requests += s.agentBuckets[k].requests; agentTotals[k].pruCost += s.agentBuckets[k].pruCost; agentTotals[k].nanoAiu += s.agentBuckets[k].nanoAiu; }
   }
-  const modelBreakdown = [...modelMap.values()].map((m) => ({ ...m, multiplier: m.requests > 0 ? m.pruCost / m.requests : null, usdCost: m.pruCost * pruUsd })).sort((a, b) => b.pruCost - a.pruCost || b.requests - a.requests);
-  const totalAgentPru = agentTotals.main.pruCost + agentTotals.review.pruCost + agentTotals.otherSubagents.pruCost;
-  const agentBreakdown = Object.fromEntries(Object.entries(agentTotals).map(([k, v]) => [k, { ...v, usdCost: v.pruCost * pruUsd, share: totalAgentPru > 0 ? v.pruCost / totalAgentPru : null }]));
+  const modelBreakdown = [...modelMap.values()].map(({ observedTurns, observedTurnPru, ...m }) => ({ ...m, multiplier: observedTurns > 0 ? observedTurnPru / observedTurns : null, usdCost: m.pruCost * pruUsd })).sort((a, b) => b.pruCost - a.pruCost || b.requests - a.requests);
+  const totalAgentPru = agentTotals.main.pruCost + agentTotals.review.pruCost + agentTotals.otherSubagents.pruCost, totalAgentNano = agentTotals.main.nanoAiu + agentTotals.review.nanoAiu + agentTotals.otherSubagents.nanoAiu;
+  const agentBreakdown = Object.fromEntries(Object.entries(agentTotals).map(([k, v]) => [k, { ...v, usdCost: v.pruCost * pruUsd, share: totalAgentNano > 0 ? v.nanoAiu / totalAgentNano : totalAgentPru > 0 ? v.pruCost / totalAgentPru : null }]));
   const uniqueChains = attr.prRows.filter((r) => r.attribution === "unique" && r.chainPruCost !== null), targetRepos = repos.length ? repos : Object.keys(prsByRepo);
   let actionsCost = { status: "disabled", runsCounted: 0, truncated: false, ubuntuMinutes: null, usdCost: null, perRepo: {} };
   if (includeActions) {
@@ -262,7 +267,7 @@ export function buildCostDashboardReport({ prsByRepo = {}, repos = [], sessionsD
   return {
     generatedAt: new Date().toISOString(), window: { from, to }, repos: targetRepos, pruUsd, totals: attr.totals, routeBuckets, modelBreakdown, agentBreakdown, prRows: attr.prRows, unattributed: attr.unattributed, actionsCost,
     simulatorBaseline: {
-      totalSnapshotPru: snapPru, totalSnapshotUserRequests: snapReqs, observedOneXCapSavingsRate: snapPru > 0 ? Math.max(0, 1 - snapReqs / snapPru) : 0,
+      totalSnapshotPru: snapPru, totalSnapshotUserRequests: snapReqs, observedOneXCapSavingsRate: snapPru > 0 ? excessOneXPru / snapPru : 0,
       medianFeatureChainPru: median(uniqueChains.map((r) => r.chainPruCost)), meanFeatureChainPru: mean(uniqueChains.map((r) => r.chainPruCost)), defaultTurnReductionPct: 25,
       plans: [{ id: "pro-10", label: "$10 Pro", monthlyUsd: 10, includedPru: 300 }, { id: "budget-20", label: "$20 Budget", monthlyUsd: 20, includedPru: 500 }, { id: "pro-plus-39", label: "$39 Pro+", monthlyUsd: 39, includedPru: 1500 }],
     },
