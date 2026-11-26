@@ -1097,15 +1097,19 @@ test("T12: panel-2 regressions cover prs-file repo isolation, post-to PR parity,
   assert.deepEqual(scopedRep.prsTruncatedRepos, ["org/target"]);
   assert.match(formatCostMarkdown(scopedRep), /PR history truncated/i);
 
-  // AC-2 + CS-1: post-to PR parity & 3-level pre-window coordinator chain + equal-hit tie-breaking
+  // AC-2 + CS-1 + SF-1/SF-2/SF-3: post-to PR parity, 3-level pre-window coordinator chain, midId < kid1 tie-breaking, repo-less coordinator, cross-repo pre-window coordinator, and mixed-case repo canonicalization
   const pDir = join(dir, "parity");
   mkdirSync(pDir, { recursive: true });
   const gpId = "00000000-0000-0000-0000-000000000001";
-  const midId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+  const midId = "11111111-1111-1111-1111-111111111111";
   const kid1 = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
   const kid2 = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
   const sharedCross = "cccccccc-cccc-cccc-cccc-cccccccccccc";
   const postOnly = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+  const repolessCoord = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+  const crossRepoCoord = "22222222-2222-2222-2222-222222222222";
+  const crossKidOldTarget = "33333333-3333-3333-3333-333333333333";
+  const crossKidNewOther = "44444444-4444-4444-4444-444444444444";
 
   writeSession(pDir, gpId, { repository: "org/p", created_at: "2026-10-20T00:00:00Z" }, [
     { type: "tool.execution_start", data: { toolCallId: "g1", toolName: "create_session" } },
@@ -1135,6 +1139,28 @@ test("T12: panel-2 regressions cover prs-file repo isolation, post-to PR parity,
     { type: "tool.execution_complete", data: { toolCallId: "po1", result: "https://github.com/org/p/pull/13" } },
     { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 4, totalUserRequests: 2, totalNanoAiu: 40 } } },
   ]);
+  writeSession(pDir, repolessCoord, { created_at: "2026-11-06T00:00:00Z" }, [
+    { type: "tool.execution_start", data: { toolCallId: "rc1", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "rc1", success: true, result: "id: 77777777-7777-7777-7777-777777777777" } },
+    { type: "tool.execution_start", data: { toolCallId: "rc2", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "rc2", success: true, result: "id: 88888888-8888-8888-8888-888888888888" } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 11, totalUserRequests: 2, totalNanoAiu: 110 } } },
+  ]);
+  writeSession(pDir, crossRepoCoord, { repository: "private/other", created_at: "2026-10-15T00:00:00Z" }, [
+    { type: "tool.execution_start", data: { toolCallId: "cr1", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "cr1", success: true, result: `id: ${crossKidOldTarget}` } },
+    { type: "tool.execution_start", data: { toolCallId: "cr2", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "cr2", success: true, result: `id: ${crossKidNewOther}` } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 50, totalUserRequests: 5, totalNanoAiu: 500 } } },
+  ]);
+  writeSession(pDir, crossKidOldTarget, { repository: "org/p", created_at: "2026-10-16T00:00:00Z" }, [
+    { type: "user.message", data: { content: "old", source: `agent-${crossRepoCoord}` } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 2, totalUserRequests: 1, totalNanoAiu: 20 } } },
+  ]);
+  writeSession(pDir, crossKidNewOther, { repository: "private/other", created_at: "2026-11-04T00:00:00Z" }, [
+    { type: "user.message", data: { content: "new", source: `agent-${crossRepoCoord}` } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 2, totalUserRequests: 1, totalNanoAiu: 20 } } },
+  ]);
 
   const parityAttr = attributeCostChains({
     prsByRepo: {
@@ -1144,6 +1170,9 @@ test("T12: panel-2 regressions cover prs-file repo isolation, post-to PR parity,
         { number: 12, url: "https://github.com/org/p/pull/12", mergedAt: "2026-11-15T12:00:00Z", files: [{ path: "c.js", additions: 2, deletions: 0 }] },
         { number: 13, url: "https://github.com/org/p/pull/13", mergedAt: "2026-11-16T12:00:00Z", files: [{ path: "d.js", additions: 2, deletions: 0 }] },
       ],
+      "ORG/P": [
+        { number: 14, url: "https://github.com/ORG/P/pull/14", mergedAt: "2026-11-08T12:00:00Z", files: [{ path: "e.js", additions: 2, deletions: 0 }] },
+      ],
     },
     repos: ["org/p"],
     sessionsDir: pDir,
@@ -1152,10 +1181,23 @@ test("T12: panel-2 regressions cover prs-file repo isolation, post-to PR parity,
   });
   const pr10 = parityAttr.prRows.find((r) => r.number === 10);
   const pr11 = parityAttr.prRows.find((r) => r.number === 11);
-  assert.equal(pr10.sessionId, kid1, "CS-1: equal 1-hit tie must prefer non-coordinator implementation child over spawner parent");
+  const pr14 = parityAttr.prRows.find((r) => r.number === 14);
+  assert.equal(pr10.sessionId, kid1, "CS-1/SF-3: equal 1-hit tie must displace earlier-sorted spawner midId with leaf kid1");
   assert.equal(pr11.attribution, "ambiguous", "AC-2: session shared with a post-to PR must be marked ambiguous");
+  assert.equal(pr14.repo, "org/p", "SF-2: mixed-case repo key must normalize to canonical repo casing");
   assert.ok(!parityAttr.unattributed.unmergedSessions.some((s) => s.sessionId === postOnly), "AC-2: session whose PR merged after --to must not enter unmergedSessions");
-  assert.ok(parityAttr.unattributed.sharedCoordinators.some((s) => s.sessionId === gpId), "CS-1/AC-4: 3-level pre-window grandparent coordinator must be included regardless of UUID sort order");
+  assert.ok(parityAttr.unattributed.sharedCoordinators.some((s) => s.sessionId === gpId), "CS-1/AC-4: 3-level pre-window grandparent coordinator must be included");
+  assert.ok(!parityAttr.unattributed.sharedCoordinators.some((s) => s.sessionId === crossRepoCoord), "SF-1: pre-window cross-repo coordinator must not leak into org/p");
+  assert.equal(parityAttr.unattributed.unscopedChatSpend.sessionCount, 1, "SF-1: repo-less coordinator without in-scope child must stay in unscopedChatSpend under --repo");
+
+  const wsWideAttr = attributeCostChains({
+    prsByRepo: {},
+    repos: [],
+    sessionsDir: pDir,
+    from: "2026-11-01T00:00:00Z",
+    to: "2026-11-10T00:00:00Z",
+  });
+  assert.ok(wsWideAttr.unattributed.sharedCoordinators.some((s) => s.sessionId === repolessCoord), "SF-1: workspace-wide mode must include in-window repo-less coordinator in sharedCoordinators");
 
   // UI-2, UI-3, UI-4, UI-5: 0-snapshot legacy HTML n/a rendering, accessible theme button, 320px CSS, tabindex=0, and null chainPruCost sort order
   const lDir = join(dir, "legacy-ui");
@@ -1177,6 +1219,11 @@ test("T12: panel-2 regressions cover prs-file repo isolation, post-to PR parity,
   assert.match(legacyHtml, /tabindex="0"/, "UI-2: scrollable table containers must be keyboard focusable");
   assert.match(legacyHtml, /<button id="themeBtn" type="button" aria-pressed="false">Dark theme<\/button>/, "UI-3: #themeBtn visible text and accessible name must match");
   assert.ok(!legacyHtml.includes("0.0%"), "UI-4: 0-snapshot legacy window must render n/a rather than 0.0%");
+  const legEls = { themeBtn: { onclick: null, setAttribute() {} }, turnSlider: { value: "25", oninput: null }, turnVal: { textContent: "" }, simSummary: { textContent: "" }, customUsd: { value: "20", oninput: null }, repoFilter: { value: "", onchange: null }, routeFilter: { value: "", onchange: null }, sortBy: { value: "pru", onchange: null }, prBody: { innerHTML: "" } };
+  vm.runInNewContext(legacyHtml.match(/<script>([\s\S]*?)<\/script>/)[1], { window: { matchMedia: () => ({ matches: false }) }, document: { documentElement: { dataset: { theme: "light" } }, getElementById: (id) => legEls[id], querySelectorAll: () => [] } });
+  legEls.customUsd.oninput({ target: { value: "25" } });
+  assert.match(legEls.simSummary.textContent, /PRU rate > \$0/i, "UI-5: customUsd input with pruUsd=0 must prompt for PRU rate > $0 rather than Infinity");
+  assert.ok(!legEls.simSummary.textContent.includes("Infinity"));
 
   // UI-4: Chain PRU sort places numeric chainPruCost above null chainPruCost (even with high directPruCost)
   const sortHtml = renderCostDashboardHtml({

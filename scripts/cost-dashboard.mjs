@@ -113,13 +113,14 @@ export function attributeCostChains({ prsByRepo = {}, repos = [], sessionsDir = 
       seen.set(curr.idKey, idx++); curr = curr.parentId ? sessionsById.get(curr.parentId) : null;
     }
   }
+  const canonRepo = new Map(); for (const r of [...(repos || []), ...Object.keys(prsByRepo || {})]) if (r && !canonRepo.has(r.toLowerCase())) canonRepo.set(r.toLowerCase(), r);
   const allPrEntries = [], seenPrKeys = new Set();
   for (const [repo, prs] of Object.entries(prsByRepo || {})) {
-    const rLow = repo.toLowerCase(); if (repoFilter.size > 0 && !repoFilter.has(rLow)) continue;
+    const rLow = repo.toLowerCase(), cRepo = canonRepo.get(rLow) || repo; if (repoFilter.size > 0 && !repoFilter.has(rLow)) continue;
     for (const pr of prs || []) {
       const lowKey = `${rLow}#${pr.number}`; if (seenPrKeys.has(lowKey)) continue; seenPrKeys.add(lowKey);
       const mMs = Date.parse(pr.mergedAt || pr.createdAt || ""), inWin = (!Number.isFinite(fromMs) || !Number.isFinite(mMs) || mMs >= fromMs) && (!Number.isFinite(toMs) || !Number.isFinite(mMs) || mMs < toMs);
-      allPrEntries.push({ repo, pr, prKey: `${repo}#${pr.number}`, inWin, mergedMs: mMs });
+      allPrEntries.push({ repo: cRepo, pr, prKey: `${cRepo}#${pr.number}`, inWin, mergedMs: mMs });
     }
   }
   const chosenByPrKey = new Map();
@@ -179,16 +180,13 @@ export function attributeCostChains({ prsByRepo = {}, repos = [], sessionsDir = 
     const cs = [...s.resolvedChildIds].map((c) => sessionsById.get(c)).filter(Boolean);
     if (cycleNodeIds.has(s.idKey) || s.spawnedChildCount > 1 || cs.some((c) => coordIds.has(c.idKey) || c.directPrKeys.length > 1 || c.spawnedChildCount > 1)) { coordIds.add(s.idKey); chg = true; }
   } }
-  for (const s of sessionsById.values()) {
-    if (coordIds.has(s.idKey) || s.consumedByPrKey || countedSessionIds.has(s.idKey) || s.directPrKeys.length >= 1 || !inTimeWindow(s.createdAt)) continue;
-    if (!s.repository) { unscopedChats.push(publicSessionSummary(s)); if (repoFilter.size === 0) countedSessionIds.add(s.idKey); }
-    else if (inRepoScope(s.repository)) { countedSessionIds.add(s.idKey); unmergedSessions.push(publicSessionSummary(s)); }
-  }
+  for (const s of sessionsById.values()) if (!coordIds.has(s.idKey) && !s.consumedByPrKey && !countedSessionIds.has(s.idKey) && s.directPrKeys.length === 0 && s.repository && inRepoScope(s.repository) && inTimeWindow(s.createdAt)) { countedSessionIds.add(s.idKey); unmergedSessions.push(publicSessionSummary(s)); }
   for (let chg = true; chg; ) { chg = false; for (const idKey of coordIds) {
     if (countedSessionIds.has(idKey)) continue;
     const s = sessionsById.get(idKey), cs = [...s.resolvedChildIds].map((c) => sessionsById.get(c)).filter(Boolean);
-    if ((inRepoScope(s.repository) || cs.some((c) => inRepoScope(c.repository) || countedSessionIds.has(c.idKey))) && (inTimeWindow(s.createdAt) || cs.some((c) => countedSessionIds.has(c.idKey) || inTimeWindow(c.createdAt)))) { countedSessionIds.add(idKey); sharedCoordinators.push(publicSessionSummary(s, { spawnedChildCount: s.spawnedChildCount, cycleDetected: cycleNodeIds.has(idKey) })); chg = true; }
+    if (((repoFilter.size === 0 || inRepoScope(s.repository)) && inTimeWindow(s.createdAt)) || cs.some((c) => countedSessionIds.has(c.idKey) || (inRepoScope(c.repository) && inTimeWindow(c.createdAt)))) { countedSessionIds.add(idKey); sharedCoordinators.push(publicSessionSummary(s, { spawnedChildCount: s.spawnedChildCount, cycleDetected: cycleNodeIds.has(idKey) })); chg = true; }
   } }
+  for (const s of sessionsById.values()) if (!s.repository && !s.consumedByPrKey && !countedSessionIds.has(s.idKey) && s.directPrKeys.length === 0 && inTimeWindow(s.createdAt)) { unscopedChats.push(publicSessionSummary(s)); if (repoFilter.size === 0) countedSessionIds.add(s.idKey); }
   let rawTotalPru = 0, scopedSnapshotCount = 0, scopedMissingSnapshotCount = 0, scopedNanoAiu = 0;
   for (const idKey of countedSessionIds) {
     const s = sessionsById.get(idKey);
