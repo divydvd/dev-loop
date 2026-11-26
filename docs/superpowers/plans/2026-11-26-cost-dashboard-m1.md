@@ -153,7 +153,7 @@ Cover:
 - `T6`: Multi-repo input (`org/a#12` `small` and `org/b#12` `multi-task`) preserves both PRs, computes `routeBuckets` (`trivial`, `small`, `multi-task` median `directPruCost`, `chainPruCost`, `chainUsdCost`, `chainNanoAiu`, `activeSec`), aggregates `modelBreakdown` with exact `multiplier = cost / count`, and computes `simulatorBaseline` (`observedOneXCapSavingsRate` from `1 - sum(userRequests) / sum(pruCost)` on snapshot sessions, `0` when all `1x`).
 - `T7`: `fetchRepoActionsCost` with mocked `execFn` sums `billable.UBUNTU.total_ms / 60000`, honors `maxRuns: 2` (`truncated: true`), and keeps `simulatorBaseline` PRU counts independent of Actions USD.
 
-- [ ] **Step 2: Run `node --test scripts/cost-dashboard.test.mjs` to verify RED failure**
+- [x] **Step 2: Run `node --test scripts/cost-dashboard.test.mjs` to verify RED failure**
 
 Run: `node --test scripts/cost-dashboard.test.mjs`
 Expected: FAIL (`buildCostDashboardReport` / `fetchRepoActionsCost` not exported).
@@ -189,27 +189,27 @@ git commit -m "feat: add multi-repo cost rollups, simulator baseline, and Action
   - `formatCostMarkdown(report) -> string`
   - `runCli(argv) -> { stdout: string, outPath: string | null }` (invoked when run as main script)
 
-- [ ] **Step 1: Add failing tests `T8` and `T9` in `scripts/cost-dashboard.test.mjs`**
+- [x] **Step 1: Add failing tests `T8` and `T9` in `scripts/cost-dashboard.test.mjs`**
 
 Cover:
 - `T8`: Pass untrusted `</script><img src=x onerror=alert(1)>` in PR `title`, `repo`, and `modelId`, plus secret text `"SECRET_PROMPT_TOKEN_99"` in `user.message`. Assert `renderCostDashboardHtml` escapes `<` in HTML and `<script>` JSON (`!html.includes("</script><img")`), omits `"SECRET_PROMPT_TOKEN_99"`, contains no `https://` `<script` or `<link` external assets, includes `[data-theme]`, `@media (prefers-reduced-motion: reduce)`, `$10` / `$20` / `$39` plan presets, turn-reduction slider (`default` `25`), route table, PR filter/sort controls, and empty/`n/a` badges.
 - `T9`: Spawn `node scripts/cost-dashboard.mjs` (stripping `NODE_TEST_CONTEXT` and `GIT_*` env vars) with `--prs-file`, `--sessions-dir`, `--format json|markdown|html`, and `--out`; assert exit `0`. Spawn with `--pru-usd -0.05`, `--pru-usd nope`, and `--max-actions-runs 0`; assert exit `1` and descriptive stderr message.
 
-- [ ] **Step 2: Run `node --test scripts/cost-dashboard.test.mjs` to verify RED failure**
+- [x] **Step 2: Run `node --test scripts/cost-dashboard.test.mjs` to verify RED failure**
 
 Run: `node --test scripts/cost-dashboard.test.mjs`
 Expected: FAIL (`renderCostDashboardHtml` / CLI not implemented).
 
-- [ ] **Step 3: Implement `renderCostDashboardHtml`, `formatCostMarkdown`, and CLI entrypoint in `scripts/cost-dashboard.mjs`**
+- [x] **Step 3: Implement `renderCostDashboardHtml`, `formatCostMarkdown`, and CLI entrypoint in `scripts/cost-dashboard.mjs`**
 
 Verify `wc -l scripts/cost-dashboard.mjs` stays `<= 400` lines. Use compact semantic HTML + Primer CSS variables (light & dark themes), accessible `<button>` / `<label>` / `<input type="range">` / `<select>` controls, client-side plan simulator (`$10` `300` PRUs, `$20` `500` PRU-eq, `$39` `1500` PRUs, custom USD) combining exact `observedOneXCapSavingsRate` with the `0%`–`50%` turn-reduction slider (clearly badged `"Projected until M2 Budget Mode"`), and safe JSON serialization (`JSON.stringify(data).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029")`).
 
-- [ ] **Step 4: Run `node --test scripts/cost-dashboard.test.mjs` and check line count**
+- [x] **Step 4: Run `node --test scripts/cost-dashboard.test.mjs` and check line count**
 
 Run: `node --test scripts/cost-dashboard.test.mjs && wc -l scripts/cost-dashboard.mjs`
 Expected: PASS (`T1`–`T9` green) and `scripts/cost-dashboard.mjs` `<= 400` lines.
 
-- [ ] **Step 5: Commit Task 3**
+- [x] **Step 5: Commit Task 3**
 
 ```bash
 git add scripts/cost-dashboard.mjs scripts/cost-dashboard.test.mjs

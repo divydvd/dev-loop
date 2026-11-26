@@ -1,13 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   parseCostSession,
   attributeCostChains,
   fetchRepoActionsCost,
   buildCostDashboardReport,
+  renderCostDashboardHtml,
+  formatCostMarkdown,
 } from "./cost-dashboard.mjs";
 
 function makeTempSessionsDir(t) {
@@ -645,4 +648,126 @@ test("T7: fetchRepoActionsCost sums billable Ubuntu minutes, respects maxRuns tr
   assert.equal(report.totals.scopedTotalPru, 5);
   assert.equal(report.simulatorBaseline.medianFeatureChainPru, 5);
 });
+
+test("T8: renderCostDashboardHtml escapes HTML and inline script JSON, omits raw user prompts, and renders theme, reduced-motion, and simulator controls", (t) => {
+  const dir = makeTempSessionsDir(t);
+  const xssPayload = "</script><img src=x onerror=alert(1)>";
+  writeSession(
+    dir,
+    "a1a1a1a1-1111-1111-1111-111111111111",
+    { repository: "org/xss", created_at: "2026-11-20T10:00:00.000Z" },
+    [
+      { type: "user.message", timestamp: "2026-11-20T10:00:01.000Z", data: { content: "SECRET_PROMPT_TOKEN_99" } },
+      { type: "assistant.message", timestamp: "2026-11-20T10:05:00.000Z", data: { content: "Opened https://github.com/org/xss/pull/7" } },
+      {
+        type: "session.shutdown",
+        timestamp: "2026-11-20T10:06:00.000Z",
+        data: {
+          accountingSnapshot: {
+            totalUserRequests: 3,
+            totalPremiumRequestCost: 15,
+            totalNanoAiu: 15_000_000_000,
+            modelMetrics: { [`model-${xssPayload}`]: { requests: { count: 1, cost: 15, nanoAiu: 15_000_000_000 }, usage: {} } },
+            agentMetrics: { main: { agentName: `agent-${xssPayload}`, requests: { count: 3, cost: 15, nanoAiu: 15_000_000_000 } } },
+          },
+        },
+      },
+    ],
+  );
+
+  const report = buildCostDashboardReport({
+    prsByRepo: {
+      "org/xss": [
+        { number: 7, title: `Fix ${xssPayload}`, body: "SECRET_PR_BODY_77", url: "https://github.com/org/xss/pull/7", createdAt: "2026-11-20T10:04:00.000Z", mergedAt: "2026-11-20T10:10:00.000Z", files: [{ path: "src/x.mjs", additions: 12, deletions: 1 }] },
+      ],
+    },
+    repos: ["org/xss"],
+    sessionsDir: dir,
+    from: "2026-11-19T00:00:00.000Z",
+    to: "2026-11-22T00:00:00.000Z",
+    pruUsd: 0.04,
+  });
+
+  const html = renderCostDashboardHtml(report);
+  assert.ok(!html.includes(xssPayload), "Must escape </script><img payload in HTML and embedded JSON");
+  assert.ok(!html.includes("SECRET_PROMPT_TOKEN_99"), "Must never leak user.message content");
+  assert.ok(!html.includes("SECRET_PR_BODY_77"), "Must never leak PR body content");
+  assert.ok(!/<(?:script|link|img)[^>]+https?:\/\//i.test(html), "Must have zero external network asset dependencies");
+  assert.ok(html.includes('data-theme="light"') || html.includes("[data-theme="), "Must support light/dark theme tokens");
+  assert.ok(html.includes("prefers-reduced-motion: reduce"), "Must obey prefers-reduced-motion");
+  assert.ok(html.includes("$10 Pro") && html.includes("$20 Budget") && html.includes("$39 Pro+"), "Must render subscription presets");
+  assert.ok(html.includes('type="range"') && html.includes('value="25"'), "Must include turn-reduction slider defaulting to 25%");
+  assert.ok(html.includes("Projected until M2 Budget Mode"), "Must badge projected turn reduction clearly");
+
+  const md = formatCostMarkdown(report);
+  assert.ok(md.includes("org/xss#7"));
+  assert.ok(!md.includes("SECRET_PROMPT_TOKEN_99"));
+});
+
+test("T9: CLI supports offline json/markdown/html generation and rejects invalid numeric flags with exit 1", (t) => {
+  const dir = makeTempSessionsDir(t);
+  writeSession(
+    dir,
+    "b2b2b2b2-1111-1111-1111-111111111111",
+    { repository: "divydvd/dev-loop", created_at: "2026-11-20T10:00:00.000Z" },
+    [
+      { type: "assistant.message", timestamp: "2026-11-20T10:05:00.000Z", data: { content: "Opened https://github.com/divydvd/dev-loop/pull/42" } },
+      { type: "session.shutdown", timestamp: "2026-11-20T10:06:00.000Z", data: { accountingSnapshot: { totalUserRequests: 4, totalPremiumRequestCost: 8, totalNanoAiu: 8_000_000_000, modelMetrics: {}, agentMetrics: {} } } },
+    ],
+  );
+  const prsFile = join(dir, "prs.json");
+  writeFileSync(
+    prsFile,
+    JSON.stringify({
+      "divydvd/dev-loop": [
+        { number: 42, title: "Add cost CLI", url: "https://github.com/divydvd/dev-loop/pull/42", createdAt: "2026-11-20T10:04:00.000Z", mergedAt: "2026-11-20T10:10:00.000Z", files: [{ path: "scripts/cost-dashboard.mjs", additions: 50, deletions: 0 }] },
+      ],
+    }),
+    "utf8",
+  );
+
+  const cleanEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => k !== "NODE_TEST_CONTEXT" && !k.startsWith("GIT_")),
+  );
+  const scriptPath = resolve("scripts/cost-dashboard.mjs");
+  const outHtml = join(dir, "dashboard.html");
+
+  const htmlRun = spawnSync(
+    process.execPath,
+    [scriptPath, "--repo", "divydvd/dev-loop", "--prs-file", prsFile, "--sessions-dir", dir, "--from", "2026-11-19T00:00:00.000Z", "--to", "2026-11-22T00:00:00.000Z", "--format", "html", "--out", outHtml],
+    { env: cleanEnv, encoding: "utf8" },
+  );
+  assert.equal(htmlRun.status, 0, htmlRun.stderr);
+  assert.ok(existsSync(outHtml));
+  assert.ok(readFileSync(outHtml, "utf8").includes("<!doctype html>"));
+
+  const jsonRun = spawnSync(
+    process.execPath,
+    [scriptPath, "--repo", "divydvd/dev-loop", "--prs-file", prsFile, "--sessions-dir", dir, "--from", "2026-11-19T00:00:00.000Z", "--to", "2026-11-22T00:00:00.000Z", "--format", "json"],
+    { env: cleanEnv, encoding: "utf8" },
+  );
+  assert.equal(jsonRun.status, 0, jsonRun.stderr);
+  const parsedJson = JSON.parse(jsonRun.stdout);
+  assert.equal(parsedJson.totals.scopedTotalPru, 8);
+
+  const mdRun = spawnSync(
+    process.execPath,
+    [scriptPath, "--repo", "divydvd/dev-loop", "--prs-file", prsFile, "--sessions-dir", dir, "--from", "2026-11-19T00:00:00.000Z", "--to", "2026-11-22T00:00:00.000Z", "--format", "markdown"],
+    { env: cleanEnv, encoding: "utf8" },
+  );
+  assert.equal(mdRun.status, 0, mdRun.stderr);
+  assert.ok(mdRun.stdout.includes("divydvd/dev-loop#42"));
+
+  for (const badArgs of [
+    ["--pru-usd", "-0.05"],
+    ["--pru-usd", "nope"],
+    ["--max-actions-runs", "0"],
+    ["--format", "xml"],
+  ]) {
+    const bad = spawnSync(process.execPath, [scriptPath, "--prs-file", prsFile, "--sessions-dir", dir, ...badArgs], { env: cleanEnv, encoding: "utf8" });
+    assert.equal(bad.status, 1, `Expected exit 1 for ${badArgs.join(" ")}`);
+    assert.ok(bad.stderr.trim().length > 0);
+  }
+});
+
 
