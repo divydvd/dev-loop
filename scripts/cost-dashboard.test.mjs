@@ -1110,6 +1110,10 @@ test("T12: panel-2 regressions cover prs-file repo isolation, post-to PR parity,
   const crossRepoCoord = "22222222-2222-2222-2222-222222222222";
   const crossKidOldTarget = "33333333-3333-3333-3333-333333333333";
   const crossKidNewOther = "44444444-4444-4444-4444-444444444444";
+  const mixedCaseSess = "55555555-5555-5555-5555-555555555555";
+  const preWinRepolessCoord = "66666666-6666-6666-6666-666666666666";
+  const inWinRepolessChild = "67777777-7777-7777-7777-777777777777";
+  const postToCoord = "68888888-8888-8888-8888-888888888888";
 
   writeSession(pDir, gpId, { repository: "org/p", created_at: "2026-10-20T00:00:00Z" }, [
     { type: "tool.execution_start", data: { toolCallId: "g1", toolName: "create_session" } },
@@ -1136,8 +1140,31 @@ test("T12: panel-2 regressions cover prs-file repo isolation, post-to PR parity,
     { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 8, totalUserRequests: 4, totalNanoAiu: 80 } } },
   ]);
   writeSession(pDir, postOnly, { repository: "org/p", created_at: "2026-11-09T00:00:00Z" }, [
+    { type: "user.message", data: { content: "impl", source: `agent-${postToCoord}` } },
     { type: "tool.execution_complete", data: { toolCallId: "po1", result: "https://github.com/org/p/pull/13" } },
     { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 4, totalUserRequests: 2, totalNanoAiu: 40 } } },
+  ]);
+  writeSession(pDir, postToCoord, { repository: "org/p", created_at: "2026-10-28T00:00:00Z" }, [
+    { type: "tool.execution_start", data: { toolCallId: "pt1", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "pt1", success: true, result: `id: ${postOnly}` } },
+    { type: "tool.execution_start", data: { toolCallId: "pt2", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "pt2", success: true, result: "id: 69999999-9999-9999-9999-999999999999" } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 6, totalUserRequests: 2, totalNanoAiu: 60 } } },
+  ]);
+  writeSession(pDir, mixedCaseSess, { repository: "org/p", created_at: "2026-11-07T00:00:00Z" }, [
+    { type: "tool.execution_complete", data: { toolCallId: "mc1", result: "https://github.com/org/p/pull/14" } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 2, totalUserRequests: 1, totalNanoAiu: 20 } } },
+  ]);
+  writeSession(pDir, preWinRepolessCoord, { created_at: "2026-10-20T00:00:00Z" }, [
+    { type: "tool.execution_start", data: { toolCallId: "pw1", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "pw1", success: true, result: `id: ${inWinRepolessChild}` } },
+    { type: "tool.execution_start", data: { toolCallId: "pw2", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "pw2", success: true, result: "id: 6aaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 9, totalUserRequests: 2, totalNanoAiu: 90 } } },
+  ]);
+  writeSession(pDir, inWinRepolessChild, { created_at: "2026-11-03T00:00:00Z" }, [
+    { type: "user.message", data: { content: "chat", source: `agent-${preWinRepolessCoord}` } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 1, totalUserRequests: 1, totalNanoAiu: 10 } } },
   ]);
   writeSession(pDir, repolessCoord, { created_at: "2026-11-06T00:00:00Z" }, [
     { type: "tool.execution_start", data: { toolCallId: "rc1", toolName: "create_session" } },
@@ -1185,10 +1212,24 @@ test("T12: panel-2 regressions cover prs-file repo isolation, post-to PR parity,
   assert.equal(pr10.sessionId, kid1, "CS-1/SF-3: equal 1-hit tie must displace earlier-sorted spawner midId with leaf kid1");
   assert.equal(pr11.attribution, "ambiguous", "AC-2: session shared with a post-to PR must be marked ambiguous");
   assert.equal(pr14.repo, "org/p", "SF-2: mixed-case repo key must normalize to canonical repo casing");
+  assert.equal(pr14.attribution, "unique", "SF2-2: uppercase PR URL must match lowercase session PR URL");
+  assert.equal(pr14.sessionId, mixedCaseSess);
   assert.ok(!parityAttr.unattributed.unmergedSessions.some((s) => s.sessionId === postOnly), "AC-2: session whose PR merged after --to must not enter unmergedSessions");
+  assert.ok(!parityAttr.unattributed.sharedCoordinators.some((s) => s.sessionId === postToCoord), "SF2-1: pre-window coordinator whose child PR merged after --to must not be counted in earlier window");
   assert.ok(parityAttr.unattributed.sharedCoordinators.some((s) => s.sessionId === gpId), "CS-1/AC-4: 3-level pre-window grandparent coordinator must be included");
   assert.ok(!parityAttr.unattributed.sharedCoordinators.some((s) => s.sessionId === crossRepoCoord), "SF-1: pre-window cross-repo coordinator must not leak into org/p");
-  assert.equal(parityAttr.unattributed.unscopedChatSpend.sessionCount, 1, "SF-1: repo-less coordinator without in-scope child must stay in unscopedChatSpend under --repo");
+  assert.equal(parityAttr.unattributed.unscopedChatSpend.sessionCount, 2, "SF-1: in-window repo-less sessions without in-scope child stay in unscopedChatSpend under --repo");
+  const parityHtml = renderCostDashboardHtml(buildCostDashboardReport({
+    prsByRepo: {
+      "org/p": [{ number: 10, url: "https://github.com/org/p/pull/10", mergedAt: "2026-11-05T12:00:00Z", files: [{ path: "a.js", additions: 2, deletions: 0 }] }],
+      "ORG/P": [{ number: 14, url: "https://github.com/ORG/P/pull/14", mergedAt: "2026-11-08T12:00:00Z", files: [{ path: "e.js", additions: 2, deletions: 0 }] }],
+    },
+    repos: ["org/p"],
+    sessionsDir: pDir,
+    from: "2026-11-01T00:00:00Z",
+    to: "2026-11-10T00:00:00Z",
+  }));
+  assert.equal((parityHtml.match(/<option value="org\/p">/gi) || []).length, 1, "SF2-3: #repoFilter must emit one canonical option for mixed-case repos");
 
   const wsWideAttr = attributeCostChains({
     prsByRepo: {},
@@ -1198,6 +1239,8 @@ test("T12: panel-2 regressions cover prs-file repo isolation, post-to PR parity,
     to: "2026-11-10T00:00:00Z",
   });
   assert.ok(wsWideAttr.unattributed.sharedCoordinators.some((s) => s.sessionId === repolessCoord), "SF-1: workspace-wide mode must include in-window repo-less coordinator in sharedCoordinators");
+  assert.ok(wsWideAttr.unattributed.sharedCoordinators.some((s) => s.sessionId === preWinRepolessCoord), "SF2-1: workspace-wide mode must include pre-window coordinator with in-window repo-less child");
+  assert.equal(wsWideAttr.unattributed.unscopedChatSpend.sessionCount, 1, "SF2-3: repolessCoord must not be duplicated in unscopedChatSpend");
 
   // UI-2, UI-3, UI-4, UI-5: 0-snapshot legacy HTML n/a rendering, accessible theme button, 320px CSS, tabindex=0, and null chainPruCost sort order
   const lDir = join(dir, "legacy-ui");
@@ -1250,6 +1293,102 @@ test("T12: panel-2 regressions cover prs-file repo isolation, post-to PR parity,
     document: { documentElement: { dataset: { theme: "light" } }, getElementById: (id) => els[id], querySelectorAll: () => [] },
   });
   assert.ok(els.prBody.innerHTML.indexOf("org/target#2") < els.prBody.innerHTML.indexOf("org/target#1"), "UI-4: numeric Chain PRU (2.0) must sort above null Chain PRU");
+});
+
+test("T13: parseCostSession and attributeCostChains stream chunked logs without retaining _lines", (t) => {
+  const dir = makeTempSessionsDir(t);
+  const parentId = "d1000000-0000-0000-0000-000000000001";
+  const sameLineSess = "d2000000-0000-0000-0000-000000000002";
+  const twoLineSess = "d3000000-0000-0000-0000-000000000003";
+  const giantOtherSess = "d4000000-0000-0000-0000-000000000004";
+  const legacyStreamSess = "d5000000-0000-0000-0000-000000000005";
+
+  // Build >140 KiB JSONL payload with multibyte UTF-8 spanning the 64 KiB boundary
+  const padA = "x".repeat(65_460) + "€🚀".repeat(20);
+  const padB = "y".repeat(75_000);
+  const giantDir = join(dir, giantOtherSess);
+  mkdirSync(giantDir, { recursive: true });
+  const giantWs = join(giantDir, "workspace.yaml");
+  const giantEv = join(giantDir, "events.jsonl");
+  writeFileSync(giantWs, `id: ${giantOtherSess}\nrepository: other/giant\ncreated_at: 2026-11-05T10:00:00.000Z\n`, "utf8");
+  writeFileSync(
+    giantEv,
+    [
+      JSON.stringify({ type: "user.message", timestamp: "2026-11-05T10:00:01.000Z", data: { content: padA, source: `agent-${parentId}` } }),
+      JSON.stringify({ type: "assistant.turn_start", timestamp: "2026-11-05T10:00:02.000Z", data: { turnId: "1" } }),
+      JSON.stringify({ type: "assistant.message", timestamp: "2026-11-05T10:00:05.000Z", data: { turnId: "1", content: padB } }),
+      JSON.stringify({ type: "session.compaction_start", timestamp: "2026-11-05T10:00:06.000Z", data: { compactionAttemptId: "c1" } }),
+      JSON.stringify({ type: "tool.execution_start", timestamp: "2026-11-05T10:00:07.000Z", data: { toolCallId: "sp1", toolName: "create_session" } }),
+      JSON.stringify({ type: "tool.execution_complete", timestamp: "2026-11-05T10:00:08.000Z", data: { toolCallId: "sp1", success: true, result: `id: ${twoLineSess}` } }),
+      JSON.stringify({
+        type: "session.shutdown",
+        timestamp: "2026-11-05T10:00:10.000Z",
+        data: { accountingSnapshot: { totalPremiumRequestCost: 7, totalUserRequests: 2, totalNanoAiu: 700, modelMetrics: {}, agentMetrics: {} } },
+      }),
+    ].join("\n") + "\n",
+    "utf8",
+  );
+
+  const defaultParsed = parseCostSession(giantOtherSess, giantWs, giantEv, { pruUsd: 0.04 });
+  assert.equal(Object.getOwnPropertyNames(defaultParsed).includes("_lines"), false, "Must never retain raw _lines on parsed session objects");
+
+  const streamed = parseCostSession(giantOtherSess, giantWs, giantEv, { pruUsd: 0.04, includeTiming: false });
+  assert.equal(Object.getOwnPropertyNames(streamed).includes("_lines"), false);
+  assert.equal(streamed.activeSec, null, "includeTiming=false must skip timing interval materialization");
+  assert.equal(streamed.timeBuckets, null);
+  assert.equal(streamed.pruCost, 7);
+  assert.equal(streamed.modelCalls, 2);
+  assert.equal(streamed.kickoffParentId, parentId);
+  assert.deepEqual(streamed.spawnedTargetIds, [twoLineSess]);
+
+  writeSession(dir, legacyStreamSess, { repository: "other/legacy", created_at: "2026-11-05T10:00:00.000Z" }, [
+    { type: "assistant.turn_start", timestamp: "2026-11-05T10:00:01.000Z", data: { turnId: "1" } },
+    { type: "session.shutdown", timestamp: "2026-11-05T10:00:05.000Z", data: { totalNanoAiu: 4_500_000_000 } },
+  ]);
+  const streamedLegacy = parseCostSession(legacyStreamSess, join(dir, legacyStreamSess, "workspace.yaml"), join(dir, legacyStreamSess, "events.jsonl"), { includeTiming: false });
+  assert.equal(streamedLegacy.pruAttribution, "snapshot_unavailable");
+  assert.equal(streamedLegacy.totalNanoAiu, 4_500_000_000);
+  assert.equal(streamedLegacy.modelCalls, 1);
+
+  // Repo-less 1:1 ideation parent + per-line PR URL hit semantics (1 line x 3 repeats vs 2 lines with /files suffix)
+  const attrDir = join(dir, "attr");
+  mkdirSync(attrDir, { recursive: true });
+  writeSession(attrDir, parentId, { created_at: "2026-11-05T09:00:00.000Z" }, [
+    { type: "assistant.turn_start", timestamp: "2026-11-05T09:00:01.000Z", data: { turnId: "1" } },
+    { type: "assistant.message", timestamp: "2026-11-05T09:00:11.000Z", data: { turnId: "1", content: "Plan ready" } },
+    { type: "tool.execution_start", timestamp: "2026-11-05T09:00:12.000Z", data: { toolCallId: "p1", toolName: "create_session" } },
+    { type: "tool.execution_complete", timestamp: "2026-11-05T09:00:13.000Z", data: { toolCallId: "p1", success: true, result: `id: ${twoLineSess}` } },
+    { type: "session.shutdown", timestamp: "2026-11-05T09:00:15.000Z", data: { accountingSnapshot: { totalPremiumRequestCost: 3, totalUserRequests: 1, totalNanoAiu: 300 } } },
+  ]);
+  writeSession(attrDir, sameLineSess, { repository: "org/p", created_at: "2026-11-05T09:05:00.000Z" }, [
+    {
+      type: "assistant.message",
+      timestamp: "2026-11-05T09:06:00.000Z",
+      data: { content: "https://github.com/org/p/pull/10 https://github.com/org/p/pull/10 https://github.com/org/p/pull/10 and https://github.com/org/p/pull/100" },
+    },
+    { type: "assistant.message", timestamp: "2026-11-05T09:06:05.000Z", data: { content: "unrelated https://github.com/org/p/pull/100" } },
+    { type: "session.shutdown", timestamp: "2026-11-05T09:07:00.000Z", data: { accountingSnapshot: { totalPremiumRequestCost: 4, totalUserRequests: 1, totalNanoAiu: 400 } } },
+  ]);
+  writeSession(attrDir, twoLineSess, { repository: "org/p", created_at: "2026-11-05T09:10:00.000Z" }, [
+    { type: "user.message", timestamp: "2026-11-05T09:10:01.000Z", data: { content: "implement", source: `agent-${parentId}` } },
+    { type: "assistant.turn_start", timestamp: "2026-11-05T09:10:02.000Z", data: { turnId: "1" } },
+    { type: "assistant.message", timestamp: "2026-11-05T09:10:22.000Z", data: { turnId: "1", content: "Opened https://github.com/org/p/pull/10/files" } },
+    { type: "tool.execution_complete", timestamp: "2026-11-05T09:10:25.000Z", data: { toolCallId: "x", result: "Checked https://github.com/org/p/pull/10#discussion_r1" } },
+    { type: "session.shutdown", timestamp: "2026-11-05T09:10:30.000Z", data: { accountingSnapshot: { totalPremiumRequestCost: 6, totalUserRequests: 2, totalNanoAiu: 600 } } },
+  ]);
+
+  const attr = attributeCostChains({
+    prsByRepo: {
+      "org/p": [{ number: 10, url: "https://github.com/org/p/pull/10", mergedAt: "2026-11-05T12:00:00.000Z", files: [{ path: "src/a.js", additions: 5, deletions: 0 }] }],
+    },
+    repos: ["org/p"],
+    sessionsDir: attrDir,
+    from: "2026-11-05T00:00:00.000Z",
+    to: "2026-11-06T00:00:00.000Z",
+  });
+  assert.equal(attr.prRows[0].sessionId, twoLineSess, "Two distinct matching lines must beat three repeats on one line");
+  assert.equal(attr.prRows[0].chainPruCost, 9);
+  assert.equal(attr.prRows[0].chainActiveSec, 31, "Repo-less 1:1 ideation parent timing (11s) + child timing (20s) must be preserved in chainActiveSec");
 });
 
 

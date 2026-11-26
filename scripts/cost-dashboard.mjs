@@ -1,21 +1,24 @@
 #!/usr/bin/env node
 // Read-only ideation-to-merge cost dashboard for dev-loop repositories.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { classifyRoute, fetchMergedPrs, parseSessionEvents, productionLinesChanged } from "./collect-metrics.mjs";
 
 const CREATION_TOOLS = new Set(["create_session", "open_issue_session", "open_pr_session", "fork_session"]);
 const REVIEW_AGENT_RE = /\b(?:review(?:er|ers|ing|s)?|skeptic-judge|arch-correctness|concurrency-state|security-privacy|ui-a11y)\b/i;
-const SPAWN_ID_RE = /(?:\bid:\s*|ghapp:\/\/sessions\/)([0-9a-f-]{8,})/gi;
-const DAY_MS = 86_400_000;
+const SPAWN_ID_RE = /(?:\bid:\s*|ghapp:\/\/sessions\/)([0-9a-f-]{8,})/gi, PULL_FAST_RE = /\/pull\/\d/i, DAY_MS = 86_400_000, MAX_TIMING_BYTES = 33_554_432;
 const finiteOrNull = (v) => (v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 const safeJson = (v) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 const uniqRepos = (list) => { const s = new Set(); return (list || []).map((r) => String(r || "").trim()).filter((r) => r && !s.has(r.toLowerCase()) && s.add(r.toLowerCase())); };
+const fmtUsd = (n) => (Number.isFinite(n) ? `$${n.toFixed(2)}` : "n/a"), fmtPru = (n) => (Number.isFinite(n) ? `${n.toFixed(1)} PRU` : "n/a"), fmtAiu = (n) => (Number.isFinite(n) ? `${(n / 1e9).toFixed(2)} AIU` : "n/a");
+const median = (vals) => { const n = vals.filter((v) => Number.isFinite(v)).sort((a, b) => a - b); if (!n.length) return null; const m = Math.floor(n.length / 2); return n.length % 2 ? n[m] : (n[m - 1] + n[m]) / 2; };
+const mean = (vals) => { const n = vals.filter((v) => Number.isFinite(v)); return n.length ? n.reduce((a, b) => a + b, 0) / n.length : null; };
 
 function parseWorkspaceYaml(filePath) {
   const out = Object.create(null);
@@ -23,30 +26,42 @@ function parseWorkspaceYaml(filePath) {
   return out;
 }
 
-export function parseCostSession(sessionId, wsPath, eventsPath, { pruUsd = 0.04 } = {}) {
-  const ws = parseWorkspaceYaml(wsPath), base = parseSessionEvents(eventsPath);
-  let latestSnap = null, kickoffParentId = null, seenFirstUserMsg = false, creationCallCount = 0;
-  const creationCalls = new Set(), spawnedTargetIds = [];
-  for (const line of base.lines) {
-    if (!line.trim() || (!line.includes("session.") && !line.includes("user.message") && !line.includes("tool.execution_"))) continue;
-    let evt; try { evt = JSON.parse(line); } catch { continue; }
-    const { type, data = {} } = evt, isMain = !evt.agentId;
-    if ((type === "session.usage_checkpoint" || type === "session.shutdown") && finiteOrNull(data.accountingSnapshot?.totalPremiumRequestCost) !== null) {
-      latestSnap = data.accountingSnapshot;
-    } else if (type === "user.message" && isMain && !data.isAutopilotContinuation && !seenFirstUserMsg) {
-      const c = String(data.content ?? "");
-      if (!c.trim() || c.includes("<skill-context") || c.includes("<system_notification")) continue;
-      seenFirstUserMsg = true;
-      const m = String(data.source || "").match(/^agent-([0-9a-f-]{8,})$/i);
-      if (m) kickoffParentId = m[1].toLowerCase();
-    } else if (type === "tool.execution_start" && isMain && data.toolCallId && CREATION_TOOLS.has(data.toolName)) {
-      creationCalls.add(data.toolCallId);
-    } else if (type === "tool.execution_complete" && creationCalls.has(data.toolCallId) && data.success !== false) {
-      creationCallCount += 1;
-      const text = String(typeof data.result === "string" ? data.result : data.result?.content ?? "");
-      for (const m of text.matchAll(SPAWN_ID_RE)) spawnedTargetIds.push(m[1].toLowerCase());
+function forEachJsonlLine(filePath, onLine) {
+  const fd = openSync(filePath, "r"), buf = Buffer.allocUnsafe(65_536), dec = new StringDecoder("utf8"); let rem = "", n = 0;
+  try {
+    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) {
+      const chunk = rem + dec.write(buf.subarray(0, n)); let i = 0, nl;
+      while ((nl = chunk.indexOf("\n", i)) !== -1) { onLine(chunk.charCodeAt(nl - 1) === 13 ? chunk.slice(i, nl - 1) : chunk.slice(i, nl)); i = nl + 1; }
+      rem = chunk.slice(i);
     }
-  }
+    rem += dec.end(); if (rem) onLine(rem.endsWith("\r") ? rem.slice(0, -1) : rem);
+  } finally { closeSync(fd); }
+}
+
+export function parseCostSession(sessionId, wsPath, eventsPath, { pruUsd = 0.04, includeTiming = true, needlesByRepo = null, prHitsOut = null } = {}) {
+  const ws = parseWorkspaceYaml(wsPath), wantTiming = typeof includeTiming === "function" ? includeTiming(ws.repository || null) : Boolean(includeTiming);
+  const base = wantTiming && statSync(eventsPath).size <= MAX_TIMING_BYTES ? parseSessionEvents(eventsPath) : null;
+  const needles = needlesByRepo && ws.repository ? needlesByRepo.get(ws.repository.toLowerCase()) || [] : [], fastPull = needles.length > 0 && needles.every((x) => PULL_FAST_RE.test(x.needle));
+  let latestSnap = null, fallbackNanoAiu = null, streamModelCalls = 0, kickoffParentId = null, seenFirstUserMsg = false, creationCallCount = 0;
+  const creationCalls = new Set(), spawnedTargetIds = [], prHits = new Map();
+  const scanLine = (line) => {
+    if (!line.trim()) return;
+    if (needles.length && (!fastPull || PULL_FAST_RE.test(line))) for (const x of needles) if (x.re.test(line)) prHits.set(x.prKey, (prHits.get(x.prKey) || 0) + 1);
+    if (!line.includes("session.") && !line.includes("user.message") && !line.includes("tool.execution_") && (base || !line.includes("assistant.turn_start"))) return;
+    let evt; try { evt = JSON.parse(line); } catch { return; }
+    const { type, data = {} } = evt, isMain = !evt.agentId;
+    if (!base && (type === "assistant.turn_start" || type === "session.compaction_start")) streamModelCalls += 1;
+    if ((type === "session.usage_checkpoint" || type === "session.shutdown") && !base && finiteOrNull(data.totalNanoAiu) !== null) fallbackNanoAiu = Number(data.totalNanoAiu);
+    if ((type === "session.usage_checkpoint" || type === "session.shutdown") && finiteOrNull(data.accountingSnapshot?.totalPremiumRequestCost) !== null) latestSnap = data.accountingSnapshot;
+    else if (type === "user.message" && isMain && !data.isAutopilotContinuation && !seenFirstUserMsg) {
+      const c = String(data.content ?? ""); if (!c.trim() || c.includes("<skill-context") || c.includes("<system_notification")) return;
+      seenFirstUserMsg = true; const m = String(data.source || "").match(/^agent-([0-9a-f-]{8,})$/i); if (m) kickoffParentId = m[1].toLowerCase();
+    } else if (type === "tool.execution_start" && isMain && data.toolCallId && CREATION_TOOLS.has(data.toolName)) creationCalls.add(data.toolCallId);
+    else if (type === "tool.execution_complete" && creationCalls.has(data.toolCallId) && data.success !== false) {
+      creationCallCount += 1; for (const m of String(typeof data.result === "string" ? data.result : data.result?.content ?? "").matchAll(SPAWN_ID_RE)) spawnedTargetIds.push(m[1].toLowerCase());
+    }
+  };
+  if (base) for (const line of base.lines) scanLine(line); else forEachJsonlLine(eventsPath, scanLine);
   const pruCost = latestSnap ? finiteOrNull(latestSnap.totalPremiumRequestCost) : null, hasSnap = pruCost !== null, models = Object.create(null);
   const userRequests = latestSnap ? finiteOrNull(latestSnap.totalUserRequests) : null;
   const mEntries = Object.entries(latestSnap?.modelMetrics || {}), sumApiReqs = mEntries.reduce((a, [, m]) => a + Number(m?.requests?.count || 0), 0);
@@ -63,16 +78,17 @@ export function parseCostSession(sessionId, wsPath, eventsPath, { pruUsd = 0.04 
     agentBuckets[bucket].pruCost += mList.length ? mList.reduce((a, x) => a + Number(x?.requests?.cost || 0), 0) : Number(ag?.requests?.cost || 0);
     agentBuckets[bucket].nanoAiu += Number(ag?.totalNanoAiu ?? ag?.requests?.nanoAiu ?? 0);
   }
-  const td = latestSnap?.tokenDetails, idStr = String(ws.id || sessionId);
-  return Object.defineProperty({
-    sessionId: idStr, idKey: idStr.toLowerCase(), repository: ws.repository || null, createdAt: ws.created_at || null,
+  const td = latestSnap?.tokenDetails, idStr = String(ws.id || sessionId), idKey = idStr.toLowerCase();
+  if (prHitsOut && prHits.size) prHitsOut.set(idKey, prHits);
+  return {
+    sessionId: idStr, idKey, repository: ws.repository || null, createdAt: ws.created_at || null,
     pruAttribution: hasSnap ? "exact" : "snapshot_unavailable", pruCost, usdCost: hasSnap ? pruCost * pruUsd : null, userRequests,
-    totalNanoAiu: (latestSnap ? finiteOrNull(latestSnap.totalNanoAiu) : null) ?? base.totalNanoAiu ?? null,
+    totalNanoAiu: (latestSnap ? finiteOrNull(latestSnap.totalNanoAiu) : null) ?? (base ? base.totalNanoAiu : fallbackNanoAiu) ?? null,
     totalApiDurationMs: latestSnap ? finiteOrNull(latestSnap.totalApiDurationMs) : null,
     tokenDetails: td ? { inputTokens: Number(td.input?.tokenCount ?? td.inputTokens ?? 0), outputTokens: Number(td.output?.tokenCount ?? td.outputTokens ?? 0), cacheReadTokens: Number(td.cache_read?.tokenCount ?? td.cacheReadTokens ?? 0), cacheWriteTokens: Number(td.cache_write?.tokenCount ?? td.cacheWriteTokens ?? 0) } : null,
-    models, agentBuckets, modelCalls: base.modelCalls, activeSec: base.activeSec, timeBuckets: base.timeBuckets,
+    models, agentBuckets, modelCalls: base ? base.modelCalls : streamModelCalls, activeSec: base ? base.activeSec : null, timeBuckets: base ? base.timeBuckets : null,
     kickoffParentId, creationCallCount, spawnedTargetIds,
-  }, "_lines", { value: base.lines });
+  };
 }
 
 const publicSessionSummary = (s, extra = {}) => ({ sessionId: s.sessionId, repository: s.repository, createdAt: s.createdAt, pruAttribution: s.pruAttribution, pruCost: s.pruCost, usdCost: s.usdCost, userRequests: s.userRequests, totalNanoAiu: s.totalNanoAiu, activeSec: s.activeSec, ...extra });
@@ -83,61 +99,53 @@ export function attributeCostChains({ prsByRepo = {}, repos = [], sessionsDir = 
   const repoFilter = new Set((repos || []).filter(Boolean).map((r) => r.toLowerCase())), coMap = new Map(Object.entries(checkoutByRepo || {}).map(([k, v]) => [k.toLowerCase(), v]));
   const inRepoScope = (repo) => (repoFilter.size === 0 ? Boolean(repo) : Boolean(repo && repoFilter.has(repo.toLowerCase())));
   const inTimeWindow = (iso) => { const ms = Date.parse(iso || ""); return Number.isFinite(ms) && ms >= fromMs && ms < toMs; };
-  const sessionsById = new Map(), linesById = new Map();
-  if (sessionsDir && existsSync(sessionsDir)) try {
-    for (const entry of readdirSync(sessionsDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const wsPath = join(sessionsDir, entry.name, "workspace.yaml"), evPath = join(sessionsDir, entry.name, "events.jsonl");
-      if (!entry.isDirectory() || !existsSync(wsPath) || !existsSync(evPath)) continue;
-      try { const s = parseCostSession(entry.name, wsPath, evPath, { pruUsd }); linesById.set(s.idKey, s._lines); sessionsById.set(s.idKey, { ...s, parentId: null, resolvedChildIds: new Set(), directPrKeys: [], consumedByPrKey: null }); }
-      catch (err) { if (err?.code !== "ENOENT") throw err; }
-    }
-  } catch (err) { if (err?.code !== "ENOENT") throw err; }
-  for (const s of sessionsById.values()) {
-    if (s.kickoffParentId && s.kickoffParentId !== s.idKey && sessionsById.has(s.kickoffParentId)) {
-      s.parentId = s.kickoffParentId; sessionsById.get(s.kickoffParentId).resolvedChildIds.add(s.idKey);
-    }
-  }
-  for (const p of sessionsById.values()) {
-    for (const tid of p.spawnedTargetIds) {
-      if (tid === p.idKey || !sessionsById.has(tid)) continue;
-      p.resolvedChildIds.add(tid);
-      if (!sessionsById.get(tid).parentId) sessionsById.get(tid).parentId = p.idKey;
-    }
-    p.spawnedChildCount = Math.max(p.creationCallCount, p.resolvedChildIds.size);
-  }
-  const cycleNodeIds = new Set();
-  for (const s of sessionsById.values()) {
-    const seen = new Map(); let curr = s, idx = 0;
-    while (curr) {
-      if (seen.has(curr.idKey)) { for (const [k, i] of seen) if (i >= seen.get(curr.idKey)) cycleNodeIds.add(k); break; }
-      seen.set(curr.idKey, idx++); curr = curr.parentId ? sessionsById.get(curr.parentId) : null;
-    }
-  }
   const canonRepo = new Map(); for (const r of [...(repos || []), ...Object.keys(prsByRepo || {})]) if (r && !canonRepo.has(r.toLowerCase())) canonRepo.set(r.toLowerCase(), r);
-  const allPrEntries = [], seenPrKeys = new Set();
+  const allPrEntries = [], seenPrKeys = new Set(), needlesByRepo = new Map();
   for (const [repo, prs] of Object.entries(prsByRepo || {})) {
     const rLow = repo.toLowerCase(), cRepo = canonRepo.get(rLow) || repo; if (repoFilter.size > 0 && !repoFilter.has(rLow)) continue;
     for (const pr of prs || []) {
       const lowKey = `${rLow}#${pr.number}`; if (seenPrKeys.has(lowKey)) continue; seenPrKeys.add(lowKey);
       const mMs = Date.parse(pr.mergedAt || pr.createdAt || ""), inWin = (!Number.isFinite(fromMs) || !Number.isFinite(mMs) || mMs >= fromMs) && (!Number.isFinite(toMs) || !Number.isFinite(mMs) || mMs < toMs);
-      allPrEntries.push({ repo: cRepo, pr, prKey: `${cRepo}#${pr.number}`, inWin, mergedMs: mMs });
+      const prKey = `${cRepo}#${pr.number}`, needle = pr.url || `https://github.com/${cRepo}/pull/${pr.number}`;
+      allPrEntries.push({ repo: cRepo, pr, prKey, inWin, mergedMs: mMs });
+      const list = needlesByRepo.get(rLow) || []; list.push({ prKey, needle, re: new RegExp(`${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![0-9])`, "i") }); needlesByRepo.set(rLow, list);
     }
+   }
+  const sessionsById = new Map(), prHitsById = new Map(), includeTiming = (repo) => !repo || inRepoScope(repo);
+  if (sessionsDir && existsSync(sessionsDir)) try {
+    for (const entry of readdirSync(sessionsDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const wsPath = join(sessionsDir, entry.name, "workspace.yaml"), evPath = join(sessionsDir, entry.name, "events.jsonl");
+      if (!entry.isDirectory() || !existsSync(wsPath) || !existsSync(evPath)) continue;
+      try { const s = parseCostSession(entry.name, wsPath, evPath, { pruUsd, includeTiming, needlesByRepo, prHitsOut: prHitsById }); sessionsById.set(s.idKey, { ...s, parentId: null, resolvedChildIds: new Set(), directPrKeys: [], consumedByPrKey: null }); }
+      catch (err) { if (err?.code !== "ENOENT") throw err; }
+    }
+  } catch (err) { if (err?.code !== "ENOENT") throw err; }
+  for (const s of sessionsById.values()) if (s.kickoffParentId && s.kickoffParentId !== s.idKey && sessionsById.has(s.kickoffParentId)) {
+    s.parentId = s.kickoffParentId; sessionsById.get(s.kickoffParentId).resolvedChildIds.add(s.idKey);
   }
-  const chosenByPrKey = new Map();
+  for (const p of sessionsById.values()) {
+    for (const tid of p.spawnedTargetIds) if (tid !== p.idKey && sessionsById.has(tid)) {
+      p.resolvedChildIds.add(tid); if (!sessionsById.get(tid).parentId) sessionsById.get(tid).parentId = p.idKey;
+    }
+    p.spawnedChildCount = Math.max(p.creationCallCount, p.resolvedChildIds.size);
+  }
+  const cycleNodeIds = new Set(), chosenByPrKey = new Map();
+  for (const s of sessionsById.values()) {
+    const seen = new Map(); let curr = s, idx = 0;
+    while (curr) { if (seen.has(curr.idKey)) { for (const [k, i] of seen) if (i >= seen.get(curr.idKey)) cycleNodeIds.add(k); break; } seen.set(curr.idKey, idx++); curr = curr.parentId ? sessionsById.get(curr.parentId) : null; }
+  }
   for (const item of allPrEntries) {
-    const needle = item.pr.url || `https://github.com/${item.repo}/pull/${item.pr.number}`;
-    const needleRe = new RegExp(`${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![0-9])`);
     let best = null, bestHits = 0;
     for (const s of sessionsById.values()) {
       if (!s.repository || s.repository.toLowerCase() !== item.repo.toLowerCase()) continue;
       const cMs = Date.parse(s.createdAt || "");
       if (Number.isFinite(item.mergedMs) && Number.isFinite(cMs) && cMs > item.mergedMs) continue;
-      let hits = 0; for (const l of linesById.get(s.idKey) || []) if (needleRe.test(l)) hits += 1;
+      const hits = prHitsById.get(s.idKey)?.get(item.prKey) || 0;
       if (hits > bestHits || (hits > 0 && hits === bestHits && ((s.spawnedChildCount === 0) > (best.spawnedChildCount === 0) || ((s.spawnedChildCount === 0) === (best.spawnedChildCount === 0) && (cMs || Infinity) < (Date.parse(best.createdAt || "") || Infinity))))) { bestHits = hits; best = s; }
     }
     if (best) { chosenByPrKey.set(item.prKey, best); best.directPrKeys.push(item.prKey); }
   }
-  linesById.clear();
+  prHitsById.clear();
   const prRows = [], unmatchedPrKeys = [], countedSessionIds = new Set();
   for (const item of allPrEntries) {
     const s = chosenByPrKey.get(item.prKey), ancestors = [];
@@ -180,13 +188,16 @@ export function attributeCostChains({ prsByRepo = {}, repos = [], sessionsDir = 
     const cs = [...s.resolvedChildIds].map((c) => sessionsById.get(c)).filter(Boolean);
     if (cycleNodeIds.has(s.idKey) || s.spawnedChildCount > 1 || cs.some((c) => coordIds.has(c.idKey) || c.directPrKeys.length > 1 || c.spawnedChildCount > 1)) { coordIds.add(s.idKey); chg = true; }
   } }
-  for (const s of sessionsById.values()) if (!coordIds.has(s.idKey) && !s.consumedByPrKey && !countedSessionIds.has(s.idKey) && s.directPrKeys.length === 0 && s.repository && inRepoScope(s.repository) && inTimeWindow(s.createdAt)) { countedSessionIds.add(s.idKey); unmergedSessions.push(publicSessionSummary(s)); }
+  for (const s of sessionsById.values()) if (!coordIds.has(s.idKey) && !s.consumedByPrKey && !countedSessionIds.has(s.idKey) && s.directPrKeys.length === 0 && inTimeWindow(s.createdAt)) {
+    if (!s.repository) { unscopedChats.push(publicSessionSummary(s)); if (repoFilter.size === 0) countedSessionIds.add(s.idKey); }
+    else if (inRepoScope(s.repository)) { countedSessionIds.add(s.idKey); unmergedSessions.push(publicSessionSummary(s)); }
+  }
   for (let chg = true; chg; ) { chg = false; for (const idKey of coordIds) {
     if (countedSessionIds.has(idKey)) continue;
     const s = sessionsById.get(idKey), cs = [...s.resolvedChildIds].map((c) => sessionsById.get(c)).filter(Boolean);
-    if (((repoFilter.size === 0 || inRepoScope(s.repository)) && inTimeWindow(s.createdAt)) || cs.some((c) => countedSessionIds.has(c.idKey) || (inRepoScope(c.repository) && inTimeWindow(c.createdAt)))) { countedSessionIds.add(idKey); sharedCoordinators.push(publicSessionSummary(s, { spawnedChildCount: s.spawnedChildCount, cycleDetected: cycleNodeIds.has(idKey) })); chg = true; }
+    if (((repoFilter.size === 0 || inRepoScope(s.repository)) && inTimeWindow(s.createdAt)) || cs.some((c) => countedSessionIds.has(c.idKey))) { countedSessionIds.add(idKey); sharedCoordinators.push(publicSessionSummary(s, { spawnedChildCount: s.spawnedChildCount, cycleDetected: cycleNodeIds.has(idKey) })); chg = true; }
   } }
-  for (const s of sessionsById.values()) if (!s.repository && !s.consumedByPrKey && !countedSessionIds.has(s.idKey) && s.directPrKeys.length === 0 && inTimeWindow(s.createdAt)) { unscopedChats.push(publicSessionSummary(s)); if (repoFilter.size === 0) countedSessionIds.add(s.idKey); }
+  for (const idKey of coordIds) { const s = sessionsById.get(idKey); if (!s.repository && !s.consumedByPrKey && !countedSessionIds.has(s.idKey) && s.directPrKeys.length === 0 && inTimeWindow(s.createdAt)) unscopedChats.push(publicSessionSummary(s)); }
   let rawTotalPru = 0, scopedSnapshotCount = 0, scopedMissingSnapshotCount = 0, scopedNanoAiu = 0;
   for (const idKey of countedSessionIds) {
     const s = sessionsById.get(idKey);
@@ -201,9 +212,6 @@ export function attributeCostChains({ prsByRepo = {}, repos = [], sessionsDir = 
     totals: { scopedSessionCount: countedSessionIds.size, scopedSnapshotCount, scopedMissingSnapshotCount, scopedTotalPru, scopedTotalUsd: scopedTotalPru !== null ? scopedTotalPru * pruUsd : null, scopedNanoAiu },
   };
 }
-
-const median = (vals) => { const n = vals.filter((v) => Number.isFinite(v)).sort((a, b) => a - b); if (!n.length) return null; const m = Math.floor(n.length / 2); return n.length % 2 ? n[m] : (n[m - 1] + n[m]) / 2; };
-const mean = (vals) => { const n = vals.filter((v) => Number.isFinite(v)); return n.length ? n.reduce((a, b) => a + b, 0) / n.length : null; };
 
 export function fetchRepoActionsCost(repo, { from = null, to = null, maxRuns = 100, usdPerMin = 0.008, execFn = execFileSync } = {}) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(String(repo || ""))) return { status: "unavailable", runsCounted: 0, truncated: false, ubuntuMinutes: null, usdCost: null };
@@ -272,10 +280,6 @@ export function buildCostDashboardReport({ prsByRepo = {}, repos = [], sessionsD
   };
 }
 
-const fmtUsd = (n) => (Number.isFinite(n) ? `$${n.toFixed(2)}` : "n/a");
-const fmtPru = (n) => (Number.isFinite(n) ? `${n.toFixed(1)} PRU` : "n/a");
-const fmtAiu = (n) => (Number.isFinite(n) ? `${(n / 1e9).toFixed(2)} AIU` : "n/a");
-
 export function formatCostMarkdown(r) {
   const routeLines = ["trivial", "small", "multi-task"].map((k) => { const b = r.routeBuckets[k]; return `| ${k} | ${b.count} | ${b.uniqueCount} | ${b.medianProdLines ?? "n/a"} | ${fmtPru(b.medianDirectPru)} | ${fmtPru(b.medianChainPru)} | ${fmtUsd(b.medianChainUsd)} | ${fmtAiu(b.medianChainNanoAiu)} |`; });
   const prLines = r.prRows.map((p) => `| ${p.prKey} | ${p.route} | ${p.attribution} (${p.ideationAttribution}) | ${fmtPru(p.directPruCost)} | ${fmtPru(p.chainPruCost)} | ${fmtUsd(p.chainUsdCost)} |`);
@@ -301,7 +305,7 @@ export function renderCostDashboardHtml(r) {
   const routeRowsHtml = ["trivial", "small", "multi-task"].map((k) => { const b = r.routeBuckets[k]; return `<tr><td><span class="badge">${esc(k)}</span></td><td>${b.count}</td><td>${b.uniqueCount}</td><td>${b.medianProdLines ?? "n/a"}</td><td>${fmtPru(b.medianDirectPru)}</td><td>${fmtPru(b.medianChainPru)}</td><td>${fmtUsd(b.medianChainUsd)}</td><td>${fmtAiu(b.medianChainNanoAiu)}</td><td>${b.medianActiveSec !== null ? `${b.medianActiveSec.toFixed(0)}s` : "n/a"}</td></tr>`; }).join("");
   const modelRowsHtml = r.modelBreakdown.length ? r.modelBreakdown.map((m) => `<tr><td><code>${esc(m.model)}</code></td><td>${m.multiplier !== null ? `${m.multiplier.toFixed(2)}x` : "n/a"}</td><td>${m.requests}</td><td>${fmtPru(m.pruCost)}</td><td>${fmtUsd(m.usdCost)}</td><td>${m.inputTokens.toLocaleString()} / ${m.outputTokens.toLocaleString()}</td></tr>`).join("") : `<tr><td colspan="6">No snapshot model metrics in window.</td></tr>`;
   const agentHtml = ["main", "review", "otherSubagents"].map((k) => { const b = r.agentBreakdown[k], w = b.share !== null ? (b.share * 100).toFixed(1) : "0", lbl = b.share !== null ? `${w}%` : "n/a"; return `<div class="bar-row"><div><strong>${esc(k)}</strong> (${b.requests} reqs · ${fmtPru(b.pruCost)} · ${fmtAiu(b.nanoAiu)})</div><div class="track"><div class="fill" style="width:${w}%"></div></div><span>${lbl}</span></div>`; }).join("");
-  const repoOpts = [...new Set(r.prRows.map((p) => p.repo))].map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("");
+  const repoOpts = uniqRepos(r.prRows.map((p) => p.repo)).map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("");
   const planBtns = r.simulatorBaseline.plans.map((p, idx) => `<button type="button" class="plan-btn${idx === 1 ? " active" : ""}" aria-pressed="${idx === 1 ? "true" : "false"}" data-pru="${p.includedPru}" data-usd="${p.monthlyUsd}">${esc(p.label)} (${p.includedPru} PRUs)</button>`).join("");
   return `<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev-loop Ideation-to-Merge Cost Dashboard</title><style>
 :root,[data-theme="light"]{color-scheme:light;--bg:#f6f8fa;--card:#fff;--fg:#1f2328;--muted:#59636e;--border:#d0d7de;--accent:#0969da;--accent-soft:#ddf4ff;--ok:#1a7f37;--warn:#9a6700;--warn-soft:#fff8c5}[data-theme="dark"]{color-scheme:dark;--bg:#0d1117;--card:#161b22;--fg:#e6edf3;--muted:#8b949e;--border:#30363d;--accent:#58a6ff;--accent-soft:#1f3247;--ok:#3fb950;--warn:#f2cc60;--warn-soft:#3d2e00}
@@ -338,7 +342,7 @@ document.getElementById("customUsd").oninput=(e)=>{const u=Number(e.target.value
 document.getElementById("turnSlider").oninput=updateSim;
 function renderPrs(){
   const rf=document.getElementById("repoFilter").value,rtf=document.getElementById("routeFilter").value,sb=document.getElementById("sortBy").value,tbody=document.getElementById("prBody");
-  const rows=DATA.prRows.filter((p)=>(!rf||p.repo===rf)&&(!rtf||p.route===rtf)).slice().sort((a,b)=>sb==="date"?(Date.parse(b.mergedAt||"")||-1)-(Date.parse(a.mergedAt||"")||-1):sb==="lines"?(b.prodLines??-1)-(a.prodLines??-1):(b.chainPruCost!==null)-(a.chainPruCost!==null)||(b.chainPruCost??b.directPruCost??-1)-(a.chainPruCost??a.directPruCost??-1));
+  const rows=DATA.prRows.filter((p)=>(!rf||String(p.repo||"").toLowerCase()===rf.toLowerCase())&&(!rtf||p.route===rtf)).slice().sort((a,b)=>sb==="date"?(Date.parse(b.mergedAt||"")||-1)-(Date.parse(a.mergedAt||"")||-1):sb==="lines"?(b.prodLines??-1)-(a.prodLines??-1):(b.chainPruCost!==null)-(a.chainPruCost!==null)||(b.chainPruCost??b.directPruCost??-1)-(a.chainPruCost??a.directPruCost??-1));
   if(!rows.length){tbody.innerHTML='<tr><td colspan="7">No matching pull requests in window.</td></tr>';return;}
   tbody.innerHTML=rows.map((p)=>{const href=/^https?:\\/\\//i.test(String(p.url||""))?escHtml(p.url):"#",st=p.attribution==="unique"?p.ideationAttribution+(p.chainPruStatus!=="exact"?" · "+p.chainPruStatus:""):p.attribution;return '<tr><td><a href="'+href+'" target="_blank" rel="noopener noreferrer">'+escHtml(p.prKey)+"</a> — "+escHtml(p.title)+"</td><td>"+escHtml(p.route)+"</td><td>"+(p.prodLines??"n/a")+'</td><td><span class="badge">'+escHtml(st)+"</span></td><td>"+(p.directPruCost!==null?p.directPruCost.toFixed(1):"n/a")+"</td><td>"+(p.chainPruCost!==null?p.chainPruCost.toFixed(1):"n/a")+"</td><td>"+(p.chainUsdCost!==null?"$"+p.chainUsdCost.toFixed(2):"n/a")+"</td></tr>";}).join("");
 }
@@ -348,8 +352,7 @@ updateSim();renderPrs();
 }
 
 const parseNonNegNumber = (raw, flagName) => {
-  if (raw === undefined) return null;
-  const n = Number(raw);
+  if (raw === undefined) return null; const n = Number(raw);
   if (String(raw).trim() === "" || !Number.isFinite(n) || n < 0) throw new Error(`Invalid ${flagName}: expected non-negative number, got "${raw}"`);
   return n;
 };

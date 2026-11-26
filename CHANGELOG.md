@@ -9,11 +9,11 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Link exclusive `1:1` parent planning chains to merged PRs across multiple repositories (`<repo>#<number>`).
     Isolate shared multi-PR sessions, multi-child coordinators, unmerged sessions, unmatched PRs, and repo-less standalone chats.
     Add an interactive `$10` / `$20` / `$39` / custom monthly simulator combining observed `1x`-model cap savings with a labeled turn-reduction projection.
-    Support optional `--include-actions` Ubuntu CI minutes separately from Copilot PRUs.
+    Support optional `--include-actions` Ubuntu CI minutes separately from Copilot PRUs, and stream large or out-of-scope `events.jsonl` logs in `64 KiB` chunks without retaining raw line arrays across sessions.
     Keep startup context (`core.mdc`, `dev-loop-context.md`, and `skills/*/SKILL.md`) unchanged (`+0` startup bytes).
   - **Why:** Local workspace analysis across 338 sessions (`43,181` PRUs = `~$1,727.25` at `$0.04`/PRU) showed high model-multiplier variance (`15x` vs `1x`) and significant review-subagent share (`54%` of subagent AIUs).
-    Single-session PR checks missed parent ideation spend when work moved into a child worktree session.
-    Eleven unit, CLI, and DOM state-machine tests (`T1`–`T9`, `T11`, `T12`) failed before implementation and passed afterward, covering missing snapshots, parent-chain cycles, cross-repo PR collisions, XSS/prompt redaction, invalid CLI flags, and two review-panel rounds.
+    Single-session PR checks missed parent ideation spend when work moved into a child worktree session, and retaining raw `events.jsonl` line arrays across a `22 GB` `session-state` folder caused an out-of-memory crash.
+    Twelve unit, CLI, streaming, and DOM state-machine tests (`T1`–`T9`, `T11`–`T13`) failed before implementation and passed afterward, covering missing snapshots, parent-chain cycles, cross-repo PR collisions, XSS/prompt redaction, invalid CLI flags, review-panel rounds, and `22 GB` low-memory scanning.
   - **Check:** Run `node scripts/check.mjs`, `node --test scripts/cost-dashboard.test.mjs`, all CI suites, and a read-only `/tmp` smoke report on `~/.copilot/session-state`.
     In the next weekly review, compare attributed chain medians and unattributed session buckets before enabling Milestone 2 Budget Mode.
 
