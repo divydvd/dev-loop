@@ -1038,5 +1038,172 @@ test("T11: review-panel regressions cover repo-less PR guard, array prs-file, pa
   assert.ok(els.prBody.innerHTML.includes('href="#"'), "Security: javascript: URL must sanitize to href=\"#\"");
 });
 
+test("T12: panel-2 regressions cover prs-file repo isolation, post-to PR parity, reviewer regex, multi-level coordinators, PR truncation, and a11y states", async (t) => {
+  const vm = await import("node:vm");
+  const dir = mkdtempSync(join(tmpdir(), "cost-dash-t12-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  // AC-3: single-reviewer and code-reviewer subagents land in review bucket
+  const sRev = writeSession(dir, "s-rev-single", { repository: "org/app", created_at: "2026-11-10T10:00:00Z" }, [
+    {
+      type: "session.shutdown",
+      data: {
+        accountingSnapshot: {
+          totalPremiumRequestCost: 4,
+          totalUserRequests: 4,
+          totalNanoAiu: 1_000_000_000,
+          agentMetrics: {
+            main: { agentName: "main", totalNanoAiu: 600_000_000, requests: { count: 2, cost: 4 } },
+            sub1: { agentName: "general-purpose", agentDisplayName: "single-reviewer", totalNanoAiu: 250_000_000, requests: { count: 1, cost: 0 } },
+            sub2: { agentName: "code-reviewer", agentDisplayName: "Code Reviewer", totalNanoAiu: 150_000_000, requests: { count: 1, cost: 0 } },
+          },
+        },
+      },
+    },
+  ]);
+  const parsedRev = parseCostSession("s-rev-single", sRev.wsPath, sRev.evPath);
+  assert.equal(parsedRev.agentBuckets.review.nanoAiu, 400_000_000, "AC-3: single-reviewer and code-reviewer must classify as review");
+  assert.equal(parsedRev.agentBuckets.otherSubagents.nanoAiu, 0);
+
+  // AC-1/SP-1 + CS-3: prsByRepo without repos scopes out unrelated private repos and repo-less chats, and deduplicates mixed-case repos
+  const sDir = join(dir, "sessions");
+  mkdirSync(sDir, { recursive: true });
+  writeSession(sDir, "11111111-1111-1111-1111-111111111111", { repository: "org/target", created_at: "2026-11-12T10:00:00Z" }, [
+    { type: "tool.execution_complete", data: { toolCallId: "c1", result: "https://github.com/org/target/pull/1" } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 6, totalUserRequests: 6, totalNanoAiu: 100 } } },
+  ]);
+  writeSession(sDir, "22222222-2222-2222-2222-222222222222", { repository: "private-org/secret", created_at: "2026-11-12T11:00:00Z" }, [
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 99, totalUserRequests: 10, totalNanoAiu: 500 } } },
+  ]);
+  writeSession(sDir, "33333333-3333-3333-3333-333333333333", { created_at: "2026-11-12T12:00:00Z" }, [
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 40, totalUserRequests: 5, totalNanoAiu: 200 } } },
+  ]);
+  const prsList = [{ number: 1, title: "Target", url: "https://github.com/org/target/pull/1", mergedAt: "2026-11-12T15:00:00Z", files: [{ path: "src/a.js", additions: 5, deletions: 0 }] }];
+  Object.defineProperty(prsList, "truncated", { value: true, enumerable: false });
+  const scopedRep = buildCostDashboardReport({
+    prsByRepo: { "org/target": prsList, "ORG/TARGET": prsList },
+    repos: [],
+    sessionsDir: sDir,
+    from: "2026-11-01T00:00:00Z",
+    to: "2026-11-20T00:00:00Z",
+  });
+  assert.deepEqual(scopedRep.repos, ["org/target"], "CS-3: mixed-case duplicate repo keys must deduplicate");
+  assert.equal(scopedRep.prRows.length, 1);
+  assert.equal(scopedRep.prRows[0].attribution, "unique", "CS-3: duplicate case-variant PR keys must not mark unique PR ambiguous");
+  assert.equal(scopedRep.unattributed.unmergedSessions.length, 0, "AC-1/SP-1: private-org/secret must not leak into unmergedSessions");
+  assert.equal(scopedRep.unattributed.unscopedChatSpend.includedInScopedTotals, false, "AC-1: inferred repo scope must exclude repo-less chats from scoped total");
+  assert.equal(scopedRep.totals.scopedTotalPru, 6);
+  assert.equal(scopedRep.prsTruncated, true, "CS-4: non-enumerable fetchMergedPrs truncated flag must propagate");
+  assert.deepEqual(scopedRep.prsTruncatedRepos, ["org/target"]);
+  assert.match(formatCostMarkdown(scopedRep), /PR history truncated/i);
+
+  // AC-2 + CS-1: post-to PR parity & 3-level pre-window coordinator chain + equal-hit tie-breaking
+  const pDir = join(dir, "parity");
+  mkdirSync(pDir, { recursive: true });
+  const gpId = "00000000-0000-0000-0000-000000000001";
+  const midId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+  const kid1 = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const kid2 = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const sharedCross = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+  const postOnly = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+
+  writeSession(pDir, gpId, { repository: "org/p", created_at: "2026-10-20T00:00:00Z" }, [
+    { type: "tool.execution_start", data: { toolCallId: "g1", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "g1", success: true, result: `id: ${midId}` } },
+    { type: "tool.execution_start", data: { toolCallId: "g2", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "g2", success: true, result: "id: 99999999-9999-9999-9999-999999999999" } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 7, totalUserRequests: 2, totalNanoAiu: 70 } } },
+  ]);
+  writeSession(pDir, midId, { repository: "org/p", created_at: "2026-10-25T00:00:00Z" }, [
+    { type: "user.message", data: { content: "plan", source: `agent-${gpId}` } },
+    { type: "tool.execution_start", data: { toolCallId: "m1", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "m1", success: true, result: `id: ${kid1}\nhttps://github.com/org/p/pull/10` } },
+    { type: "tool.execution_start", data: { toolCallId: "m2", toolName: "create_session" } },
+    { type: "tool.execution_complete", data: { toolCallId: "m2", success: true, result: `id: ${kid2}` } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 5, totalUserRequests: 2, totalNanoAiu: 50 } } },
+  ]);
+  writeSession(pDir, kid1, { repository: "org/p", created_at: "2026-11-05T00:00:00Z" }, [
+    { type: "user.message", data: { content: "impl", source: `agent-${midId}` } },
+    { type: "tool.execution_complete", data: { toolCallId: "k1", result: "https://github.com/org/p/pull/10" } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 3, totalUserRequests: 3, totalNanoAiu: 30 } } },
+  ]);
+  writeSession(pDir, sharedCross, { repository: "org/p", created_at: "2026-11-06T00:00:00Z" }, [
+    { type: "tool.execution_complete", data: { toolCallId: "sc1", result: "https://github.com/org/p/pull/11 and https://github.com/org/p/pull/12" } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 8, totalUserRequests: 4, totalNanoAiu: 80 } } },
+  ]);
+  writeSession(pDir, postOnly, { repository: "org/p", created_at: "2026-11-09T00:00:00Z" }, [
+    { type: "tool.execution_complete", data: { toolCallId: "po1", result: "https://github.com/org/p/pull/13" } },
+    { type: "session.shutdown", data: { accountingSnapshot: { totalPremiumRequestCost: 4, totalUserRequests: 2, totalNanoAiu: 40 } } },
+  ]);
+
+  const parityAttr = attributeCostChains({
+    prsByRepo: {
+      "org/p": [
+        { number: 10, url: "https://github.com/org/p/pull/10", mergedAt: "2026-11-05T12:00:00Z", files: [{ path: "a.js", additions: 2, deletions: 0 }] },
+        { number: 11, url: "https://github.com/org/p/pull/11", mergedAt: "2026-11-07T12:00:00Z", files: [{ path: "b.js", additions: 2, deletions: 0 }] },
+        { number: 12, url: "https://github.com/org/p/pull/12", mergedAt: "2026-11-15T12:00:00Z", files: [{ path: "c.js", additions: 2, deletions: 0 }] },
+        { number: 13, url: "https://github.com/org/p/pull/13", mergedAt: "2026-11-16T12:00:00Z", files: [{ path: "d.js", additions: 2, deletions: 0 }] },
+      ],
+    },
+    repos: ["org/p"],
+    sessionsDir: pDir,
+    from: "2026-11-01T00:00:00Z",
+    to: "2026-11-10T00:00:00Z",
+  });
+  const pr10 = parityAttr.prRows.find((r) => r.number === 10);
+  const pr11 = parityAttr.prRows.find((r) => r.number === 11);
+  assert.equal(pr10.sessionId, kid1, "CS-1: equal 1-hit tie must prefer non-coordinator implementation child over spawner parent");
+  assert.equal(pr11.attribution, "ambiguous", "AC-2: session shared with a post-to PR must be marked ambiguous");
+  assert.ok(!parityAttr.unattributed.unmergedSessions.some((s) => s.sessionId === postOnly), "AC-2: session whose PR merged after --to must not enter unmergedSessions");
+  assert.ok(parityAttr.unattributed.sharedCoordinators.some((s) => s.sessionId === gpId), "CS-1/AC-4: 3-level pre-window grandparent coordinator must be included regardless of UUID sort order");
+
+  // UI-2, UI-3, UI-4, UI-5: 0-snapshot legacy HTML n/a rendering, accessible theme button, 320px CSS, tabindex=0, and null chainPruCost sort order
+  const lDir = join(dir, "legacy-ui");
+  mkdirSync(lDir, { recursive: true });
+  writeSession(lDir, "leg-ui-1", { repository: "org/ui", created_at: "2026-11-05T00:00:00Z" }, [
+    { type: "assistant.usage", data: { model: "gpt-5", duration: 100 } },
+  ]);
+  const legacyUiRep = buildCostDashboardReport({
+    prsByRepo: { "org/ui": [] },
+    repos: ["org/ui"],
+    sessionsDir: lDir,
+    from: "2026-11-01T00:00:00Z",
+    to: "2026-11-10T00:00:00Z",
+    pruUsd: 0,
+  });
+  assert.equal(legacyUiRep.simulatorBaseline.plans[1].includedPru, 0, "UI-5: pruUsd=0 must set $20 Budget includedPru to 0");
+  const legacyHtml = renderCostDashboardHtml(legacyUiRep);
+  assert.match(legacyHtml, /minmax\(min\(100%,340px\),1fr\)/, "UI-2: .grid2 must adapt below 388px viewports");
+  assert.match(legacyHtml, /tabindex="0"/, "UI-2: scrollable table containers must be keyboard focusable");
+  assert.match(legacyHtml, /<button id="themeBtn" type="button" aria-pressed="false">Dark theme<\/button>/, "UI-3: #themeBtn visible text and accessible name must match");
+  assert.ok(!legacyHtml.includes("0.0%"), "UI-4: 0-snapshot legacy window must render n/a rather than 0.0%");
+
+  // UI-4: Chain PRU sort places numeric chainPruCost above null chainPruCost (even with high directPruCost)
+  const sortHtml = renderCostDashboardHtml({
+    ...scopedRep,
+    prRows: [
+      { prKey: "org/target#1", repo: "org/target", number: 1, title: "Partial", url: "https://github.com/org/target/pull/1", mergedAt: "2026-11-12T10:00:00Z", route: "small", prodLines: 5, attribution: "unique", ideationAttribution: "exclusive_parent", chainPruStatus: "partial_parent_snapshot_unavailable", directPruCost: 50, chainPruCost: null, chainUsdCost: null },
+      { prKey: "org/target#2", repo: "org/target", number: 2, title: "Exact", url: "https://github.com/org/target/pull/2", mergedAt: "2026-11-12T11:00:00Z", route: "small", prodLines: 5, attribution: "unique", ideationAttribution: "none", chainPruStatus: "exact", directPruCost: 2, chainPruCost: 2, chainUsdCost: 0.08 },
+    ],
+  });
+  const scriptCode = sortHtml.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const els = {
+    themeBtn: { onclick: null, setAttribute() {} },
+    turnSlider: { value: "25", oninput: null },
+    turnVal: { textContent: "" },
+    simSummary: { textContent: "" },
+    customUsd: { value: "20", oninput: null },
+    repoFilter: { value: "", onchange: null },
+    routeFilter: { value: "", onchange: null },
+    sortBy: { value: "pru", onchange: null },
+    prBody: { innerHTML: "" },
+  };
+  vm.runInNewContext(scriptCode, {
+    window: { matchMedia: () => ({ matches: false }) },
+    document: { documentElement: { dataset: { theme: "light" } }, getElementById: (id) => els[id], querySelectorAll: () => [] },
+  });
+  assert.ok(els.prBody.innerHTML.indexOf("org/target#2") < els.prBody.innerHTML.indexOf("org/target#1"), "UI-4: numeric Chain PRU (2.0) must sort above null Chain PRU");
+});
+
 
 

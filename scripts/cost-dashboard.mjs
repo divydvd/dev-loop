@@ -9,18 +9,17 @@ import { pathToFileURL } from "node:url";
 import { classifyRoute, fetchMergedPrs, parseSessionEvents, productionLinesChanged } from "./collect-metrics.mjs";
 
 const CREATION_TOOLS = new Set(["create_session", "open_issue_session", "open_pr_session", "fork_session"]);
-const REVIEW_AGENT_RE = /\b(?:review|skeptic-judge|arch-correctness|concurrency-state|security-privacy|ui-a11y)\b/i;
+const REVIEW_AGENT_RE = /\b(?:review(?:er|ers|ing|s)?|skeptic-judge|arch-correctness|concurrency-state|security-privacy|ui-a11y)\b/i;
 const SPAWN_ID_RE = /(?:\bid:\s*|ghapp:\/\/sessions\/)([0-9a-f-]{8,})/gi;
 const DAY_MS = 86_400_000;
 const finiteOrNull = (v) => (v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 const safeJson = (v) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+const uniqRepos = (list) => { const s = new Set(); return (list || []).map((r) => String(r || "").trim()).filter((r) => r && !s.has(r.toLowerCase()) && s.add(r.toLowerCase())); };
 
 function parseWorkspaceYaml(filePath) {
   const out = Object.create(null);
-  if (filePath && existsSync(filePath)) {
-    for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) { const m = line.match(/^([a-zA-Z0-9_]+):\s*(.+)$/); if (m) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, ""); }
-  }
+  if (filePath) for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) { const m = line.match(/^([a-zA-Z0-9_]+):\s*(.+)$/); if (m) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, ""); }
   return out;
 }
 
@@ -81,20 +80,18 @@ const makePrRow = (item, route, prodLines, extra) => ({ prKey: item.prKey, repo:
 
 export function attributeCostChains({ prsByRepo = {}, repos = [], sessionsDir = null, from = null, to = null, pruUsd = 0.04, checkoutByRepo = {} } = {}) {
   const fromMs = from ? Date.parse(from) : -Infinity, toMs = to ? Date.parse(to) : Infinity;
-  const repoFilter = new Set((repos || []).filter(Boolean).map((r) => r.toLowerCase()));
+  const repoFilter = new Set((repos || []).filter(Boolean).map((r) => r.toLowerCase())), coMap = new Map(Object.entries(checkoutByRepo || {}).map(([k, v]) => [k.toLowerCase(), v]));
   const inRepoScope = (repo) => (repoFilter.size === 0 ? Boolean(repo) : Boolean(repo && repoFilter.has(repo.toLowerCase())));
   const inTimeWindow = (iso) => { const ms = Date.parse(iso || ""); return Number.isFinite(ms) && ms >= fromMs && ms < toMs; };
   const sessionsById = new Map(), linesById = new Map();
-  if (sessionsDir && existsSync(sessionsDir)) {
-    for (const entry of readdirSync(sessionsDir, { withFileTypes: true })) {
+  if (sessionsDir && existsSync(sessionsDir)) try {
+    for (const entry of readdirSync(sessionsDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const wsPath = join(sessionsDir, entry.name, "workspace.yaml"), evPath = join(sessionsDir, entry.name, "events.jsonl");
       if (!entry.isDirectory() || !existsSync(wsPath) || !existsSync(evPath)) continue;
-      try {
-        const s = parseCostSession(entry.name, wsPath, evPath, { pruUsd });
-        linesById.set(s.idKey, s._lines); sessionsById.set(s.idKey, { ...s, parentId: null, resolvedChildIds: new Set(), directPrKeys: [], consumedByPrKey: null });
-      } catch (err) { if (err?.code !== "ENOENT") throw err; }
+      try { const s = parseCostSession(entry.name, wsPath, evPath, { pruUsd }); linesById.set(s.idKey, s._lines); sessionsById.set(s.idKey, { ...s, parentId: null, resolvedChildIds: new Set(), directPrKeys: [], consumedByPrKey: null }); }
+      catch (err) { if (err?.code !== "ENOENT") throw err; }
     }
-  }
+  } catch (err) { if (err?.code !== "ENOENT") throw err; }
   for (const s of sessionsById.values()) {
     if (s.kickoffParentId && s.kickoffParentId !== s.idKey && sessionsById.has(s.kickoffParentId)) {
       s.parentId = s.kickoffParentId; sessionsById.get(s.kickoffParentId).resolvedChildIds.add(s.idKey);
@@ -116,13 +113,13 @@ export function attributeCostChains({ prsByRepo = {}, repos = [], sessionsDir = 
       seen.set(curr.idKey, idx++); curr = curr.parentId ? sessionsById.get(curr.parentId) : null;
     }
   }
-  const allPrEntries = [];
+  const allPrEntries = [], seenPrKeys = new Set();
   for (const [repo, prs] of Object.entries(prsByRepo || {})) {
-    if (repoFilter.size > 0 && !repoFilter.has(repo.toLowerCase())) continue;
+    const rLow = repo.toLowerCase(); if (repoFilter.size > 0 && !repoFilter.has(rLow)) continue;
     for (const pr of prs || []) {
-      const mMs = Date.parse(pr.mergedAt || pr.createdAt || "");
-      if (Number.isFinite(toMs) && Number.isFinite(mMs) && mMs >= toMs) continue;
-      allPrEntries.push({ repo, pr, prKey: `${repo}#${pr.number}`, inWin: !Number.isFinite(fromMs) || !Number.isFinite(mMs) || mMs >= fromMs, mergedMs: mMs });
+      const lowKey = `${rLow}#${pr.number}`; if (seenPrKeys.has(lowKey)) continue; seenPrKeys.add(lowKey);
+      const mMs = Date.parse(pr.mergedAt || pr.createdAt || ""), inWin = (!Number.isFinite(fromMs) || !Number.isFinite(mMs) || mMs >= fromMs) && (!Number.isFinite(toMs) || !Number.isFinite(mMs) || mMs < toMs);
+      allPrEntries.push({ repo, pr, prKey: `${repo}#${pr.number}`, inWin, mergedMs: mMs });
     }
   }
   const chosenByPrKey = new Map();
@@ -135,7 +132,7 @@ export function attributeCostChains({ prsByRepo = {}, repos = [], sessionsDir = 
       const cMs = Date.parse(s.createdAt || "");
       if (Number.isFinite(item.mergedMs) && Number.isFinite(cMs) && cMs > item.mergedMs) continue;
       let hits = 0; for (const l of linesById.get(s.idKey) || []) if (needleRe.test(l)) hits += 1;
-      if (hits > bestHits) { bestHits = hits; best = s; }
+      if (hits > bestHits || (hits > 0 && hits === bestHits && ((s.spawnedChildCount === 0) > (best.spawnedChildCount === 0) || ((s.spawnedChildCount === 0) === (best.spawnedChildCount === 0) && (cMs || Infinity) < (Date.parse(best.createdAt || "") || Infinity))))) { bestHits = hits; best = s; }
     }
     if (best) { chosenByPrKey.set(item.prKey, best); best.directPrKeys.push(item.prKey); }
   }
@@ -153,7 +150,7 @@ export function attributeCostChains({ prsByRepo = {}, repos = [], sessionsDir = 
       }
     }
     if (!item.inWin) continue;
-    const coDir = checkoutByRepo && Object.hasOwn(checkoutByRepo, item.repo) ? checkoutByRepo[item.repo] : null;
+    const coDir = coMap.get(item.repo.toLowerCase()) || null;
     const route = classifyRoute(item.pr, { checkoutDir: coDir }), prodLines = productionLinesChanged(item.pr);
     if (!s) { unmatchedPrKeys.push(item.prKey); prRows.push(makePrRow(item, route, prodLines, { attribution: "unmatched_non_copilot_or_missing_session", chainPruStatus: "unmatched" })); continue; }
     if (s.directPrKeys.length > 1) { prRows.push(makePrRow(item, route, prodLines, { attribution: "ambiguous", sessionId: s.sessionId, chainPruStatus: "ambiguous_shared_session" })); continue; }
@@ -170,24 +167,28 @@ export function attributeCostChains({ prsByRepo = {}, repos = [], sessionsDir = 
       chainActiveSec: chainNodes.every((n) => Number.isFinite(n.activeSec)) ? chainNodes.reduce((a, n) => a + n.activeSec, 0) : null,
     }));
   }
-  const inWinPrKeySet = new Set(prRows.map((r) => r.prKey)), sharedPrSessions = [], sharedCoordinators = [], unmergedSessions = [], unscopedChats = [];
+  const inWinPrKeySet = new Set(prRows.map((r) => r.prKey)), sharedPrSessions = [], sharedCoordinators = [], unmergedSessions = [], unscopedChats = [], coordIds = new Set();
   for (const s of sessionsById.values()) {
     if (s.directPrKeys.length > 1) {
       const inWinKeys = s.directPrKeys.filter((k) => inWinPrKeySet.has(k));
       if (inWinKeys.length) { countedSessionIds.add(s.idKey); sharedPrSessions.push(publicSessionSummary(s, { prKeys: s.directPrKeys, inWindowPrKeys: inWinKeys })); }
     }
   }
+  for (let chg = true; chg; ) { chg = false; for (const s of sessionsById.values()) {
+    if (coordIds.has(s.idKey) || s.consumedByPrKey || s.directPrKeys.length >= 1) continue;
+    const cs = [...s.resolvedChildIds].map((c) => sessionsById.get(c)).filter(Boolean);
+    if (cycleNodeIds.has(s.idKey) || s.spawnedChildCount > 1 || cs.some((c) => coordIds.has(c.idKey) || c.directPrKeys.length > 1 || c.spawnedChildCount > 1)) { coordIds.add(s.idKey); chg = true; }
+  } }
   for (const s of sessionsById.values()) {
-    if (s.consumedByPrKey || countedSessionIds.has(s.idKey) || s.directPrKeys.length >= 1) continue;
-    const childs = [...s.resolvedChildIds].map((c) => sessionsById.get(c)).filter(Boolean);
-    const isCoord = cycleNodeIds.has(s.idKey) || s.spawnedChildCount > 1 || childs.some((c) => c.directPrKeys.length > 1 || c.spawnedChildCount > 1);
-    if (isCoord && (inRepoScope(s.repository) || childs.some((c) => inRepoScope(c.repository))) && (inTimeWindow(s.createdAt) || childs.some((c) => countedSessionIds.has(c.idKey) || inTimeWindow(c.createdAt)))) {
-      countedSessionIds.add(s.idKey); sharedCoordinators.push(publicSessionSummary(s, { spawnedChildCount: s.spawnedChildCount, cycleDetected: cycleNodeIds.has(s.idKey) })); continue;
-    }
-    if (!inTimeWindow(s.createdAt)) continue;
+    if (coordIds.has(s.idKey) || s.consumedByPrKey || countedSessionIds.has(s.idKey) || s.directPrKeys.length >= 1 || !inTimeWindow(s.createdAt)) continue;
     if (!s.repository) { unscopedChats.push(publicSessionSummary(s)); if (repoFilter.size === 0) countedSessionIds.add(s.idKey); }
     else if (inRepoScope(s.repository)) { countedSessionIds.add(s.idKey); unmergedSessions.push(publicSessionSummary(s)); }
   }
+  for (let chg = true; chg; ) { chg = false; for (const idKey of coordIds) {
+    if (countedSessionIds.has(idKey)) continue;
+    const s = sessionsById.get(idKey), cs = [...s.resolvedChildIds].map((c) => sessionsById.get(c)).filter(Boolean);
+    if ((inRepoScope(s.repository) || cs.some((c) => inRepoScope(c.repository) || countedSessionIds.has(c.idKey))) && (inTimeWindow(s.createdAt) || cs.some((c) => countedSessionIds.has(c.idKey) || inTimeWindow(c.createdAt)))) { countedSessionIds.add(idKey); sharedCoordinators.push(publicSessionSummary(s, { spawnedChildCount: s.spawnedChildCount, cycleDetected: cycleNodeIds.has(idKey) })); chg = true; }
+  } }
   let rawTotalPru = 0, scopedSnapshotCount = 0, scopedMissingSnapshotCount = 0, scopedNanoAiu = 0;
   for (const idKey of countedSessionIds) {
     const s = sessionsById.get(idKey);
@@ -236,7 +237,7 @@ export function fetchRepoActionsCost(repo, { from = null, to = null, maxRuns = 1
 }
 
 export function buildCostDashboardReport({ prsByRepo = {}, repos = [], sessionsDir = null, from = null, to = null, pruUsd = 0.04, checkoutByRepo = {}, includeActions = false, actionsUsdPerMin = 0.008, maxActionsRuns = 100, execFn = execFileSync } = {}) {
-  const attr = attributeCostChains({ prsByRepo, repos, sessionsDir, from, to, pruUsd, checkoutByRepo });
+  const targetRepos = uniqRepos(repos.length ? repos : Object.keys(prsByRepo || {})), attr = attributeCostChains({ prsByRepo, repos: targetRepos, sessionsDir, from, to, pruUsd, checkoutByRepo });
   const routeBuckets = Object.fromEntries(["trivial", "small", "multi-task"].map((route) => {
     const items = attr.prRows.filter((r) => r.route === route), u = items.filter((r) => r.attribution === "unique");
     return [route, { count: items.length, uniqueCount: u.length, medianProdLines: median(items.map((r) => r.prodLines)), medianDirectPru: median(u.map((r) => r.directPruCost)), medianChainPru: median(u.map((r) => r.chainPruCost)), medianChainUsd: median(u.map((r) => r.chainUsdCost)), meanChainPru: mean(u.map((r) => r.chainPruCost)), medianChainNanoAiu: median(u.map((r) => r.chainNanoAiu)), medianActiveSec: median(u.map((r) => r.chainActiveSec)) }];
@@ -256,7 +257,7 @@ export function buildCostDashboardReport({ prsByRepo = {}, repos = [], sessionsD
   const modelBreakdown = [...modelMap.values()].map(({ observedTurns, observedTurnPru, ...m }) => ({ ...m, multiplier: observedTurns > 0 ? observedTurnPru / observedTurns : null, usdCost: m.pruCost * pruUsd })).sort((a, b) => b.pruCost - a.pruCost || b.requests - a.requests);
   const totalAgentPru = agentTotals.main.pruCost + agentTotals.review.pruCost + agentTotals.otherSubagents.pruCost, totalAgentNano = agentTotals.main.nanoAiu + agentTotals.review.nanoAiu + agentTotals.otherSubagents.nanoAiu;
   const agentBreakdown = Object.fromEntries(Object.entries(agentTotals).map(([k, v]) => [k, { ...v, usdCost: v.pruCost * pruUsd, share: totalAgentNano > 0 ? v.nanoAiu / totalAgentNano : totalAgentPru > 0 ? v.pruCost / totalAgentPru : null }]));
-  const uniqueChains = attr.prRows.filter((r) => r.attribution === "unique" && r.chainPruCost !== null), targetRepos = repos.length ? repos : Object.keys(prsByRepo);
+  const uniqueChains = attr.prRows.filter((r) => r.attribution === "unique" && r.chainPruCost !== null), prsTruncatedRepos = targetRepos.filter((tr) => Object.entries(prsByRepo || {}).some(([k, v]) => k.toLowerCase() === tr.toLowerCase() && Boolean(v?.truncated)));
   let actionsCost = { status: "disabled", runsCounted: 0, truncated: false, ubuntuMinutes: null, usdCost: null, perRepo: {} };
   if (includeActions) {
     const perRepo = Object.fromEntries(targetRepos.map((r) => [r, fetchRepoActionsCost(r, { from, to, maxRuns: maxActionsRuns, usdPerMin: actionsUsdPerMin, execFn })]));
@@ -264,11 +265,11 @@ export function buildCostDashboardReport({ prsByRepo = {}, repos = [], sessionsD
     actionsCost = { status: vals.length && vals.every((v) => v.status === "ok") ? "ok" : okVals.length ? "partial" : "unavailable", runsCounted: vals.reduce((a, v) => a + v.runsCounted, 0), truncated: vals.some((v) => v.truncated), ubuntuMinutes: mins, usdCost: mins !== null ? mins * actionsUsdPerMin : null, perRepo };
   }
   return {
-    generatedAt: new Date().toISOString(), window: { from, to }, repos: targetRepos, pruUsd, totals: attr.totals, routeBuckets, modelBreakdown, agentBreakdown, prRows: attr.prRows, unattributed: attr.unattributed, actionsCost,
+    generatedAt: new Date().toISOString(), window: { from, to }, repos: targetRepos, prsTruncated: prsTruncatedRepos.length > 0, prsTruncatedRepos, pruUsd, totals: attr.totals, routeBuckets, modelBreakdown, agentBreakdown, prRows: attr.prRows, unattributed: attr.unattributed, actionsCost,
     simulatorBaseline: {
       totalSnapshotPru: snapPru, totalSnapshotUserRequests: snapReqs, observedOneXCapSavingsRate: snapPru > 0 ? excessOneXPru / snapPru : 0,
       medianFeatureChainPru: median(uniqueChains.map((r) => r.chainPruCost)), meanFeatureChainPru: mean(uniqueChains.map((r) => r.chainPruCost)), defaultTurnReductionPct: 25,
-      plans: [{ id: "pro-10", label: "$10 Pro", monthlyUsd: 10, includedPru: 300 }, { id: "budget-20", label: "$20 Budget", monthlyUsd: 20, includedPru: pruUsd > 0 ? Math.round(20 / pruUsd) : 500 }, { id: "pro-plus-39", label: "$39 Pro+", monthlyUsd: 39, includedPru: 1500 }],
+      plans: [{ id: "pro-10", label: "$10 Pro", monthlyUsd: 10, includedPru: 300 }, { id: "budget-20", label: "$20 Budget", monthlyUsd: 20, includedPru: pruUsd > 0 ? Math.round(20 / pruUsd) : 0 }, { id: "pro-plus-39", label: "$39 Pro+", monthlyUsd: 39, includedPru: 1500 }],
     },
   };
 }
@@ -281,10 +282,11 @@ export function formatCostMarkdown(r) {
   const routeLines = ["trivial", "small", "multi-task"].map((k) => { const b = r.routeBuckets[k]; return `| ${k} | ${b.count} | ${b.uniqueCount} | ${b.medianProdLines ?? "n/a"} | ${fmtPru(b.medianDirectPru)} | ${fmtPru(b.medianChainPru)} | ${fmtUsd(b.medianChainUsd)} | ${fmtAiu(b.medianChainNanoAiu)} |`; });
   const prLines = r.prRows.map((p) => `| ${p.prKey} | ${p.route} | ${p.attribution} (${p.ideationAttribution}) | ${fmtPru(p.directPruCost)} | ${fmtPru(p.chainPruCost)} | ${fmtUsd(p.chainUsdCost)} |`);
   const actLine = r.actionsCost.status === "disabled" ? "disabled" : r.actionsCost.ubuntuMinutes !== null ? `${r.actionsCost.ubuntuMinutes.toFixed(1)} min (${fmtUsd(r.actionsCost.usdCost)}${r.actionsCost.truncated ? ", truncated" : ""})` : r.actionsCost.status;
+  const savMd = r.totals.scopedSnapshotCount > 0 || r.totals.scopedSessionCount === 0 ? `${(r.simulatorBaseline.observedOneXCapSavingsRate * 100).toFixed(1)}%` : "n/a";
   return [
     `# Dev-loop Cost Dashboard (${r.repos.join(", ") || "workspace"})`, "",
-    `- Scoped spend: **${fmtPru(r.totals.scopedTotalPru)}** (**${fmtUsd(r.totals.scopedTotalUsd)}** at $${r.pruUsd}/PRU · **${fmtAiu(r.totals.scopedNanoAiu)}**)`,
-    `- Observed 1x-model cap savings: **${(r.simulatorBaseline.observedOneXCapSavingsRate * 100).toFixed(1)}%**`,
+    `- Scoped spend: **${fmtPru(r.totals.scopedTotalPru)}** (**${fmtUsd(r.totals.scopedTotalUsd)}** at $${r.pruUsd}/PRU · **${fmtAiu(r.totals.scopedNanoAiu)}**)${r.prsTruncated ? ` · _PR history truncated (${r.prsTruncatedRepos.join(", ")})_` : ""}`,
+    `- Observed 1x-model cap savings: **${savMd}**`,
     `- GitHub Actions Ubuntu spend: **${actLine}**`,
     `- Unattributed sessions: shared-PR=${r.unattributed.sharedPrSessions.length}, shared-coordinators=${r.unattributed.sharedCoordinators.length}, unmerged=${r.unattributed.unmergedSessions.length}, unscoped-chats=${r.unattributed.unscopedChatSpend.sessionCount}`,
     "", "| Route | PRs | Unique chains | Median prod lines | Median direct | Median chain | Median USD | Median AIU |", "| --- | --- | --- | --- | --- | --- | --- | --- |", ...routeLines,
@@ -297,27 +299,28 @@ export function renderCostDashboardHtml(r) {
   const unattrList = [...r.unattributed.sharedPrSessions, ...r.unattributed.sharedCoordinators, ...r.unattributed.unmergedSessions];
   const unattrPru = unattrList.length > 0 && !unattrList.some((s) => s.pruCost !== null) ? null : unattrList.reduce((a, s) => a + (s.pruCost ?? 0), 0);
   const actText = r.actionsCost.status === "disabled" ? "Off (--include-actions)" : r.actionsCost.ubuntuMinutes !== null ? `${r.actionsCost.ubuntuMinutes.toFixed(1)}m (${fmtUsd(r.actionsCost.usdCost)}${r.actionsCost.truncated ? ", truncated" : ""})` : esc(r.actionsCost.status);
+  const savHtml = r.totals.scopedSnapshotCount > 0 || r.totals.scopedSessionCount === 0 ? `${(r.simulatorBaseline.observedOneXCapSavingsRate * 100).toFixed(1)}%` : "n/a";
   const routeRowsHtml = ["trivial", "small", "multi-task"].map((k) => { const b = r.routeBuckets[k]; return `<tr><td><span class="badge">${esc(k)}</span></td><td>${b.count}</td><td>${b.uniqueCount}</td><td>${b.medianProdLines ?? "n/a"}</td><td>${fmtPru(b.medianDirectPru)}</td><td>${fmtPru(b.medianChainPru)}</td><td>${fmtUsd(b.medianChainUsd)}</td><td>${fmtAiu(b.medianChainNanoAiu)}</td><td>${b.medianActiveSec !== null ? `${b.medianActiveSec.toFixed(0)}s` : "n/a"}</td></tr>`; }).join("");
   const modelRowsHtml = r.modelBreakdown.length ? r.modelBreakdown.map((m) => `<tr><td><code>${esc(m.model)}</code></td><td>${m.multiplier !== null ? `${m.multiplier.toFixed(2)}x` : "n/a"}</td><td>${m.requests}</td><td>${fmtPru(m.pruCost)}</td><td>${fmtUsd(m.usdCost)}</td><td>${m.inputTokens.toLocaleString()} / ${m.outputTokens.toLocaleString()}</td></tr>`).join("") : `<tr><td colspan="6">No snapshot model metrics in window.</td></tr>`;
-  const agentHtml = ["main", "review", "otherSubagents"].map((k) => { const b = r.agentBreakdown[k], pct = b.share !== null ? (b.share * 100).toFixed(1) : "0.0"; return `<div class="bar-row"><div><strong>${esc(k)}</strong> (${b.requests} reqs · ${fmtPru(b.pruCost)} · ${fmtAiu(b.nanoAiu)})</div><div class="track"><div class="fill" style="width:${pct}%"></div></div><span>${pct}%</span></div>`; }).join("");
+  const agentHtml = ["main", "review", "otherSubagents"].map((k) => { const b = r.agentBreakdown[k], w = b.share !== null ? (b.share * 100).toFixed(1) : "0", lbl = b.share !== null ? `${w}%` : "n/a"; return `<div class="bar-row"><div><strong>${esc(k)}</strong> (${b.requests} reqs · ${fmtPru(b.pruCost)} · ${fmtAiu(b.nanoAiu)})</div><div class="track"><div class="fill" style="width:${w}%"></div></div><span>${lbl}</span></div>`; }).join("");
   const repoOpts = [...new Set(r.prRows.map((p) => p.repo))].map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("");
   const planBtns = r.simulatorBaseline.plans.map((p, idx) => `<button type="button" class="plan-btn${idx === 1 ? " active" : ""}" aria-pressed="${idx === 1 ? "true" : "false"}" data-pru="${p.includedPru}" data-usd="${p.monthlyUsd}">${esc(p.label)} (${p.includedPru} PRUs)</button>`).join("");
   return `<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev-loop Ideation-to-Merge Cost Dashboard</title><style>
 :root,[data-theme="light"]{color-scheme:light;--bg:#f6f8fa;--card:#fff;--fg:#1f2328;--muted:#59636e;--border:#d0d7de;--accent:#0969da;--accent-soft:#ddf4ff;--ok:#1a7f37;--warn:#9a6700;--warn-soft:#fff8c5}[data-theme="dark"]{color-scheme:dark;--bg:#0d1117;--card:#161b22;--fg:#e6edf3;--muted:#8b949e;--border:#30363d;--accent:#58a6ff;--accent-soft:#1f3247;--ok:#3fb950;--warn:#f2cc60;--warn-soft:#3d2e00}
 *{box-sizing:border-box}body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--fg)}a{color:var(--accent)}main{max-width:1180px;margin:0 auto;padding:24px;display:grid;gap:18px}header,.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px}.card{overflow-x:auto}
-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}h1,h2,h3{margin:0 0 8px}p{margin:0 0 8px;color:var(--muted)}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}.kpi strong{display:block;font-size:22px;color:var(--fg)}.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}h1,h2,h3{margin:0 0 8px}p{margin:0 0 8px;color:var(--muted)}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}.kpi strong{display:block;font-size:22px;color:var(--fg)}.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px}
 table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:8px;border-bottom:1px solid var(--border);text-align:left}th{color:var(--muted);font-weight:600}button,select,input{font:inherit;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}button.active{background:var(--accent);color:#fff;border-color:var(--accent)}[data-theme="dark"] button.active{color:#0d1117;font-weight:600}
-.badge{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600}.badge.warn{background:var(--warn-soft);color:var(--warn)}.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}.bar-row{display:grid;grid-template-columns:minmax(140px,220px) minmax(60px,1fr) 48px;gap:10px;align-items:center;margin:8px 0}.track{height:10px;background:var(--border);border-radius:999px;overflow:hidden}.fill{height:100%;background:var(--accent);transition:width .2s ease}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600}.badge.warn{background:var(--warn-soft);color:var(--warn)}.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}.bar-row{display:grid;grid-template-columns:minmax(110px,210px) minmax(48px,1fr) 44px;gap:10px;align-items:center;margin:8px 0}.track{height:10px;background:var(--border);border-radius:999px;overflow:hidden}.fill{height:100%;background:var(--accent);transition:width .2s ease}
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{transition:none!important;animation:none!important}}</style></head><body><main>
 <header><div><h1>Dev-loop Ideation-to-Merge Cost Dashboard</h1><p><strong>Abstract:</strong> Feature spend spans parent planning sessions, implementation checkouts, and review subagents. This report links exclusive parent chains to merged pull requests from local telemetry. Use it to inspect true feature cost and plan monthly credit budgets.</p>
-<p>Scope: <code>${esc(r.repos.join(", ") || "All workspace sessions")}</code> · Rate: <code>$${r.pruUsd.toFixed(2)}/PRU</code> · Snapshots: <code>${r.totals.scopedSnapshotCount}/${r.totals.scopedSessionCount}</code></p></div><button id="themeBtn" type="button" aria-pressed="false" aria-label="Toggle color theme">Toggle dark/light</button></header>
+<p>Scope: <code>${esc(r.repos.join(", ") || "All workspace sessions")}</code> · Rate: <code>$${r.pruUsd.toFixed(2)}/PRU</code> · Snapshots: <code>${r.totals.scopedSnapshotCount}/${r.totals.scopedSessionCount}</code>${r.prsTruncated ? ` · <span class="badge warn">PR history truncated (${esc(r.prsTruncatedRepos.join(", "))})</span>` : ""}</p></div><button id="themeBtn" type="button" aria-pressed="false">Dark theme</button></header>
 <section class="kpis" aria-label="Key cost indicators"><div class="card kpi"><span>Scoped Copilot Spend</span><strong>${fmtPru(r.totals.scopedTotalPru)}</strong><span>${fmtUsd(r.totals.scopedTotalUsd)} · ${fmtAiu(r.totals.scopedNanoAiu)}</span></div><div class="card kpi"><span>Median Feature Chain</span><strong>${fmtPru(r.simulatorBaseline.medianFeatureChainPru)}</strong><span>${fmtUsd(r.simulatorBaseline.medianFeatureChainPru !== null ? r.simulatorBaseline.medianFeatureChainPru * r.pruUsd : null)} · Mean: ${fmtPru(r.simulatorBaseline.meanFeatureChainPru)} (${attrCount} PRs)</span></div>
-<div class="card kpi"><span>Observed 1x-Cap Savings</span><strong>${(r.simulatorBaseline.observedOneXCapSavingsRate * 100).toFixed(1)}%</strong><span>Exact from model multipliers</span></div><div class="card kpi"><span>Unattributed / WIP Spend</span><strong>${fmtPru(unattrPru)}</strong><span>${fmtUsd(unattrPru !== null ? unattrPru * r.pruUsd : null)} in repo scope</span></div><div class="card kpi"><span>GitHub Actions (Separate)</span><strong>${actText}</strong><span>Excluded from Copilot PRU cap</span></div></section>
-<section class="card" aria-labelledby="simHeading"><h2 id="simHeading">Monthly Subscription &amp; Budget Simulator</h2><div class="controls" role="group" aria-label="Subscription plan presets">${planBtns}<label>Custom $/mo <input id="customUsd" type="number" min="1" step="1" value="20" style="width:78px"></label><label>Turn reduction: <strong id="turnVal">25%</strong> <input id="turnSlider" type="range" min="0" max="50" value="25"></label><span class="badge warn">Projected until M2 Budget Mode</span></div><p id="simSummary" role="status" aria-live="polite"></p></section>
-<div class="grid2"><section class="card"><h2>Cost by Task Route</h2><table><thead><tr><th>Route</th><th>PRs</th><th>Unique</th><th>Med Lines</th><th>Direct</th><th>Chain</th><th>USD</th><th>AIU</th><th>Active</th></tr></thead><tbody>${routeRowsHtml}</tbody></table></section><section class="card"><h2>Main vs Review Subagent Split</h2>${agentHtml}<h3 style="margin-top:14px">Model Multipliers</h3><table><thead><tr><th>Model</th><th>Mult</th><th>Reqs</th><th>PRUs</th><th>USD</th><th>In / Out Tokens</th></tr></thead><tbody>${modelRowsHtml}</tbody></table></section></div>
-<section class="card"><h2>Per-PR Ideation-to-Merge Ledger</h2><div class="controls"><label>Repo <select id="repoFilter"><option value="">All</option>${repoOpts}</select></label><label>Route <select id="routeFilter"><option value="">All</option><option value="trivial">trivial</option><option value="small">small</option><option value="multi-task">multi-task</option></select></label><label>Sort <select id="sortBy"><option value="pru">Chain PRU (desc)</option><option value="date">Merged date (newest)</option><option value="lines">Prod lines (desc)</option></select></label></div>
+<div class="card kpi"><span>Observed 1x-Cap Savings</span><strong>${savHtml}</strong><span>Exact from model multipliers</span></div><div class="card kpi"><span>Unattributed / WIP Spend</span><strong>${fmtPru(unattrPru)}</strong><span>${fmtUsd(unattrPru !== null ? unattrPru * r.pruUsd : null)} in repo scope</span></div><div class="card kpi"><span>GitHub Actions (Separate)</span><strong>${actText}</strong><span>Excluded from Copilot PRU cap</span></div></section>
+<section class="card" aria-labelledby="simHeading"><h2 id="simHeading">Monthly Subscription &amp; Budget Simulator</h2><div class="controls"><span role="group" aria-label="Subscription plan presets" class="controls" style="margin:0">${planBtns}</span><label>Custom $/mo <input id="customUsd" type="number" min="0" step="any" value="20" style="width:78px"></label><label for="turnSlider">Turn reduction:</label><strong id="turnVal">25%</strong><input id="turnSlider" type="range" min="0" max="50" value="25"><span class="badge warn">Projected until M2 Budget Mode</span></div><p id="simSummary" role="status" aria-live="polite"></p></section>
+<div class="grid2"><section class="card" tabindex="0" role="region" aria-label="Cost by Task Route"><h2>Cost by Task Route</h2><table><thead><tr><th>Route</th><th>PRs</th><th>Unique</th><th>Med Lines</th><th>Direct</th><th>Chain</th><th>USD</th><th>AIU</th><th>Active</th></tr></thead><tbody>${routeRowsHtml}</tbody></table></section><section class="card" tabindex="0" role="region" aria-label="Main vs Review Subagent Split and Model Multipliers"><h2>Main vs Review Subagent Split</h2>${agentHtml}<h3 style="margin-top:14px">Model Multipliers</h3><table><thead><tr><th>Model</th><th>Mult</th><th>Reqs</th><th>PRUs</th><th>USD</th><th>In / Out Tokens</th></tr></thead><tbody>${modelRowsHtml}</tbody></table></section></div>
+<section class="card" tabindex="0" role="region" aria-label="Per-PR Ideation-to-Merge Ledger"><h2>Per-PR Ideation-to-Merge Ledger</h2><div class="controls"><label>Repo <select id="repoFilter"><option value="">All</option>${repoOpts}</select></label><label>Route <select id="routeFilter"><option value="">All</option><option value="trivial">trivial</option><option value="small">small</option><option value="multi-task">multi-task</option></select></label><label>Sort <select id="sortBy"><option value="pru">Chain PRU (desc)</option><option value="date">Merged date (newest)</option><option value="lines">Prod lines (desc)</option></select></label></div>
 <table><thead><tr><th>PR</th><th>Route</th><th>Lines</th><th>Attribution</th><th>Direct PRU</th><th>Chain PRU</th><th>Chain USD</th></tr></thead><tbody id="prBody"></tbody></table></section>
-<section class="card"><h2>Unattributed &amp; Workspace Spend Disclosure</h2><p>Shared multi-PR sessions: <strong>${r.unattributed.sharedPrSessions.length}</strong> · Multi-child coordinators: <strong>${r.unattributed.sharedCoordinators.length}</strong> · Unmerged WIP/exploration sessions: <strong>${r.unattributed.unmergedSessions.length}</strong> · Unmatched PRs: <strong>${r.unattributed.unmatchedPrKeys.length}</strong> · Repo-less chats: <strong>${r.unattributed.unscopedChatSpend.sessionCount}</strong> (${fmtPru(r.unattributed.unscopedChatSpend.pruCost)}, ${r.unattributed.unscopedChatSpend.includedInScopedTotals ? "included in workspace total" : "excluded from repo total"}).</p>
+<section class="card"><h2>Unattributed &amp; Workspace Spend Disclosure</h2><p>Shared multi-PR sessions: <strong>${r.unattributed.sharedPrSessions.length}</strong> · Multi-child coordinators: <strong>${r.unattributed.sharedCoordinators.length}</strong> · Unmerged WIP/exploration sessions: <strong>${r.unattributed.unmergedSessions.length}</strong> · Unmatched PRs: <strong>${r.unattributed.unmatchedPrKeys.length}</strong> · Repo-less chats: <strong>${r.unattributed.unscopedChatSpend.sessionCount}</strong> (${fmtPru(r.unattributed.unscopedChatSpend.pruCost)}, ${r.unattributed.unscopedChatSpend.includedInScopedTotals ? "included in workspace total" : "excluded from repo total"})${r.prsTruncated ? ` · PR history truncated: <strong>${esc(r.prsTruncatedRepos.join(", "))}</strong>` : ""}.</p>
 <p><strong>Conclusion:</strong> Review the highest-multiplier models and review-subagent share before enabling Budget Mode. Milestone 2 adds an opt-in budget switch to cap model multipliers and batch routine checks without lowering safety gates. Legacy sessions without accounting snapshots stay labeled unavailable so medians remain exact.</p></section></main><script>
 const DATA=${safeJson({ pruUsd: r.pruUsd, sim: r.simulatorBaseline, prRows: r.prRows })},escHtml=(s)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"),themeBtn=document.getElementById("themeBtn");
 if(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches){document.documentElement.dataset.theme="dark";themeBtn.setAttribute("aria-pressed","true");}
@@ -337,7 +340,7 @@ document.getElementById("customUsd").oninput=(e)=>{const u=Number(e.target.value
 document.getElementById("turnSlider").oninput=updateSim;
 function renderPrs(){
   const rf=document.getElementById("repoFilter").value,rtf=document.getElementById("routeFilter").value,sb=document.getElementById("sortBy").value,tbody=document.getElementById("prBody");
-  const rows=DATA.prRows.filter((p)=>(!rf||p.repo===rf)&&(!rtf||p.route===rtf)).slice().sort((a,b)=>sb==="date"?(Date.parse(b.mergedAt||"")||-1)-(Date.parse(a.mergedAt||"")||-1):sb==="lines"?(b.prodLines??-1)-(a.prodLines??-1):(b.chainPruCost??b.directPruCost??-1)-(a.chainPruCost??a.directPruCost??-1));
+  const rows=DATA.prRows.filter((p)=>(!rf||p.repo===rf)&&(!rtf||p.route===rtf)).slice().sort((a,b)=>sb==="date"?(Date.parse(b.mergedAt||"")||-1)-(Date.parse(a.mergedAt||"")||-1):sb==="lines"?(b.prodLines??-1)-(a.prodLines??-1):(b.chainPruCost!==null)-(a.chainPruCost!==null)||(b.chainPruCost??b.directPruCost??-1)-(a.chainPruCost??a.directPruCost??-1));
   if(!rows.length){tbody.innerHTML='<tr><td colspan="7">No matching pull requests in window.</td></tr>';return;}
   tbody.innerHTML=rows.map((p)=>{const href=/^https?:\\/\\//i.test(String(p.url||""))?escHtml(p.url):"#",st=p.attribution==="unique"?p.ideationAttribution+(p.chainPruStatus!=="exact"?" · "+p.chainPruStatus:""):p.attribution;return '<tr><td><a href="'+href+'" target="_blank" rel="noopener noreferrer">'+escHtml(p.prKey)+"</a> — "+escHtml(p.title)+"</td><td>"+escHtml(p.route)+"</td><td>"+(p.prodLines??"n/a")+'</td><td><span class="badge">'+escHtml(st)+"</span></td><td>"+(p.directPruCost!==null?p.directPruCost.toFixed(1):"n/a")+"</td><td>"+(p.chainPruCost!==null?p.chainPruCost.toFixed(1):"n/a")+"</td><td>"+(p.chainUsdCost!==null?"$"+p.chainUsdCost.toFixed(2):"n/a")+"</td></tr>";}).join("");
 }
@@ -362,15 +365,11 @@ export function runCli(argv = process.argv.slice(2)) {
   if (!Number.isInteger(maxActionsRuns) || maxActionsRuns < 1) throw new Error(`Invalid --max-actions-runs: expected integer >= 1, got "${values["max-actions-runs"]}"`);
   const nowMs = Date.now(), to = values.to || new Date(nowMs).toISOString(), from = values.from || new Date(nowMs - 30 * DAY_MS).toISOString();
   if (!Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(from) >= Date.parse(to)) throw new Error(`Invalid date window: --from (${from}) must be earlier than --to (${to})`);
-  const repos = (values.repo || []).flatMap((r) => r.split(",")).map((r) => r.trim()).filter(Boolean), prsByRepo = Object.create(null);
-  const sessionsDir = values["sessions-dir"] ? resolve(values["sessions-dir"]) : join(homedir(), ".copilot", "session-state");
-  if (values["prs-file"]) {
-    const raw = JSON.parse(readFileSync(resolve(values["prs-file"]), "utf8"));
-    if (Array.isArray(raw)) { for (const pr of raw) { const rk = String(pr?.url || "").match(/github\.com\/([^/]+\/[^/]+)\/pull\//i)?.[1] || repos[0] || "local/repo"; (prsByRepo[rk] ||= []).push(pr); } }
-    else Object.assign(prsByRepo, raw);
-  } else for (const r of repos) prsByRepo[r] = fetchMergedPrs(r, { cutoffMs: Date.parse(from) - 7 * DAY_MS });
-  const effRepos = repos.length ? repos : Object.keys(prsByRepo), checkoutByRepo = values["checkout-dir"] && effRepos.length === 1 ? { [effRepos[0]]: resolve(values["checkout-dir"]) } : {};
-  const report = buildCostDashboardReport({ prsByRepo, repos, sessionsDir, from, to, pruUsd, checkoutByRepo, includeActions: Boolean(values["include-actions"]), actionsUsdPerMin, maxActionsRuns });
+  const repos = uniqRepos((values.repo || []).flatMap((r) => r.split(","))), prsByRepo = Object.create(null), sessionsDir = values["sessions-dir"] ? resolve(values["sessions-dir"]) : join(homedir(), ".copilot", "session-state");
+  if (values["prs-file"]) { const raw = JSON.parse(readFileSync(resolve(values["prs-file"]), "utf8")); if (Array.isArray(raw)) for (const pr of raw) (prsByRepo[String(pr?.url || "").match(/github\.com\/([^/]+\/[^/]+)\/pull\//i)?.[1] || repos[0] || "local/repo"] ||= []).push(pr); else Object.assign(prsByRepo, raw); }
+  else for (const r of repos) prsByRepo[r] = fetchMergedPrs(r, { maxPages: 10, cutoffMs: Date.parse(from) - 7 * DAY_MS });
+  const effRepos = uniqRepos(repos.length ? repos : Object.keys(prsByRepo)), checkoutByRepo = values["checkout-dir"] && effRepos.length === 1 ? { [effRepos[0]]: resolve(values["checkout-dir"]) } : {};
+  const report = buildCostDashboardReport({ prsByRepo, repos: effRepos, sessionsDir, from, to, pruUsd, checkoutByRepo, includeActions: Boolean(values["include-actions"]), actionsUsdPerMin, maxActionsRuns });
   const output = format === "json" ? `${JSON.stringify(report, null, 2)}\n` : format === "markdown" ? `${formatCostMarkdown(report)}\n` : renderCostDashboardHtml(report);
   if (values.out) { const p = resolve(values.out); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, output, "utf8"); return { stdout: "", outPath: p }; }
   return { stdout: output, outPath: null };

@@ -13,7 +13,7 @@ Each entry says what changed, why (the evidence), and how the next weekly review
     Keep startup context (`core.mdc`, `dev-loop-context.md`, and `skills/*/SKILL.md`) unchanged (`+0` startup bytes).
   - **Why:** Local workspace analysis across 338 sessions (`43,181` PRUs = `~$1,727.25` at `$0.04`/PRU) showed high model-multiplier variance (`15x` vs `1x`) and significant review-subagent share (`54%` of subagent AIUs).
     Single-session PR checks missed parent ideation spend when work moved into a child worktree session.
-    Ten unit, CLI, and DOM state-machine tests (`T1`–`T9`, `T11`) failed before implementation and passed afterward, covering missing snapshots, parent-chain cycles, cross-repo PR collisions, XSS/prompt redaction, invalid CLI flags, and review-panel regressions.
+    Eleven unit, CLI, and DOM state-machine tests (`T1`–`T9`, `T11`, `T12`) failed before implementation and passed afterward, covering missing snapshots, parent-chain cycles, cross-repo PR collisions, XSS/prompt redaction, invalid CLI flags, and two review-panel rounds.
   - **Check:** Run `node scripts/check.mjs`, `node --test scripts/cost-dashboard.test.mjs`, all CI suites, and a read-only `/tmp` smoke report on `~/.copilot/session-state`.
     In the next weekly review, compare attributed chain medians and unattributed session buckets before enabling Milestone 2 Budget Mode.
 
