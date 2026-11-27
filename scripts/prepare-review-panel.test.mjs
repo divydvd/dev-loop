@@ -2149,6 +2149,47 @@ test("30. SJ-R2-1..SJ-R2-5: CommonMark container stack, HTML block type-2 bounda
   assert.ok(elapsedMs < 500, `Expected O(N) marker scan (< 500ms), took ${elapsedMs.toFixed(1)}ms`);
 });
 
+test("31. r2c F-1..F-3: CommonMark §6.1 multi-backtick/unmatched code spans, soft-wrapped metadata values, and O(N) unclosed comment/backtick scan", async () => {
+  const { parseAgentsProfile } = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+
+  const spansAndWrapped = parseAgentsProfile(
+    [
+      "### Risky areas",
+      "- Literal `` ` `` in `src/billing/**`: billing.",
+      "- Note ``v2 in `src/auth/**`: auth.",
+      "- Raw ``` markers in `com.github.copilot/rules/core.mdc`: rules.",
+      "",
+      "### Review checklist",
+      "- **Checklist path:**",
+      "  ``docs/custom.md`` (custom)",
+      "",
+      "### Budget mode (optional)",
+      "- **Enabled:**",
+      "  ``yes``",
+    ].join("\n")
+  );
+  assert.deepEqual(spansAndWrapped.riskyPatterns, [
+    "src/billing/**",
+    "src/auth/**",
+    "com.github.copilot/rules/core.mdc",
+  ]);
+  assert.equal(spansAndWrapped.checklistPath, "docs/custom.md");
+  assert.equal(spansAndWrapped.budgetEnabled, true);
+
+  assert.equal(
+    parseAgentsProfile("### Budget mode\n- **Enabled:** ``unclosed `yes`\n").budgetEnabled,
+    false
+  );
+
+  const t0 = performance.now();
+  const unclosedComments = parseAgentsProfile(
+    `### Risky areas\n- Prefix ${"<!-- ".repeat(20000)}\`src/fast/**\`: fast.\n- x ${"`".repeat(30000)}a\n`
+  );
+  const elapsedMs = performance.now() - t0;
+  assert.deepEqual(unclosedComments.riskyPatterns, ["src/fast/**"]);
+  assert.ok(elapsedMs < 500, `Expected O(N) inline scan (< 500ms), took ${elapsedMs.toFixed(1)}ms`);
+});
+
 
 
 

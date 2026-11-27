@@ -128,36 +128,41 @@ export function detectDomains(changedFiles, diffHunkText) {
   return DOMAIN_ORDER.filter((d) => found.has(d));
 }
 const expandTabs = (line) => { let o = ""; for (const c of line) o += c === "\t" ? " ".repeat(4 - (o.length % 4)) : c; return o; };
-function stripInlineComments(s) {
-  const deadRuns = new Set();
-  let out = "";
+function scanInline(s) {
+  const [runsByLen, ptrByLen, spans] = [new Map(), new Map(), []];
+  for (let i = 0, r = 1; i < s.length; i += r, r = 1) {
+    if (s[i] !== "`") continue;
+    while (s[i + r] === "`") r += 1;
+    const arr = runsByLen.get(r); if (arr) arr.push(i); else runsByLen.set(r, [i]);
+  }
+  let [out, nextClose] = ["", 0];
   for (let i = 0; i < s.length;) {
     if (s[i] === "\\" && i + 1 < s.length && ASCII_PUNCT_RE.test(s[i + 1])) { out += s.slice(i, i + 2); i += 2; }
     else if (s[i] === "`") {
-      let [run, end] = [1, -1];
-      while (s[i + run] === "`") run += 1;
-      if (!deadRuns.has(run)) {
-        for (let j = i + run, k = 1; j < s.length; j += k, k = 1) {
-          if (s[j] !== "`") continue;
-          while (s[j + k] === "`") k += 1;
-          if (k === run) { end = j + k; break; }
-        }
-        if (end === -1) deadRuns.add(run);
-      }
-      const stop = end !== -1 ? end : i + run;
-      out += s.slice(i, stop); i = stop;
-    } else if (s.startsWith("<!--", i)) { const end = s.indexOf("-->", i + 2); if (end !== -1) i = end + 3; else { out += "<!--"; i += 4; } }
-    else { out += s[i]; i += 1; }
+      let run = 1; while (s[i + run] === "`") run += 1;
+      const arr = runsByLen.get(run);
+      let p = ptrByLen.get(run) ?? 0;
+      while (arr && p < arr.length && arr[p] < i + run) p += 1;
+      ptrByLen.set(run, p);
+      if (arr && p < arr.length) {
+        const end = arr[p] + run, norm = s.slice(i + run, arr[p]).replace(/\r?\n/g, " ");
+        spans.push({ start: i, val: norm.length >= 2 && norm[0] === " " && norm.at(-1) === " " && norm.trim() ? norm.slice(1, -1) : norm });
+        out += s.slice(i, end); i = end;
+      } else { out += s.slice(i, i + run); i += run; }
+    } else if (s.startsWith("<!--", i)) {
+      if (nextClose !== -1 && nextClose < i + 2) nextClose = s.indexOf("-->", i + 2);
+      if (nextClose !== -1) i = nextClose + 3; else { out += "<!--"; i += 4; }
+    } else { out += s[i]; i += 1; }
   }
-  return out;
+  return { text: out, spans };
 }
 function parseMdBlocks(markdown) {
   const [blocks, containers] = [[], []];
   let leaf = null;
   const closeLeaf = () => {
     if (leaf?.type === "para") {
-      const text = stripInlineComments(leaf.lines.join("\n"));
-      if (text.trim()) { if (leaf.owner) leaf.owner.paras.push(text); else if (leaf.isRoot) blocks.push({ kind: "para", text }); }
+      const res = scanInline(leaf.lines.join("\n"));
+      if (res.text.trim()) { if (leaf.owner) leaf.owner.paras.push(res); else if (leaf.isRoot) blocks.push({ kind: "para", text: res.text }); }
     }
     leaf = null;
   };
@@ -205,7 +210,7 @@ function parseMdBlocks(markdown) {
       if (!progressed && allMatched && leaf?.type === "para" && (ch === "=" || ch === "-")) {
         let u = p + 1; while (u < end && exp[u] === ch) u += 1;
         if (u === end) {
-          const text = stripInlineComments(leaf.lines.join(" ")).replace(/\s+/g, " ").trim();
+          const text = scanInline(leaf.lines.join(" ")).text.replace(/\s+/g, " ").trim();
           if (leaf.isRoot && text) blocks.push({ kind: "heading", depth: ch === "=" ? 1 : 2, text });
           leaf = null; consumed = true; break;
         }
@@ -215,7 +220,7 @@ function parseMdBlocks(markdown) {
         let h = 1; while (h <= 6 && p + h < end && exp[p + h] === "#") h += 1;
         if (h <= 6 && (p + h === end || exp[p + h] === " ")) {
           interrupt();
-          const text = stripInlineComments(exp.slice(p + h, end)).trim().replace(/(?:^| +)#+$/, "").trim();
+          const text = scanInline(exp.slice(p + h, end)).text.trim().replace(/(?:^| +)#+$/, "").trim();
           if (containers.length === 0 && h <= 3) blocks.push({ kind: "heading", depth: h, text });
           consumed = true; break;
         }
@@ -264,7 +269,14 @@ function sectionBlocks(blocks, headingName) {
   const stop = blocks.findIndex((b, i) => i > idx && b.kind === "heading");
   return blocks.slice(idx + 1, stop === -1 ? blocks.length : stop);
 }
-const sectionBullets = (blocks, name) => (sectionBlocks(blocks, name) ?? []).filter((b) => b.kind === "bullet").map((b) => ({ firstLine: b.paras[0]?.split("\n").map((l) => l.trim()).find(Boolean) ?? "", text: b.paras.map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean).join(" ") }));
+const sectionBullets = (blocks, name) => (sectionBlocks(blocks, name) ?? []).filter((b) => b.kind === "bullet").map((b) => ({ firstPara: (b.paras[0]?.text ?? "").replace(/\s+/g, " ").trim(), text: b.paras.map((p) => p.text.replace(/\s+/g, " ").trim()).filter(Boolean).join(" "), spans: b.paras.flatMap((p) => p.spans.map((sp) => sp.val)) }));
+const metaVal = (rest) => {
+  const c = rest.trim();
+  if (!c || c.startsWith("<")) return "";
+  const tok = c[0] === "`" ? (scanInline(c).spans.find((sp) => sp.start === 0)?.val ?? "") : (c.match(/^"([^"]*)"|^'([^']*)'/)?.slice(1).find((x) => x !== undefined) ?? c.replace(/\s+\([^)]*\)\s*$/, ""));
+  const v = tok.trim();
+  return v.startsWith("<") ? "" : v;
+};
 function globToRegExp(pattern) {
   const norm = pattern.replaceAll("\\", "/").replace(/^\.\//, "");
   let rx = "^";
@@ -277,9 +289,9 @@ function globToRegExp(pattern) {
 export function parseAgentsProfile(agentsText) {
   const [blocks, riskyPatterns, riskyConcepts, checklistBullets] = [parseMdBlocks(agentsText), [], [], []];
   let [checklistPath, budgetEnabled] = [undefined, false];
-  for (const { text } of sectionBullets(blocks, "Risky areas")) {
+  for (const { text, spans } of sectionBullets(blocks, "Risky areas")) {
     if (!text) continue;
-    const linePaths = [...text.matchAll(/(?<!\\)(?:\\\\)*`+([^`\n]+?)`+/g)].map((m) => m[1].trim()).filter((s) => /[/.]/.test(s));
+    const linePaths = spans.map((s) => s.trim()).filter((s) => /[/.]/.test(s));
     const bare = text.match(/^([A-Za-z0-9_./*-]+)\s*:/);
     if (bare && /[/.]/.test(bare[1])) linePaths.push(bare[1]);
     if (linePaths.length) riskyPatterns.push(...linePaths);
@@ -288,20 +300,14 @@ export function parseAgentsProfile(agentsText) {
       if (clean.length >= 4 && clean !== "none") riskyConcepts.push(clean);
     }
   }
-  for (const { firstLine, text } of sectionBullets(blocks, "Review checklist")) {
-    const cp = firstLine.match(/^(?:\*\*Checklist path:?\*\*:?|Checklist path:)[ \t]*(.*)$/i);
-    if (cp) {
-      const cleaned = cp[1].trim();
-      const tok = cleaned && !cleaned.startsWith("<") ? (cleaned.match(/^`([^`\n]*)`|^"([^"\n]*)"|^'([^'\n]*)'/)?.slice(1).find((x) => x !== undefined) ?? cleaned.replace(/\s+\([^)]*\)\s*$/, "")).trim() : "";
-      if (tok && !tok.startsWith("<")) checklistPath = /^inline only$/i.test(tok) ? null : tok;
-    } else if (text) checklistBullets.push(text);
+  for (const { firstPara, text } of sectionBullets(blocks, "Review checklist")) {
+    const cp = firstPara.match(/^(?:\*\*Checklist path:?\*\*:?|Checklist path:)[ \t]*(.*)$/i);
+    if (cp) { const tok = metaVal(cp[1]); if (tok) checklistPath = /^inline only$/i.test(tok) ? null : tok; }
+    else if (text) checklistBullets.push(text);
   }
-  for (const { firstLine } of sectionBullets(blocks, "Budget mode")) {
-    const bm = firstLine.match(/^(?:\*\*Enabled:?\*\*:?|Enabled:)[ \t]*(.*)$/i);
-    if (!bm) continue;
-    const cleaned = bm[1].trim();
-    const tok = cleaned && !cleaned.startsWith("<") ? (cleaned.match(/^`([^`\n]*)`|^"([^"\n]*)"|^'([^'\n]*)'/)?.slice(1).find((x) => x !== undefined) ?? cleaned.replace(/\s+\([^)]*\)\s*$/, "")).trim() : "";
-    budgetEnabled = /^yes$/i.test(tok);
+  for (const { firstPara } of sectionBullets(blocks, "Budget mode")) {
+    const bm = firstPara.match(/^(?:\*\*Enabled:?\*\*:?|Enabled:)[ \t]*(.*)$/i);
+    if (bm) budgetEnabled = /^yes$/i.test(metaVal(bm[1]));
   }
   return { riskyPatterns: [...new Set(riskyPatterns)], riskyConcepts: [...new Set(riskyConcepts)], checklistBullets, checklistPath, budgetEnabled };
 }
