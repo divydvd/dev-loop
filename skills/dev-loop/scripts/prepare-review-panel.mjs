@@ -126,18 +126,40 @@ export function detectDomains(changedFiles, diffHunkText) {
   return DOMAIN_ORDER.filter((d) => found.has(d));
 }
 function stripCommentsOutsideFences(markdown) {
-  const chunks = [];
-  let [fence, buf] = [null, []];
+  const out = [];
+  let [fence, inComment] = [null, false];
   for (const line of String(markdown ?? "").split(/\r?\n/)) {
-    const nf = nextFenceState(fence, line);
-    if (fence || nf) {
-      if (buf.length) { chunks.push(buf.join("\n").replace(/<!--[\s\S]*?-->/g, "")); buf = []; }
-      chunks.push(line);
-    } else buf.push(line);
-    fence = nf;
+    if (!inComment) {
+      const nf = nextFenceState(fence, line);
+      if (fence || nf) { out.push(line); fence = nf; continue; }
+      fence = nf;
+    }
+    let [clean, i] = ["", 0];
+    while (i < line.length) {
+      if (inComment) {
+        const end = line.indexOf("-->", i);
+        if (end === -1) break;
+        inComment = false; i = end + 3;
+      } else if (line[i] === "`") {
+        let run = 1;
+        while (line[i + run] === "`") run += 1;
+        let [j, closeEnd] = [i + run, -1];
+        while (j < line.length) {
+          if (line[j] !== "`") { j += 1; continue; }
+          let k = 1;
+          while (line[j + k] === "`") k += 1;
+          if (k === run) { closeEnd = j + k; break; }
+          j += k;
+        }
+        const stop = closeEnd !== -1 ? closeEnd : i + run;
+        clean += line.slice(i, stop); i = stop;
+      } else if (line.startsWith("<!--", i)) {
+        inComment = true; i += 4;
+      } else { clean += line[i]; i += 1; }
+    }
+    out.push(clean);
   }
-  if (buf.length) chunks.push(buf.join("\n").replace(/<!--[\s\S]*?-->/g, ""));
-  return chunks.join("\n");
+  return out.join("\n");
 }
 function extractHeadingSection(markdown, headingName) {
   const headingRe = new RegExp(`^#{2,3}\\s+${headingName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s+\\(optional\\))?[ \\t]*$`, "i");
@@ -182,7 +204,7 @@ export function parseAgentsProfile(agentsText) {
     const cp = t.match(/^-\s+(?:\*\*Checklist path:?\*\*:?|Checklist path:)[ \t]*(.*)$/i);
     if (cp) {
       inChecklistMeta = true;
-      const cleaned = cp[1].replace(/<!--[\s\S]*?-->/g, "").trim();
+      const cleaned = cp[1].trim();
       const tok = cleaned && !cleaned.startsWith("<") ? (cleaned.match(/^`([^`\n]*)`|^"([^"\n]*)"|^'([^'\n]*)'/)?.slice(1).find((x) => x !== undefined) ?? cleaned.replace(/\s+\([^)]*\)\s*$/, "")).trim() : "";
       if (tok && !tok.startsWith("<")) checklistPath = /^inline only$/i.test(tok) ? null : tok;
     } else if (t.startsWith("- ")) { inChecklistMeta = false; checklistBullets.push(t.slice(2).trim()); }
@@ -193,7 +215,7 @@ export function parseAgentsProfile(agentsText) {
     if (budgetFence || nf) { budgetFence = nf; continue; }
     const bm = raw.trim().match(/^-\s+(?:\*\*Enabled:?\*\*:?|Enabled:)[ \t]*(.*)$/i);
     if (!bm) continue;
-    const cleaned = bm[1].replace(/<!--[\s\S]*?-->/g, "").trim();
+    const cleaned = bm[1].trim();
     const tok = cleaned && !cleaned.startsWith("<") ? (cleaned.match(/^`([^`\n]*)`|^"([^"\n]*)"|^'([^'\n]*)'/)?.slice(1).find((x) => x !== undefined) ?? cleaned.replace(/\s+\([^)]*\)\s*$/, "")).trim() : "";
     budgetEnabled = /^yes$/i.test(tok);
   }
@@ -380,19 +402,23 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
   const lexicalChecklist = effectiveChecklist ? checkContained(effectiveChecklist, "--checklist") : null;
   const checklistRel = lexicalChecklist ? relative(realRepoRoot, lexicalChecklist).replaceAll("\\", "/") : null;
   const rawChecklistText = lexicalChecklist ? (head === "WORKTREE" ? readWorktreeConfig(lexicalChecklist, "--checklist") : gitConfigOrNull(realRepoRoot, resolvedHead, checklistRel, opPaths)) : null;
-  const baseProfiles = [...new Set([mergeBaseSha, baseSha])].map((rev) => {
+  const loadBaseProfile = (rev) => {
     try {
       const p = parseAgentsProfile(gitConfigOrNull(realRepoRoot, rev, agentsRel, opPaths) ?? "");
-      const bCfg = checklist === undefined ? p.checklistPath : null;
-      if (bCfg) { const bLex = resolve(realRepoRoot, bCfg); if (isInsideOrEqual(realRepoRoot, bLex)) gitConfigOrNull(realRepoRoot, rev, relative(realRepoRoot, bLex).replaceAll("\\", "/"), opPaths); }
+      try {
+        const bCfg = checklist === undefined ? p.checklistPath : null;
+        if (bCfg) { const bLex = resolve(realRepoRoot, bCfg); if (isInsideOrEqual(realRepoRoot, bLex)) gitConfigOrNull(realRepoRoot, rev, relative(realRepoRoot, bLex).replaceAll("\\", "/"), opPaths); }
+      } catch {}
       return p;
     } catch { return { riskyPatterns: [], riskyConcepts: [], budgetEnabled: false }; }
-  });
-  const baseBudgetEnabled = baseProfiles.length > 0 && baseProfiles.every((p) => p.budgetEnabled);
+  };
+  const mergeBaseProfile = loadBaseProfile(mergeBaseSha);
+  const baseProfiles = baseSha === mergeBaseSha ? [mergeBaseProfile] : [mergeBaseProfile, loadBaseProfile(baseSha)];
+  const baseBudgetEnabled = baseProfiles.every((p) => p.budgetEnabled);
   const allRiskyPatterns = [...new Set([...riskyPatterns, ...baseProfiles.flatMap((p) => p.riskyPatterns)])];
   const allRiskyConcepts = [...new Set([...riskyConcepts, ...baseProfiles.flatMap((p) => p.riskyConcepts)])];
   const [headPatSet, headConSet] = [new Set(riskyPatterns), new Set(riskyConcepts)];
-  const removedRisky = [...new Set([...baseProfiles.flatMap((p) => p.riskyPatterns).filter((x) => !headPatSet.has(x)), ...baseProfiles.flatMap((p) => p.riskyConcepts).filter((x) => !headConSet.has(x))])];
+  const removedRisky = [...new Set([...mergeBaseProfile.riskyPatterns.filter((x) => !headPatSet.has(x)), ...mergeBaseProfile.riskyConcepts.filter((x) => !headConSet.has(x))])];
   const [effectiveBudget, budgetSource] = (budget || normBudgetMode === "on")
     ? [true, "cli"]
     : normBudgetMode === "off"

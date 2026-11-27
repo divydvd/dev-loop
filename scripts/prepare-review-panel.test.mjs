@@ -1601,6 +1601,74 @@ test("27. SJ-1..SJ-4: parseArgs exit code 2, --budget + --budget-mode auto confl
   assert.equal(wtJson.budgetMode, false);
   assert.equal(wtJson.mode, "panel");
   assert.equal(existsSync(join(wtOut, "single-reviewer-packet.md")), false);
+
+  // F-1: HTML comment wrapping fenced block stays stripped, and inline `<!--` code span does not erase later sections
+  assert.equal(
+    parseAgentsProfile(
+      [
+        "### Budget mode (optional)",
+        "- **Enabled:** no",
+        "<!--",
+        "```markdown",
+        "- **Enabled:** yes",
+        "```",
+        "- **Enabled:** yes",
+        "-->",
+      ].join("\n")
+    ).budgetEnabled,
+    false
+  );
+  const inlineCommentProfile = parseAgentsProfile(
+    [
+      "# Project",
+      "Note: never commit raw `<!--` markers.",
+      "",
+      "### Risky areas",
+      "- `src/billing/**`: billing.",
+      "",
+      "### Budget mode (optional)",
+      "- **Enabled:** yes <!-- active -->",
+    ].join("\n")
+  );
+  assert.deepEqual(inlineCommentProfile.riskyPatterns, ["src/billing/**"]);
+  assert.equal(inlineCommentProfile.budgetEnabled, true);
+
+  // F-2: advanced --base adding a new Risky areas entry on main must not break exempt/single on un-rebased unrelated branch
+  const unRebasedRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n",
+    "README.md": "This repo checks feature gates cleanlly.\n",
+  });
+  const typoHead = writeAndCommit(
+    unRebasedRepo.repoDir,
+    { "README.md": "This repo checks feature gates cleanly.\n" },
+    "harmless prose typo on branch"
+  );
+  git(unRebasedRepo.repoDir, ["checkout", "main"]);
+  writeAndCommit(
+    unRebasedRepo.repoDir,
+    {
+      "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n- `src/payments/**`: payments.\n",
+    },
+    "add payments risky area on main"
+  );
+  git(unRebasedRepo.repoDir, ["checkout", "feature"]);
+  const unRebasedTypo = JSON.parse(
+    runRouterCli(["--repo-root", unRebasedRepo.repoDir, "--base", "main", "--head", typoHead, "--json"]).stdout
+  );
+  assert.equal(unRebasedTypo.touchesRiskyArea, false);
+  assert.equal(unRebasedTypo.mode, "exempt");
+
+  // Touching the newly added main risky area (`src/payments/**`) on that un-rebased branch still escalates to panel
+  const paymentsHead = writeAndCommit(
+    unRebasedRepo.repoDir,
+    { "src/payments/charge.ts": "export const fee = 1;\n" },
+    "touch newly added main risky area"
+  );
+  const unRebasedPayments = JSON.parse(
+    runRouterCli(["--repo-root", unRebasedRepo.repoDir, "--base", "main", "--head", paymentsHead, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(unRebasedPayments.touchesRiskyArea, true);
+  assert.equal(unRebasedPayments.mode, "panel");
 });
 
 

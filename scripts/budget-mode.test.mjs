@@ -89,6 +89,7 @@ test("budget-mode.md specifies 1x model guidance, Step 1-5 cost rules, slice-bat
   const steps = doc.split("## Step-by-Step Budget Rules")[1]?.split("## Slice-Batched TDD Contract")[0] ?? "";
   assert.match(steps, /ask_user/);
   assert.match(steps, /away mode.*absence|when away mode is inactive/i);
+  assert.match(steps, /non-blocking assumptions/i);
   assert.match(steps, /single.*round|one.*turn|batch/i);
   assert.match(steps, /builder-check|builder check/i);
   assert.match(steps, /design-review/);
