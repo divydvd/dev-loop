@@ -1092,14 +1092,17 @@ test("B-T7a: B7-webhook-queue fails when docs/flows/webhooks.md is stale or O1-O
     });
     assert.equal(o4TruncRes.passed, false, "O4: trailing non-hex signature characters must fail oracle");
 
-    // SEC-01 / CCR-1 defect: replacing crypto.timingSafeEqual with Buffer.equals must fail oracle
+    // SEC-01 / CCR-1 defect: replacing crypto.timingSafeEqual with Buffer.equals (even with a dummy throwing timingSafeEqual call) must fail oracle
     const noTseRes = runSingleTask(b7, {
       driverCmd: [
         process.execPath,
-        writeB7Variant("o2-no-timing-safe-equal", 'code = code.replace("timingSafeEqual(act, exp)", "act.equals(exp)");'),
+        writeB7Variant(
+          "o2-no-timing-safe-equal",
+          'code = code.replace("timingSafeEqual(act, exp)", "(() => { try { timingSafeEqual(Buffer.alloc(1), Buffer.alloc(2)); } catch {} return act.equals(exp); })()");',
+        ),
       ],
     });
-    assert.equal(noTseRes.passed, false, "SEC-01: omitting crypto.timingSafeEqual must fail oracle");
+    assert.equal(noTseRes.passed, false, "SEC-01: omitting valid crypto.timingSafeEqual must fail oracle");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1320,6 +1323,40 @@ test("B-T7c: live copilot -p passes --usage-output-file and extractSandboxTeleme
     const partialModelTel = benchMod.extractSandboxTelemetry(join(partialModelSb, "copilot-home"), partialModelSb);
     assert.equal(partialModelTel.totalNanoAiu, null, "active unmetered model in modelMetrics must null totalNanoAiu");
     assert.equal(partialModelTel.modelCalls, 13);
+
+    // 2c. Zero-request idle model alongside active metered model preserves totalNanoAiu; usage-only session omitting requests.count nulls activeSec and partial modelCalls
+    const idleModelSb = join(dir, "idle-model-sb");
+    mkdirSync(idleModelSb, { recursive: true });
+    writeFileSync(
+      join(idleModelSb, "usage.json"),
+      JSON.stringify({
+        modelMetrics: {
+          "claude-sonnet-5.5": { requests: { count: 8 }, usage: { totalNanoAiu: 16000000000 } },
+          "idle-model": { requests: { count: 0 }, usage: {} },
+        },
+      }),
+    );
+    const idleModelTel = benchMod.extractSandboxTelemetry(join(idleModelSb, "copilot-home"), idleModelSb);
+    assert.equal(idleModelTel.totalNanoAiu, 16000000000, "zero-request idle model must not null totalNanoAiu");
+    assert.equal(idleModelTel.modelCalls, 8);
+
+    const noCallsSubHome = join(dir, "nocalls-sub-home");
+    mkdirSync(join(noCallsSubHome, "session-state", "s-main"), { recursive: true });
+    mkdirSync(join(noCallsSubHome, "session-state", "s-sub"), { recursive: true });
+    writeFileSync(
+      join(noCallsSubHome, "session-state", "s-main", "events.jsonl"),
+      JSON.stringify({ timestamp: "2026-11-27T12:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }) + "\n" +
+        JSON.stringify({ timestamp: "2026-11-27T12:00:03.000Z", type: "assistant.message", data: { turnId: "0" } }) + "\n" +
+        JSON.stringify({ timestamp: "2026-11-27T12:00:03.000Z", type: "session.shutdown", data: { totalNanoAiu: 5000 } }) + "\n",
+    );
+    writeFileSync(
+      join(noCallsSubHome, "session-state", "s-sub", "usage.json"),
+      JSON.stringify({ modelMetrics: { "claude-sonnet-5.5": { usage: { totalNanoAiu: 2000 } } } }),
+    );
+    const noCallsSubTel = benchMod.extractSandboxTelemetry(noCallsSubHome);
+    assert.equal(noCallsSubTel.totalNanoAiu, 7000);
+    assert.equal(noCallsSubTel.activeSec, null, "active usage-only session omitting requests.count must keep activeSec null");
+    assert.equal(noCallsSubTel.modelCalls, null, "active usage-only session omitting requests.count must not undercount modelCalls");
 
     // 3. Session usage.json omitting requests.count preserves events.jsonl modelCalls instead of dropping them
     const hybridSb = join(dir, "hybrid-calls-sb");

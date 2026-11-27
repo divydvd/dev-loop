@@ -310,7 +310,7 @@ export const BENCHMARK_TASKS = [
       const oracle = [
         "import assert from 'node:assert/strict'; import { createRequire, syncBuiltinESMExports } from 'node:module';",
         "const req = createRequire(import.meta.url), cjsCrypto = req('node:crypto'), origTse = cjsCrypto.timingSafeEqual; let tseCalls = 0;",
-        "cjsCrypto.timingSafeEqual = function(...a) { tseCalls += 1; return origTse.apply(this, a); }; syncBuiltinESMExports();",
+        "cjsCrypto.timingSafeEqual = function(...a) { const r = origTse.apply(this, a); tseCalls += 1; return r; }; syncBuiltinESMExports();",
         "const { createHmac } = await import('node:crypto'), { createWebhookQueue } = await import('./src/webhook-queue.mjs');",
         "const sign = (k, b) => 'sha256=' + createHmac('sha256', k).update(b).digest('hex');",
         // O1: synchronous option validation
@@ -349,20 +349,24 @@ function readUsageMetrics(filePath) {
   if (!filePath || !existsSync(filePath)) return null;
   try {
     const metrics = Object.values(JSON.parse(readFileSync(filePath, "utf8"))?.modelMetrics || {});
-    let nano = 0, hasNano = false, missingNano = false, calls = 0, hasCalls = false;
+    if (!metrics.length) return null;
+    let nano = 0, hasNano = false, missingNano = false, calls = 0, hasCalls = false, missingCalls = false, anyActive = false;
     for (const m of metrics) {
-      const mCalls = Number.isFinite(m?.requests?.count) && m.requests.count >= 0 ? m.requests.count : null;
-      if (mCalls !== null) { calls += mCalls; hasCalls = true; }
-      if (Number.isFinite(m?.usage?.totalNanoAiu) && m.usage.totalNanoAiu >= 0) { nano += m.usage.totalNanoAiu; hasNano = true; }
-      else if (mCalls !== 0) missingNano = true;
+      if (!m || typeof m !== "object") continue;
+      const mCalls = Number.isFinite(m.requests?.count) && m.requests.count >= 0 ? m.requests.count : null;
+      const mNano = Number.isFinite(m.usage?.totalNanoAiu) && m.usage.totalNanoAiu >= 0 ? m.usage.totalNanoAiu : null;
+      const modelActive = mCalls !== null ? mCalls > 0 : (mNano !== null ? mNano > 0 : true);
+      if (modelActive) anyActive = true;
+      if (mCalls !== null) { calls += mCalls; hasCalls = true; } else if (modelActive) missingCalls = true;
+      if (mNano !== null) { nano += mNano; hasNano = true; } else if (modelActive) missingNano = true;
     }
-    return hasNano || hasCalls ? { totalNanoAiu: hasNano && !missingNano ? nano : null, modelCalls: hasCalls ? calls : null } : null;
+    return hasNano || hasCalls || anyActive ? { totalNanoAiu: hasNano && !missingNano ? nano : null, modelCalls: hasCalls && !missingCalls ? calls : null, active: anyActive } : null;
   } catch { return null; }
 }
 export function extractSandboxTelemetry(homeDir, sandboxDir = null) {
   const empty = { totalNanoAiu: null, modelCalls: null, duplicateReadRate: null, activeSec: null, parallelismFactor: null };
   const sessRoot = join(homeDir, "session-state"), topUsage = readUsageMetrics(sandboxDir ? join(sandboxDir, "usage.json") : null);
-  let sessNanoSum = 0, hasSessNano = false, missingSessNano = false, hasSessUsageFile = false, missingActiveTime = false, calls = 0, hasSession = false, readChars = 0, dupChars = 0, toolWorkSec = 0;
+  let sessNanoSum = 0, hasSessNano = false, missingSessNano = false, hasSessUsageFile = false, missingSessCalls = false, missingActiveTime = false, calls = 0, hasSession = false, readChars = 0, dupChars = 0, toolWorkSec = 0;
   const activeIvs = [], toolIvs = [];
   if (existsSync(sessRoot)) {
     for (const entry of readdirSync(sessRoot, { withFileTypes: true })) {
@@ -373,11 +377,12 @@ export function extractSandboxTelemetry(homeDir, sandboxDir = null) {
       if (uSess) hasSessUsageFile = true;
       const m = hasEv ? parseSessionEvents(evPath) : null;
       const sNano = m?.totalNanoAiu ?? uSess?.totalNanoAiu ?? null;
-      const sCalls = m?.totalNanoAiu !== null && m?.totalNanoAiu !== undefined ? m.modelCalls : (uSess?.modelCalls ?? m?.modelCalls ?? 0);
+      const rawCalls = m?.totalNanoAiu !== null && m?.totalNanoAiu !== undefined ? m.modelCalls : (uSess?.modelCalls ?? (m && m.modelCalls > 0 ? m.modelCalls : (uSess?.active ? null : (m?.modelCalls ?? null))));
+      const sessActive = (rawCalls !== null && rawCalls > 0) || (sNano !== null && sNano > 0) || Boolean(uSess?.active);
+      if (rawCalls !== null) calls += rawCalls; else if (sessActive) missingSessCalls = true;
       if (sNano !== null) { sessNanoSum += sNano; hasSessNano = true; }
-      else if (sCalls > 0) missingSessNano = true;
-      calls += sCalls;
-      if (m?.activeIntervals?.length) activeIvs.push(...m.activeIntervals); else if (sCalls > 0) missingActiveTime = true;
+      else if (sessActive) missingSessNano = true;
+      if (m?.activeIntervals?.length) activeIvs.push(...m.activeIntervals); else if (sessActive) missingActiveTime = true;
       if (!m) continue;
       if (m.toolIntervals?.length) { toolIvs.push(...m.toolIntervals); toolWorkSec += m.toolWorkSec || 0; }
       readChars += m.totalReadChars; dupChars += m.duplicateReadChars;
@@ -387,9 +392,10 @@ export function extractSandboxTelemetry(homeDir, sandboxDir = null) {
   const mergedActive = mergeIntervals(activeIvs), mergedTools = mergeIntervals(toolIvs);
   const toolClockSec = mergedTools.reduce((a, [s, e]) => a + (e - s), 0) / 1000;
   const completeSessions = hasSessNano && !missingSessNano, partialPerSession = hasSessUsageFile && missingSessNano;
+  const partialPerSessionCalls = hasSessUsageFile && missingSessCalls;
   return {
     totalNanoAiu: completeSessions ? sessNanoSum : (!partialPerSession ? (topUsage?.totalNanoAiu ?? null) : null),
-    modelCalls: completeSessions ? calls : (topUsage?.modelCalls ?? (hasSession ? calls : null)),
+    modelCalls: hasSession && !missingSessCalls && (completeSessions || !topUsage?.modelCalls) ? calls : (!partialPerSessionCalls ? (topUsage?.modelCalls ?? null) : null),
     duplicateReadRate: readChars > 0 ? dupChars / readChars : null,
     activeSec: mergedActive.length > 0 && !missingActiveTime ? mergedActive.reduce((a, [s, e]) => a + (e - s), 0) / 1000 : null,
     parallelismFactor: toolClockSec > 0 && !missingActiveTime ? toolWorkSec / toolClockSec : null,
