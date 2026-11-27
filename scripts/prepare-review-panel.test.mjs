@@ -2180,6 +2180,29 @@ test("31. r2c F-1..F-3: CommonMark §6.1 multi-backtick/unmatched code spans, so
     parseAgentsProfile("### Budget mode\n- **Enabled:** ``unclosed `yes`\n").budgetEnabled,
     false
   );
+  assert.equal(
+    parseAgentsProfile("### Budget mode\n- **Enabled:** `<!-- c -->``yes```\n").budgetEnabled,
+    false
+  );
+  const softProseAfterMeta = parseAgentsProfile(
+    [
+      "### Review checklist",
+      "- **Checklist path:** inline only",
+      "  Keep rules inline in AGENTS.md.",
+      "- **Checklist path:** `docs/two  spaces.md`",
+      "  Extra explanation line.",
+      "",
+      "### Budget mode",
+      "- **Enabled:** yes",
+      "  Keep risky areas on panel.",
+    ].join("\n")
+  );
+  assert.equal(softProseAfterMeta.checklistPath, "docs/two  spaces.md");
+  assert.equal(softProseAfterMeta.budgetEnabled, true);
+  assert.equal(
+    parseAgentsProfile("### Review checklist\n- **Checklist path:** inline only\n  Keep inline.\n").checklistPath,
+    null
+  );
 
   const t0 = performance.now();
   const unclosedComments = parseAgentsProfile(

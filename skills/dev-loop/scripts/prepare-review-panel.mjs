@@ -146,7 +146,7 @@ function scanInline(s) {
       ptrByLen.set(run, p);
       if (arr && p < arr.length) {
         const end = arr[p] + run, norm = s.slice(i + run, arr[p]).replace(/\r?\n/g, " ");
-        spans.push({ start: i, val: norm.length >= 2 && norm[0] === " " && norm.at(-1) === " " && norm.trim() ? norm.slice(1, -1) : norm });
+        spans.push({ start: out.length, val: norm.length >= 2 && norm[0] === " " && norm.at(-1) === " " && norm.trim() ? norm.slice(1, -1) : norm });
         out += s.slice(i, end); i = end;
       } else { out += s.slice(i, i + run); i += run; }
     } else if (s.startsWith("<!--", i)) {
@@ -269,11 +269,13 @@ function sectionBlocks(blocks, headingName) {
   const stop = blocks.findIndex((b, i) => i > idx && b.kind === "heading");
   return blocks.slice(idx + 1, stop === -1 ? blocks.length : stop);
 }
-const sectionBullets = (blocks, name) => (sectionBlocks(blocks, name) ?? []).filter((b) => b.kind === "bullet").map((b) => ({ firstPara: (b.paras[0]?.text ?? "").replace(/\s+/g, " ").trim(), text: b.paras.map((p) => p.text.replace(/\s+/g, " ").trim()).filter(Boolean).join(" "), spans: b.paras.flatMap((p) => p.spans.map((sp) => sp.val)) }));
-const metaVal = (rest) => {
-  const c = rest.trim();
-  if (!c || c.startsWith("<")) return "";
-  const tok = c[0] === "`" ? (scanInline(c).spans.find((sp) => sp.start === 0)?.val ?? "") : (c.match(/^"([^"]*)"|^'([^']*)'/)?.slice(1).find((x) => x !== undefined) ?? c.replace(/\s+\([^)]*\)\s*$/, ""));
+const sectionBullets = (blocks, name) => (sectionBlocks(blocks, name) ?? []).filter((b) => b.kind === "bullet").map((b) => ({ p0: b.paras[0], text: b.paras.map((p) => p.text.replace(/\s+/g, " ").trim()).filter(Boolean).join(" "), spans: b.paras.flatMap((p) => p.spans.map((sp) => sp.val)) }));
+const metaVal = (p0, keyRe) => {
+  const m = p0?.text.match(keyRe);
+  if (!m) return null;
+  const idx = m[0].length, line = p0.text.slice(idx).split("\n")[0].trim();
+  if (!line || line.startsWith("<")) return "";
+  const tok = line[0] === "`" ? (p0.spans.find((sp) => sp.start === idx)?.val ?? "") : (line.match(/^"([^"]*)"|^'([^']*)'/)?.slice(1).find((x) => x !== undefined) ?? line.replace(/\s+\([^)]*\)\s*$/, ""));
   const v = tok.trim();
   return v.startsWith("<") ? "" : v;
 };
@@ -300,14 +302,14 @@ export function parseAgentsProfile(agentsText) {
       if (clean.length >= 4 && clean !== "none") riskyConcepts.push(clean);
     }
   }
-  for (const { firstPara, text } of sectionBullets(blocks, "Review checklist")) {
-    const cp = firstPara.match(/^(?:\*\*Checklist path:?\*\*:?|Checklist path:)[ \t]*(.*)$/i);
-    if (cp) { const tok = metaVal(cp[1]); if (tok) checklistPath = /^inline only$/i.test(tok) ? null : tok; }
+  for (const { p0, text } of sectionBullets(blocks, "Review checklist")) {
+    const tok = metaVal(p0, /^\s*(?:\*\*Checklist path:?\*\*:?|Checklist path:)\s*/i);
+    if (tok !== null) { if (tok) checklistPath = /^inline only$/i.test(tok) ? null : tok; }
     else if (text) checklistBullets.push(text);
   }
-  for (const { firstPara } of sectionBullets(blocks, "Budget mode")) {
-    const bm = firstPara.match(/^(?:\*\*Enabled:?\*\*:?|Enabled:)[ \t]*(.*)$/i);
-    if (bm) budgetEnabled = /^yes$/i.test(metaVal(bm[1]));
+  for (const { p0 } of sectionBullets(blocks, "Budget mode")) {
+    const tok = metaVal(p0, /^\s*(?:\*\*Enabled:?\*\*:?|Enabled:)\s*/i);
+    if (tok !== null) budgetEnabled = /^yes$/i.test(tok);
   }
   return { riskyPatterns: [...new Set(riskyPatterns)], riskyConcepts: [...new Set(riskyConcepts)], checklistBullets, checklistPath, budgetEnabled };
 }
