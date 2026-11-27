@@ -1091,6 +1091,15 @@ test("B-T7a: B7-webhook-queue fails when docs/flows/webhooks.md is stale or O1-O
       ],
     });
     assert.equal(o4TruncRes.passed, false, "O4: trailing non-hex signature characters must fail oracle");
+
+    // SEC-01 / CCR-1 defect: replacing crypto.timingSafeEqual with Buffer.equals must fail oracle
+    const noTseRes = runSingleTask(b7, {
+      driverCmd: [
+        process.execPath,
+        writeB7Variant("o2-no-timing-safe-equal", 'code = code.replace("timingSafeEqual(act, exp)", "act.equals(exp)");'),
+      ],
+    });
+    assert.equal(noTseRes.passed, false, "SEC-01: omitting crypto.timingSafeEqual must fail oracle");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1286,7 +1295,31 @@ test("B-T7c: live copilot -p passes --usage-output-file and extractSandboxTeleme
     const multiTel = benchMod.extractSandboxTelemetry(multiHome, multiSb);
     assert.equal(multiTel.totalNanoAiu, 34254080000);
     assert.equal(multiTel.modelCalls, 16);
-    assert.equal(multiTel.activeSec, 10);
+    assert.equal(multiTel.activeSec, null, "untimed usage.json-only active reviewer session must keep activeSec null");
+    // Adding reviewer events.jsonl timing makes sandbox activeSec complete
+    writeFileSync(
+      join(multiHome, "session-state", "reviewer", "events.jsonl"),
+      JSON.stringify({ timestamp: "2026-11-27T12:00:10.000Z", type: "assistant.turn_start", data: { turnId: "0" } }) + "\n" +
+        JSON.stringify({ timestamp: "2026-11-27T12:00:12.000Z", type: "assistant.message", data: { turnId: "0" } }) + "\n",
+    );
+    const timedMultiTel = benchMod.extractSandboxTelemetry(multiHome, multiSb);
+    assert.equal(timedMultiTel.activeSec, 12);
+
+    // 2b. Multi-model usage.json with one unmetered active model must return totalNanoAiu: null instead of partial undercount
+    const partialModelSb = join(dir, "partial-model-sb");
+    mkdirSync(partialModelSb, { recursive: true });
+    writeFileSync(
+      join(partialModelSb, "usage.json"),
+      JSON.stringify({
+        modelMetrics: {
+          "claude-sonnet-5.5": { requests: { count: 10 }, usage: { totalNanoAiu: 20000000000 } },
+          "gpt-5.6-sol": { requests: { count: 3 }, usage: { inputTokens: 500 } },
+        },
+      }),
+    );
+    const partialModelTel = benchMod.extractSandboxTelemetry(join(partialModelSb, "copilot-home"), partialModelSb);
+    assert.equal(partialModelTel.totalNanoAiu, null, "active unmetered model in modelMetrics must null totalNanoAiu");
+    assert.equal(partialModelTel.modelCalls, 13);
 
     // 3. Session usage.json omitting requests.count preserves events.jsonl modelCalls instead of dropping them
     const hybridSb = join(dir, "hybrid-calls-sb");

@@ -45,7 +45,7 @@ The expected result is deterministic zero-credit CI coverage of `O1`–`O11` web
 - Owner waivers: none.
 - Required blockers: none.
 - Optional limits: Live `copilot` A/B runs cost real credits and run on demand rather than in GitHub Actions CI; `docs/benchmarks/2026-11-27-budget-mode-ab.md` records the measured `claude-sonnet-5.5` run at `eb2599c`.
-- Reassessment: Step-5 `panel` review (`arch-correctness`, `concurrency-state`, `security-privacy` -> `skeptic-judge` on `WORKTREE:1cb03269e44b213c07bb260a7d5ca4ce8504edc8b5e323433ec088945a3b2f84`) identified `SJ-1`–`SJ-7` (`mixed` session `events.jsonl` + `usage.json` summing, `O6` `processEvent` eviction, `O7` in-flight forged-sig check, `O8` failure coalescing, `O1`/`O4` boundary hardening, canonical `review-checklist.md` headers, `B7` `timeoutMs: 420_000`, and `testing-contract.test.mjs` `B7`/flag coverage). All `7` items were covered with RED->GREEN tests (`159` total changed production lines `+124/-35` in `scripts/run-benchmark.mjs`).
+- Reassessment: Step-5 `panel` review (`arch-correctness`, `concurrency-state`, `security-privacy` -> `skeptic-judge` on `WORKTREE:1cb03269e44b213c07bb260a7d5ca4ce8504edc8b5e323433ec088945a3b2f84`) identified `SJ-1`–`SJ-7`, and Copilot PR review Round 1 on `19a33aa` identified `CCR-1`–`CCR-3` (`timingSafeEqual` instrumentation via `syncBuiltinESMExports` in `B7` oracle, `readUsageMetrics` nulling `totalNanoAiu` when any active model in `modelMetrics` is unmetered, and `extractSandboxTelemetry` keeping `activeSec: null` when an active `usage.json`-only session lacks `events.jsonl` timing). All `10` items are covered with RED->GREEN tests in `T2` and `T4`.
 
 ## Execution ledger
 - [x] Plan and compact test matrix saved before implementation.

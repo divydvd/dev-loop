@@ -308,14 +308,17 @@ export const BENCHMARK_TASKS = [
         return { passed: false, reason: "docs/flows/webhooks.md not updated with HMAC, TTL dedup, coalescing, and retry behavior" };
       }
       const oracle = [
-        "import assert from 'node:assert/strict'; import { createHmac } from 'node:crypto'; import { createWebhookQueue } from './src/webhook-queue.mjs';",
+        "import assert from 'node:assert/strict'; import { createRequire, syncBuiltinESMExports } from 'node:module';",
+        "const req = createRequire(import.meta.url), cjsCrypto = req('node:crypto'), origTse = cjsCrypto.timingSafeEqual; let tseCalls = 0;",
+        "cjsCrypto.timingSafeEqual = function(...a) { tseCalls += 1; return origTse.apply(this, a); }; syncBuiltinESMExports();",
+        "const { createHmac } = await import('node:crypto'), { createWebhookQueue } = await import('./src/webhook-queue.mjs');",
         "const sign = (k, b) => 'sha256=' + createHmac('sha256', k).update(b).digest('hex');",
         // O1: synchronous option validation
         "for (const bad of [null, { secret: '', deliver: async () => {} }, { secret: 123, deliver: async () => {} }, { secret: 'k', deliver: null }, { secret: 'k', deliver: async () => {}, ttlMs: 0 }, { secret: 'k', deliver: async () => {}, ttlMs: Number.NaN }, { secret: 'k', deliver: async () => {}, ttlMs: Infinity }, { secret: 'k', deliver: async () => {}, maxRetries: -1 }, { secret: 'k', deliver: async () => {}, maxRetries: 1.5 }, { secret: 'k', deliver: async () => {}, now: null }]) assert.throws(() => createWebhookQueue(bad));",
-        // O2-O7: HMAC delivery, wrong/malformed sigs without RangeError, invalid payload, TTL boundary, and forged-sig check before cache
+        // O2-O7: HMAC delivery via timingSafeEqual, wrong/malformed sigs without RangeError, invalid payload, TTL boundary, and forged-sig check before cache
         "let t = 1000, calls = 0; const q = createWebhookQueue({ secret: 'sec', ttlMs: 500, maxRetries: 2, now: () => t, deliver: async () => { calls += 1; } });",
-        "assert.deepEqual(await q.processEvent({ eventId: 'e1', rawBody: '{\"a\":1}', signature: sign('sec', '{\"a\":1}') }), { accepted: true, status: 'delivered', attempts: 1 }); assert.equal(q.size(), 1); assert.equal(calls, 1);",
-        "assert.deepEqual(await q.processEvent({ eventId: 'e2', rawBody: '{}', signature: 'sha256=' + 'a'.repeat(64) }), { accepted: false, status: 'invalid_signature', attempts: 0 }); assert.equal(calls, 1);",
+        "assert.deepEqual(await q.processEvent({ eventId: 'e1', rawBody: '{\"a\":1}', signature: sign('sec', '{\"a\":1}') }), { accepted: true, status: 'delivered', attempts: 1 }); assert.equal(q.size(), 1); assert.equal(calls, 1); assert.ok(tseCalls >= 1);",
+        "const tseBeforeWrong = tseCalls; assert.deepEqual(await q.processEvent({ eventId: 'e2', rawBody: '{}', signature: 'sha256=' + 'a'.repeat(64) }), { accepted: false, status: 'invalid_signature', attempts: 0 }); assert.equal(calls, 1); assert.ok(tseCalls > tseBeforeWrong);",
         "for (const badSig of ['', 'sha256=abc', 'sha256=' + 'z'.repeat(64), sign('sec', '{}') + 'zz', 'md5=' + 'a'.repeat(64), null, undefined]) assert.deepEqual(await q.processEvent({ eventId: 'e3', rawBody: '{}', signature: badSig }), { accepted: false, status: 'invalid_signature', attempts: 0 });",
         "for (const badEv of [{ eventId: '', rawBody: '{}' }, { eventId: '   ', rawBody: '{}' }, { eventId: 'e4', rawBody: null }, { eventId: 'e4', rawBody: 42 }]) assert.deepEqual(await q.processEvent({ ...badEv, signature: sign('sec', '{}') }), { accepted: false, status: 'invalid_payload', attempts: 0 });",
         "assert.deepEqual(await q.processEvent({ eventId: 'e1', rawBody: '{\"a\":1}', signature: 'sha256=' + 'b'.repeat(64) }), { accepted: false, status: 'invalid_signature', attempts: 0 });",
@@ -346,12 +349,14 @@ function readUsageMetrics(filePath) {
   if (!filePath || !existsSync(filePath)) return null;
   try {
     const metrics = Object.values(JSON.parse(readFileSync(filePath, "utf8"))?.modelMetrics || {});
-    let nano = 0, hasNano = false, calls = 0, hasCalls = false;
+    let nano = 0, hasNano = false, missingNano = false, calls = 0, hasCalls = false;
     for (const m of metrics) {
+      const mCalls = Number.isFinite(m?.requests?.count) && m.requests.count >= 0 ? m.requests.count : null;
+      if (mCalls !== null) { calls += mCalls; hasCalls = true; }
       if (Number.isFinite(m?.usage?.totalNanoAiu) && m.usage.totalNanoAiu >= 0) { nano += m.usage.totalNanoAiu; hasNano = true; }
-      if (Number.isFinite(m?.requests?.count) && m.requests.count >= 0) { calls += m.requests.count; hasCalls = true; }
+      else if (mCalls !== 0) missingNano = true;
     }
-    return hasNano || hasCalls ? { totalNanoAiu: hasNano ? nano : null, modelCalls: hasCalls ? calls : null } : null;
+    return hasNano || hasCalls ? { totalNanoAiu: hasNano && !missingNano ? nano : null, modelCalls: hasCalls ? calls : null } : null;
   } catch { return null; }
 }
 export function extractSandboxTelemetry(homeDir, sandboxDir = null) {
@@ -372,8 +377,8 @@ export function extractSandboxTelemetry(homeDir, sandboxDir = null) {
       if (sNano !== null) { sessNanoSum += sNano; hasSessNano = true; }
       else if (sCalls > 0) missingSessNano = true;
       calls += sCalls;
+      if (m?.activeIntervals?.length) activeIvs.push(...m.activeIntervals); else if (sCalls > 0) missingActiveTime = true;
       if (!m) continue;
-      if (m.activeIntervals?.length) activeIvs.push(...m.activeIntervals); else if (m.modelCalls > 0) missingActiveTime = true;
       if (m.toolIntervals?.length) { toolIvs.push(...m.toolIntervals); toolWorkSec += m.toolWorkSec || 0; }
       readChars += m.totalReadChars; dupChars += m.duplicateReadChars;
     }
