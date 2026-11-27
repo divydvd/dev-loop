@@ -13,14 +13,17 @@ node <dev-loop-skill-dir>/scripts/prepare-review-panel.mjs \
   --base <base-ref> \
   --head <head-sha-or-WORKTREE> \
   --out-dir <temp-dir-outside-repo> \
+  [--budget | --budget-mode <auto|on|off>] \
+  [--follow-up] \
   --json
 ```
 - Put `--out-dir` in a temporary directory outside `--repo-root` (for example `$TMPDIR/dev-loop-review-<id>` or the session `files/` folder). The script rejects any `--out-dir` inside `--repo-root` so frozen packets never pollute `git status`.
+- Keep `--budget-mode` at its default (`auto`, which enables Budget mode only when both `HEAD` and base-branch `AGENTS.md` set `Enabled: yes` under `### Budget mode` or `### Budget mode (optional)`). Pass `--budget-mode on` (or `--budget`) for a per-task owner switch, or `--budget-mode off` when the owner disables `AGENTS.md` for one task (`references/budget-mode.md`).
 - Keep `--checklist` at its default (`docs/testing/review-checklist.md`) unless the project profile names another path. When that file is absent, the router embeds the `### Review checklist` bullets from `AGENTS.md`.
 - Read `routing.json` or stdout JSON (`triggeredDomains` counts how many of the 3 optional domain categories—`concurrency-state`, `security-privacy`, `ui-a11y`—matched; multiple keywords in the same category such as `synchronized` + `CompletableFuture` count as `1` domain, and `arch-correctness` is never counted as a domain trigger) to select one of three modes:
   1. `exempt`: `0` production lines, outside `### Risky areas`, and only harmless prose spelling or formatting edits in non-operational `.md` files. Edits to `skills/**`, `com.github.copilot/**`, `hooks/**`, `.claude-plugin/**`, `.github/**`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, commands, flags, numbers, or normative rules (`must`, `never`, `do not`) are never `exempt`. Record the reason in `Exemption`.
-  2. `single`: `1`–`120` production lines, outside `### Risky areas`, and `0` or `1` triggered domain category (`roles: ["single-reviewer"]`, `synthesisJudge: false`). A small single-domain diff stays `single` (`single-reviewer` inspects that domain too). Dispatch one fresh `requesting-code-review` subagent with `<out-dir>/single-reviewer-packet.md`. Record `single (<agent>)` in `Reviewer`.
-  3. `panel`: `> 120` production lines, any file in `### Risky areas`, or `2+` distinct triggered domain categories (`synthesisJudge: true`, `judgeRole: "skeptic-judge"`). Always include `arch-correctness` plus each triggered domain role (`concurrency-state`, `security-privacy`, `ui-a11y`), or `["arch-correctness", "security-privacy"]` when a risky-area or `> 120`-line change triggers `0` keyword domains (`2`–`4` specialists total).
+  2. `single`: `1`–`120` production lines, outside `### Risky areas`, and `0` or `1` triggered domain category (`roles: ["single-reviewer"]`, `synthesisJudge: false`); when Budget mode is `on`, non-risky diffs of `1`–`400` production lines across any domain count also route to `single` (`single-reviewer` receives all matched domain checklist rules). Dispatch one fresh `requesting-code-review` subagent with `<out-dir>/single-reviewer-packet.md`. Record `single (<agent>)` in `Reviewer`.
+  3. `panel`: `> 120` production lines (`> 400` when Budget mode is `on`), any file in `### Risky areas`, or `2+` distinct triggered domain categories when Budget mode is `off` (`synthesisJudge: true`, `judgeRole: "skeptic-judge"`). Always include `arch-correctness` plus each triggered domain role (`concurrency-state`, `security-privacy`, `ui-a11y`), or `["arch-correctness", "security-privacy"]` when a risky-area or large diff triggers `0` keyword domains (`2`–`4` specialists total).
 
 ## Specialist roles and frozen packets
 Give each reviewer only its `<out-dir>/<role>-packet.md`, the acceptance record, and the saved test matrix (`references/testing.md`).
@@ -69,9 +72,10 @@ Evaluate the final `skeptic-judge` output with `receiving-code-review`. Fix conf
 Record `panel (<roles> -> skeptic-judge)` in the `Reviewer` row of `assets/pr-body.md` (for example `panel (arch-correctness, concurrency-state, security-privacy, ui-a11y -> skeptic-judge)`).
 
 ## Focused follow-up review after fixes
-- Do not re-run the full multi-agent panel for a small follow-up fix (`<= 120` production lines outside new risky areas).
+- Run `scripts/prepare-review-panel.mjs` with `--base <reviewed-sha> --head <head-sha-or-WORKTREE> --follow-up` (preserving any active `--budget-mode <auto|on|off>`) to route post-review follow-up diffs deterministically.
+- Do not re-run the full multi-agent panel for a small follow-up fix (`<= 120` production lines outside new risky areas, even when Budget mode is `on`).
 - Give later substantive changes a focused `single` independent review (`single (<agent>)`) of the changed behavior and affected interactions before the next push, and record that commit and reviewer in `Changes after review`.
-- Re-run `panel` mode only when follow-up changes add `> 120` production lines or touch a newly affected risky area.
+- Re-run `panel` mode when `--follow-up` detects `> 120` production lines (including `121–400` production lines under Budget mode) or a newly affected risky area.
 - Harmless spelling or formatting edits after review do not need another review.
 
 ## Conclusion

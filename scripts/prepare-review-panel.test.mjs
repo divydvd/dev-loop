@@ -1262,3 +1262,958 @@ test("22. M2/M3 integration: AGENTS.md 'Checklist path' honors 'inline only', cu
   );
 });
 
+test("23. budget mode: 250-line multi-domain non-risky diff routes to single-reviewer with all domain rules and cleans stale panel packets", (t) => {
+  const { repoDir, outRoot, baseSha } = makeFixtureRepo(t, {
+    "docs/testing/review-checklist.md": [
+      "# Project Review Checklist",
+      "",
+      "## Active rules",
+      "| Rule ID | Domain | Trigger paths or tokens | Check (observable defect to verify) | Source PRs |",
+      "| --- | --- | --- | --- | --- |",
+      "| R-SEC-BM | security-privacy | `src/auth/**`, `authToken` | Never persist raw bearer tokens in logs. | #31 |",
+      "| R-CONC-BM | concurrency-state | `src/queue/**`, `Mutex` | Release queue mutex in finally block. | #32 |",
+      "",
+      "## Retired rules",
+      "| Rule ID | Domain | Trigger paths or tokens | Check | Status |",
+      "| --- | --- | --- | --- | --- |",
+      "| R-RET-BM | security-privacy | `src/auth/**` | Legacy auth rule. | retired |",
+      "",
+    ].join("\n"),
+  });
+
+  writeAndCommit(repoDir, {
+    "src/auth/token.ts": [
+      "export function verifySession(authToken: string): boolean {",
+      ...Array.from({ length: 123 }, (_, i) => `  const step${i} = authToken.length + ${i};`),
+      "  return step0 > 0;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/queue/pool.ts": [
+      "export async function runWithMutex(lock: Mutex): Promise<number> {",
+      ...Array.from({ length: 123 }, (_, i) => `  const slot${i} = await Promise.resolve(${i});`),
+      "  return slot0;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const sharedOut = join(outRoot, "rerun-packets");
+  const stdRes = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--out-dir", sharedOut, "--json"]);
+  assert.equal(stdRes.status, 0, stdRes.stderr);
+  const stdJson = JSON.parse(stdRes.stdout);
+  assert.equal(stdJson.mode, "panel");
+  assert.equal(stdJson.budgetMode, false);
+  assert.equal(stdJson.budgetSource, "off");
+  assert.ok(stdJson.prodLinesChanged >= 250);
+  assert.equal(existsSync(join(sharedOut, "arch-correctness-packet.md")), true);
+  assert.equal(existsSync(join(sharedOut, "skeptic-judge-packet.md")), true);
+
+  const budgetRes = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--out-dir", sharedOut, "--budget", "--json"]);
+  assert.equal(budgetRes.status, 0, budgetRes.stderr);
+  const budgetJson = JSON.parse(budgetRes.stdout);
+  assert.equal(budgetJson.mode, "single");
+  assert.deepEqual(budgetJson.roles, ["single-reviewer"]);
+  assert.equal(budgetJson.synthesisJudge, false);
+  assert.equal(budgetJson.judgeRole, null);
+  assert.equal(budgetJson.budgetMode, true);
+  assert.equal(budgetJson.budgetSource, "cli");
+
+  assert.equal(existsSync(join(sharedOut, "arch-correctness-packet.md")), false);
+  assert.equal(existsSync(join(sharedOut, "security-privacy-packet.md")), false);
+  assert.equal(existsSync(join(sharedOut, "concurrency-state-packet.md")), false);
+  assert.equal(existsSync(join(sharedOut, "skeptic-judge-packet.md")), false);
+
+  const singlePacket = readFileSync(join(sharedOut, "single-reviewer-packet.md"), "utf8");
+  assert.ok(singlePacket.includes("- **Budget mode:** `true` (`cli`)"), singlePacket);
+  assert.ok(singlePacket.includes("R-SEC-BM"), singlePacket);
+  assert.ok(singlePacket.includes("R-CONC-BM"), singlePacket);
+  assert.equal(singlePacket.includes("R-RET-BM"), false);
+});
+
+test("24. budget mode: risky-area 30-line diff and >400-line non-risky diff still escalate to panel + skeptic-judge", (t) => {
+  const { repoDir, outRoot, baseSha } = makeFixtureRepo(t);
+
+  // 1) 30-line risky-area edit with --budget-mode on -> panel + skeptic-judge
+  const riskyHead = writeAndCommit(repoDir, {
+    "src/billing/ledger.ts": [
+      "export function postEntry(amount: number): number {",
+      ...Array.from({ length: 28 }, (_, i) => `  const adj${i} = amount + ${i};`),
+      "  return adj0;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const riskyOut = join(outRoot, "risky-budget");
+  const riskyRes = runRouterCli([
+    "--repo-root",
+    repoDir,
+    "--base",
+    baseSha,
+    "--head",
+    riskyHead,
+    "--out-dir",
+    riskyOut,
+    "--budget-mode",
+    "on",
+    "--json",
+  ]);
+  assert.equal(riskyRes.status, 0, riskyRes.stderr);
+  const riskyJson = JSON.parse(riskyRes.stdout);
+  assert.equal(riskyJson.touchesRiskyArea, true);
+  assert.equal(riskyJson.mode, "panel");
+  assert.equal(riskyJson.synthesisJudge, true);
+  assert.equal(riskyJson.judgeRole, "skeptic-judge");
+  assert.equal(riskyJson.budgetMode, true);
+  assert.equal(riskyJson.budgetSource, "cli");
+  assert.ok(readFileSync(join(riskyOut, "arch-correctness-packet.md"), "utf8").includes("- **Budget mode:** `true` (`cli`)"));
+  assert.ok(readFileSync(join(riskyOut, "skeptic-judge-packet.md"), "utf8").includes("- **Budget mode:** `true` (`cli`)"));
+
+  // 2a) Boundary 400-line non-risky edit with --budget-mode on -> single
+  const cap400Head = writeAndCommit(repoDir, {
+    "src/feature/within-cap.ts": `${Array.from({ length: 400 }, (_, i) => `export const c${i} = ${i};`).join("\n")}\n`,
+  });
+  const cap400Json = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", riskyHead, "--head", cap400Head, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(cap400Json.prodLinesChanged, 400);
+  assert.equal(cap400Json.mode, "single");
+  assert.deepEqual(cap400Json.roles, ["single-reviewer"]);
+
+  // 2b) 405-line non-risky edit with --budget-mode on -> panel + skeptic-judge
+  const over400Head = writeAndCommit(repoDir, {
+    "src/feature/over-cap.ts": `${Array.from({ length: 405 }, (_, i) => `export const o${i} = ${i};`).join("\n")}\n`,
+  });
+  const over400Json = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", cap400Head, "--head", over400Head, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(over400Json.prodLinesChanged, 405);
+  assert.equal(over400Json.mode, "panel");
+  assert.equal(over400Json.synthesisJudge, true);
+  assert.equal(over400Json.judgeRole, "skeptic-judge");
+
+  // 3) Harmless README typo with --budget-mode on -> exempt
+  const currentReadme = readFileSync(join(repoDir, "README.md"), "utf8");
+  const typoHead = writeAndCommit(repoDir, {
+    "README.md": currentReadme.replace("explains teh setup", "explains the setup"),
+  });
+  const typoJson = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", over400Head, "--head", typoHead, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(typoJson.mode, "exempt");
+  assert.deepEqual(typoJson.roles, []);
+  assert.equal(typoJson.budgetMode, true);
+  assert.equal(typoJson.budgetSource, "cli");
+});
+
+test("25. budget mode: AGENTS.md ### Budget mode (optional) precedence, comment/placeholder parsing, and unmerged self-downgrade guard", async (t) => {
+  const mod = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+  assert.equal(mod.MAX_BUDGET_SINGLE_PROD_LINES, 400);
+  assert.equal(mod.parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** yes <!-- active -->\n").budgetEnabled, true);
+  assert.equal(mod.parseAgentsProfile("### Budget mode\n- **Enabled:** `YES`\n").budgetEnabled, true);
+  assert.equal(mod.parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** <yes or no>\n").budgetEnabled, false);
+  assert.equal(mod.parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** no\n").budgetEnabled, false);
+  assert.equal(mod.parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** invalid\n").budgetEnabled, false);
+
+  const twoDomainFiles = {
+    "src/auth/token.ts": `export function checkAuth(authToken: string) {\n${Array.from({ length: 98 }, (_, i) => `  const a${i} = authToken;`).join("\n")}\n  return a0;\n}\n`,
+    "src/queue/pool.ts": `export async function drain(lock: Mutex) {\n${Array.from({ length: 98 }, (_, i) => `  const q${i} = await Promise.resolve(${i});`).join("\n")}\n  return q0;\n}\n`,
+  };
+
+  // 1) Base AGENTS.md has Budget mode Enabled: yes -> auto activates agents-profile; --budget-mode off overrides to cli-off
+  const enabledRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** yes <!-- enabled on main -->\n",
+  });
+  writeAndCommit(enabledRepo.repoDir, twoDomainFiles);
+
+  const autoOnJson = JSON.parse(
+    runRouterCli(["--repo-root", enabledRepo.repoDir, "--base", enabledRepo.baseSha, "--json"]).stdout
+  );
+  assert.equal(autoOnJson.budgetMode, true);
+  assert.equal(autoOnJson.budgetSource, "agents-profile");
+  assert.equal(autoOnJson.mode, "single");
+
+  const cliOffJson = JSON.parse(
+    runRouterCli(["--repo-root", enabledRepo.repoDir, "--base", enabledRepo.baseSha, "--budget-mode", "off", "--json"]).stdout
+  );
+  assert.equal(cliOffJson.budgetMode, false);
+  assert.equal(cliOffJson.budgetSource, "cli-off");
+  assert.equal(cliOffJson.mode, "panel");
+
+  // 2) Base AGENTS.md has placeholder/no/invalid -> auto keeps budgetMode false
+  for (const val of ["<yes or no>", "no", "invalid"]) {
+    const offRepo = makeFixtureRepo(t, {
+      "AGENTS.md": `# Project\n\n### Budget mode (optional)\n- **Enabled:** ${val}\n`,
+    });
+    writeAndCommit(offRepo.repoDir, twoDomainFiles);
+    const offJson = JSON.parse(
+      runRouterCli(["--repo-root", offRepo.repoDir, "--base", offRepo.baseSha, "--budget-mode", "auto", "--json"]).stdout
+    );
+    assert.equal(offJson.budgetMode, false, `expected false for ${val}`);
+    assert.equal(offJson.budgetSource, "off", `expected off for ${val}`);
+    assert.equal(offJson.mode, "panel");
+  }
+
+  // 3) Unmerged self-downgrade guard: base AGENTS.md has Enabled: no, branch edits AGENTS.md to Enabled: yes + 200-line 2-domain diff
+  const selfDowngradeRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Budget mode (optional)\n- **Enabled:** no\n",
+  });
+  writeAndCommit(selfDowngradeRepo.repoDir, {
+    "AGENTS.md": "# Project\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+    ...twoDomainFiles,
+  });
+  const guardedAutoJson = JSON.parse(
+    runRouterCli(["--repo-root", selfDowngradeRepo.repoDir, "--base", selfDowngradeRepo.baseSha, "--json"]).stdout
+  );
+  assert.equal(guardedAutoJson.budgetMode, false);
+  assert.equal(guardedAutoJson.budgetSource, "off");
+  assert.equal(guardedAutoJson.mode, "panel");
+
+  const explicitCliJson = JSON.parse(
+    runRouterCli(["--repo-root", selfDowngradeRepo.repoDir, "--base", selfDowngradeRepo.baseSha, "--budget", "--json"]).stdout
+  );
+  assert.equal(explicitCliJson.budgetMode, true);
+  assert.equal(explicitCliJson.budgetSource, "cli");
+  assert.equal(explicitCliJson.mode, "single");
+});
+
+test("26. budget mode: invalid --budget-mode or conflicting --budget + --budget-mode off exits with code 2", async (t) => {
+  const { repoDir, baseSha } = makeFixtureRepo(t);
+  writeAndCommit(repoDir, { "src/index.ts": "export const v = 1;\n" });
+
+  const invalidModeRes = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--budget-mode", "maybe"]);
+  assert.equal(invalidModeRes.status, 2);
+  assert.match(invalidModeRes.stderr, /--budget-mode/);
+
+  const conflictRes = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--budget", "--budget-mode", "off"]);
+  assert.equal(conflictRes.status, 2);
+  assert.match(conflictRes.stderr, /conflict|--budget/i);
+
+  const { prepareReviewPanel } = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+  assert.throws(
+    () => prepareReviewPanel({ repoRoot: repoDir, base: baseSha, budget: true, budgetMode: "off" }),
+    (err) => err?.exitCode === 2
+  );
+});
+
+test("27. SJ-1..SJ-4: parseArgs exit code 2, --budget + --budget-mode auto conflict, multiline/fenced AGENTS.md parsing, advanced --base disablement, and unmerged Risky areas deletion guard", async (t) => {
+  const { parseAgentsProfile } = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+  const { repoDir, outRoot, baseSha } = makeFixtureRepo(t);
+  writeAndCommit(repoDir, { "src/index.ts": "export const v = 1;\n" });
+
+  // SJ-1: conflicting --budget + --budget-mode auto and malformed CLI flags exit 2
+  for (const badArgs of [
+    ["--repo-root", repoDir, "--base", baseSha, "--budget", "--budget-mode", "auto"],
+    ["--repo-root", repoDir, "--base", baseSha, "--budget-mode"],
+    ["--repo-root", repoDir, "--base", baseSha, "--budget=off"],
+    ["--repo-root", repoDir, "--base", baseSha, "--no-budget"],
+  ]) {
+    const badRes = runRouterCli(badArgs);
+    assert.equal(badRes.status, 2, `expected exit 2 for ${badArgs.join(" ")}, got ${badRes.status}: ${badRes.stderr}`);
+  }
+
+  // SJ-2: multiline HTML comments and fenced '# comment' inside ### Budget mode
+  assert.equal(
+    parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** no\n<!--\n- **Enabled:** yes\n-->\n").budgetEnabled,
+    false
+  );
+  assert.equal(
+    parseAgentsProfile("<!--\n### Budget mode\n- **Enabled:** yes\n-->\n").budgetEnabled,
+    false
+  );
+  assert.equal(
+    parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** yes <!-- multiline\nnote -->\n").budgetEnabled,
+    true
+  );
+  assert.equal(
+    parseAgentsProfile("### Budget mode\n- **Enabled:** yes\n```sh\n# shell comment inside fence\necho ok\n```\n- **Enabled:** no\n").budgetEnabled,
+    false
+  );
+
+  // SJ-3: --base advances after branch fork to set Enabled: no (without rebase) -> auto stays off -> panel
+  const twoDomainFiles = {
+    "src/auth/token.ts": `export function checkAuth(authToken: string) {\n${Array.from({ length: 80 }, (_, i) => `  const a${i} = authToken;`).join("\n")}\n  return a0;\n}\n`,
+    "src/queue/pool.ts": `export async function drain(lock: Mutex) {\n${Array.from({ length: 80 }, (_, i) => `  const q${i} = await Promise.resolve(${i});`).join("\n")}\n  return q0;\n}\n`,
+  };
+  const advRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+  });
+  const featHead = writeAndCommit(advRepo.repoDir, twoDomainFiles, "feat on branch");
+  git(advRepo.repoDir, ["checkout", "main"]);
+  writeAndCommit(
+    advRepo.repoDir,
+    {
+      "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** no\n",
+    },
+    "disable budget mode on main"
+  );
+  git(advRepo.repoDir, ["checkout", "feature"]);
+  const advRes = JSON.parse(
+    runRouterCli(["--repo-root", advRepo.repoDir, "--base", "main", "--head", featHead, "--json"]).stdout
+  );
+  assert.equal(advRes.budgetMode, false);
+  assert.equal(advRes.budgetSource, "off");
+  assert.equal(advRes.mode, "panel");
+
+  // SJ-4: unmerged deletion of a ### Risky areas entry in AGENTS.md cannot downgrade Budget mode review to single
+  const riskyDelRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+  });
+  writeAndCommit(riskyDelRepo.repoDir, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+    "src/billing/ledger.ts": "export const balance = 42;\n",
+  });
+  const riskyDelJson = JSON.parse(
+    runRouterCli(["--repo-root", riskyDelRepo.repoDir, "--base", riskyDelRepo.baseSha, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(riskyDelJson.touchesRiskyArea, true);
+  assert.equal(riskyDelJson.mode, "panel");
+
+  // Also deleting a Risky areas entry alone in AGENTS.md escalates touchesRiskyArea to panel
+  const policyOnlyRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+  });
+  writeAndCommit(policyOnlyRepo.repoDir, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+  });
+  const policyOnlyJson = JSON.parse(
+    runRouterCli(["--repo-root", policyOnlyRepo.repoDir, "--base", policyOnlyRepo.baseSha, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(policyOnlyJson.touchesRiskyArea, true);
+  assert.equal(policyOnlyJson.mode, "panel");
+
+  // WORKTREE uncommitted Enabled: yes + reused --out-dir cleans stale single-reviewer-packet.md
+  const wtRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Budget mode (optional)\n- **Enabled:** no\n",
+  });
+  const wtOut = join(outRoot, "wt-stale-single");
+  mkdirSync(wtOut, { recursive: true });
+  writeFileSync(join(wtOut, "single-reviewer-packet.md"), "stale single packet", "utf8");
+  writeFileSync(join(wtRepo.repoDir, "AGENTS.md"), "# Project\n\n### Budget mode (optional)\n- **Enabled:** yes\n", "utf8");
+  for (const [rel, content] of Object.entries(twoDomainFiles)) {
+    const abs = join(wtRepo.repoDir, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content, "utf8");
+  }
+  const wtJson = JSON.parse(
+    runRouterCli(["--repo-root", wtRepo.repoDir, "--base", wtRepo.baseSha, "--head", "WORKTREE", "--out-dir", wtOut, "--json"]).stdout
+  );
+  assert.equal(wtJson.budgetMode, false);
+  assert.equal(wtJson.mode, "panel");
+  assert.equal(existsSync(join(wtOut, "single-reviewer-packet.md")), false);
+
+  // F-1: HTML comment wrapping fenced block stays stripped, and inline `<!--` code span does not erase later sections
+  assert.equal(
+    parseAgentsProfile(
+      [
+        "### Budget mode (optional)",
+        "- **Enabled:** no",
+        "<!--",
+        "```markdown",
+        "- **Enabled:** yes",
+        "```",
+        "- **Enabled:** yes",
+        "-->",
+      ].join("\n")
+    ).budgetEnabled,
+    false
+  );
+  const inlineCommentProfile = parseAgentsProfile(
+    [
+      "# Project",
+      "Note: never commit raw `<!--` markers.",
+      "",
+      "### Risky areas",
+      "- `src/billing/**`: billing.",
+      "",
+      "### Budget mode (optional)",
+      "- **Enabled:** yes <!-- active -->",
+    ].join("\n")
+  );
+  assert.deepEqual(inlineCommentProfile.riskyPatterns, ["src/billing/**"]);
+  assert.equal(inlineCommentProfile.budgetEnabled, true);
+
+  // F-2: advanced --base adding a new Risky areas entry on main must not break exempt/single on un-rebased unrelated branch
+  const unRebasedRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n",
+    "README.md": "This repo checks feature gates cleanlly.\n",
+  });
+  const typoHead = writeAndCommit(
+    unRebasedRepo.repoDir,
+    { "README.md": "This repo checks feature gates cleanly.\n" },
+    "harmless prose typo on branch"
+  );
+  git(unRebasedRepo.repoDir, ["checkout", "main"]);
+  writeAndCommit(
+    unRebasedRepo.repoDir,
+    {
+      "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n- `src/payments/**`: payments.\n",
+    },
+    "add payments risky area on main"
+  );
+  git(unRebasedRepo.repoDir, ["checkout", "feature"]);
+  const unRebasedTypo = JSON.parse(
+    runRouterCli(["--repo-root", unRebasedRepo.repoDir, "--base", "main", "--head", typoHead, "--json"]).stdout
+  );
+  assert.equal(unRebasedTypo.touchesRiskyArea, false);
+  assert.equal(unRebasedTypo.mode, "exempt");
+
+  // Touching the newly added main risky area (`src/payments/**`) on that un-rebased branch still escalates to panel
+  const paymentsHead = writeAndCommit(
+    unRebasedRepo.repoDir,
+    { "src/payments/charge.ts": "export const fee = 1;\n" },
+    "touch newly added main risky area"
+  );
+  const unRebasedPayments = JSON.parse(
+    runRouterCli(["--repo-root", unRebasedRepo.repoDir, "--base", "main", "--head", paymentsHead, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(unRebasedPayments.touchesRiskyArea, true);
+  assert.equal(unRebasedPayments.mode, "panel");
+});
+
+test("28. CCR-1..CCR-4: indented HTML comment code examples, fenced/indented config examples, top-level bullet matching, and --follow-up 120-line cap under Budget mode", async (t) => {
+  const mod = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+  const { parseAgentsProfile, prepareReviewPanel } = mod;
+  assert.equal(mod.MAX_FOLLOW_UP_SINGLE_PROD_LINES, 120);
+
+  // CCR-1: 4-space-indented `<!--` code example (after blank line or heading) must not swallow later sections
+  const indentedCommentAgents = [
+    "# Project",
+    "",
+    "    <!-- example unclosed HTML comment in 4-space indented code block",
+    "",
+    "## Notes",
+    "    <!-- example immediately after heading",
+    "",
+    "### Risky areas",
+    "- `src/billing/**`: billing.",
+    "",
+    "### Review checklist",
+    "- Verify token expiry.",
+    "",
+    "### Budget mode (optional)",
+    "- **Enabled:** no",
+    "",
+  ].join("\n");
+  const parsedIndentedComment = parseAgentsProfile(indentedCommentAgents);
+  assert.deepEqual(parsedIndentedComment.riskyPatterns, ["src/billing/**"]);
+  assert.deepEqual(parsedIndentedComment.checklistBullets, ["Verify token expiry."]);
+  assert.equal(parsedIndentedComment.budgetEnabled, false);
+
+  const ccr1Repo = makeFixtureRepo(t, { "AGENTS.md": indentedCommentAgents });
+  writeAndCommit(ccr1Repo.repoDir, { "src/billing/charge.ts": "export const total = 10;\n" });
+  const ccr1Res = JSON.parse(
+    runRouterCli(["--repo-root", ccr1Repo.repoDir, "--base", ccr1Repo.baseSha, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(ccr1Res.touchesRiskyArea, true);
+  assert.equal(ccr1Res.mode, "panel");
+
+  // CCR-2: moving an active Risky areas bullet into a fenced or indented code example is detected as policy removal -> panel
+  const ccr2Repo = makeFixtureRepo(t, {
+    "AGENTS.md": [
+      "# Project",
+      "",
+      "### Risky areas",
+      "- `src/billing/**`: billing.",
+      "",
+      "### Budget mode (optional)",
+      "- **Enabled:** yes",
+      "",
+    ].join("\n"),
+  });
+  writeAndCommit(ccr2Repo.repoDir, {
+    "AGENTS.md": [
+      "# Project",
+      "",
+      "### Risky areas",
+      "```markdown",
+      "- `src/billing/**`: billing.",
+      "```",
+      "",
+      "### Budget mode (optional)",
+      "- **Enabled:** yes",
+      "",
+    ].join("\n"),
+  });
+  const ccr2Res = JSON.parse(
+    runRouterCli(["--repo-root", ccr2Repo.repoDir, "--base", ccr2Repo.baseSha, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(ccr2Res.touchesRiskyArea, true);
+  assert.equal(ccr2Res.mode, "panel");
+
+  // CCR-3 + nested CommonMark sub-bullets (2/3/4 spaces) + list-indented fences + wrapped Risky areas continuations
+  const indentedBudgetAgents = [
+    "# Project",
+    "",
+    "- Setup notes:",
+    "    ```markdown",
+    "    <!-- unclosed comment inside 4-space list fence",
+    "    - **Enabled:** yes",
+    "    ```",
+    "",
+    "### Risky areas",
+    "- `src/auth/**` and",
+    "    `src/billing/**`: auth and billing.",
+    "- Retired examples:",
+    "  - `src/legacy/**`: retired.",
+    "",
+    "### Review checklist",
+    "- **Checklist path:** `docs/review-checklist.md`",
+    "- Example:",
+    "  - **Checklist path:** `inline only`",
+    "- Keep",
+    "    wrapped checklist prose intact.",
+    "",
+    "### Budget mode (optional)",
+    "- **Enabled:** no",
+    "- Example 2-space nested item:",
+    "  - **Enabled:** yes",
+    "- Example 3-space nested item:",
+    "   - **Enabled:** yes",
+    "- Example 4-space nested item:",
+    "    - **Enabled:** yes",
+    "",
+    "    - **Enabled:** yes",
+    "",
+  ].join("\n");
+  const parsedNested = parseAgentsProfile(indentedBudgetAgents);
+  assert.equal(parsedNested.budgetEnabled, false);
+  assert.deepEqual(parsedNested.riskyPatterns, ["src/auth/**", "src/billing/**"]);
+  assert.equal(parsedNested.checklistPath, "docs/review-checklist.md");
+  assert.ok(parsedNested.checklistBullets.includes("Keep wrapped checklist prose intact."));
+
+  const ccr3Repo = makeFixtureRepo(t, { "AGENTS.md": indentedBudgetAgents });
+  writeAndCommit(ccr3Repo.repoDir, {
+    "src/auth/token.ts": "export function checkAuth(authToken: string) { return authToken.length > 0; }\n",
+    "src/queue/pool.ts": "export async function drain(lock: Mutex) { return await Promise.resolve(Boolean(lock)); }\n",
+  });
+  const ccr3Res = JSON.parse(
+    runRouterCli(["--repo-root", ccr3Repo.repoDir, "--base", ccr3Repo.baseSha, "--json"]).stdout
+  );
+  assert.equal(ccr3Res.budgetMode, false);
+  assert.equal(ccr3Res.budgetSource, "off");
+  assert.equal(ccr3Res.mode, "panel");
+
+  // CCR-4: --follow-up enforces the 120-line follow-up cap (121-400 escalates to panel) while preserving active Budget mode
+  const fuRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+  });
+  for (const badArgs of [
+    ["--repo-root", fuRepo.repoDir, "--base", fuRepo.baseSha, "--follow-up=false"],
+    ["--repo-root", fuRepo.repoDir, "--base", fuRepo.baseSha, "--no-follow-up"],
+  ]) {
+    assert.equal(runRouterCli(badArgs).status, 2);
+  }
+  assert.throws(
+    () => prepareReviewPanel({ repoRoot: fuRepo.repoDir, base: fuRepo.baseSha, followUp: "yes" }),
+    (err) => err?.exitCode === 2
+  );
+
+  // 120-line 2-domain non-risky follow-up -> single (both with --budget-mode on and standard mode)
+  const fu120Head = writeAndCommit(fuRepo.repoDir, {
+    "src/auth/token.ts": `${Array.from({ length: 60 }, (_, i) => `export const authToken${i} = "${i}";`).join("\n")}\n`,
+    "src/queue/pool.ts": `${Array.from({ length: 60 }, (_, i) => `export async function mutexStep${i}() { return await Promise.resolve(${i}); }`).join("\n")}\n`,
+  });
+  const fu120Budget = JSON.parse(
+    runRouterCli(["--repo-root", fuRepo.repoDir, "--base", fuRepo.baseSha, "--head", fu120Head, "--budget-mode", "on", "--follow-up", "--json"]).stdout
+  );
+  assert.equal(fu120Budget.followUp, true);
+  assert.equal(fu120Budget.budgetMode, true);
+  assert.equal(fu120Budget.budgetSource, "cli");
+  assert.equal(fu120Budget.prodLinesChanged, 120);
+  assert.equal(fu120Budget.mode, "single");
+
+  // 121-line and 180-line non-risky follow-ups under Budget mode -> panel + skeptic-judge while preserving budgetMode: true
+  const fu121Head = writeAndCommit(fuRepo.repoDir, {
+    "src/feature/extra1.ts": "export const line121 = 121;\n",
+  });
+  const fu121Budget = JSON.parse(
+    runRouterCli(["--repo-root", fuRepo.repoDir, "--base", fuRepo.baseSha, "--head", fu121Head, "--budget-mode", "on", "--follow-up", "--json"]).stdout
+  );
+  assert.equal(fu121Budget.followUp, true);
+  assert.equal(fu121Budget.budgetMode, true);
+  assert.equal(fu121Budget.prodLinesChanged, 121);
+  assert.equal(fu121Budget.mode, "panel");
+  assert.equal(fu121Budget.synthesisJudge, true);
+
+  const fu180Out = join(fuRepo.outRoot, "fu-180-packets");
+  const fu180Head = writeAndCommit(fuRepo.repoDir, {
+    "src/feature/extra60.ts": `${Array.from({ length: 59 }, (_, i) => `export const f${i} = ${i};`).join("\n")}\n`,
+  });
+  const fu180Auto = JSON.parse(
+    runRouterCli(["--repo-root", fuRepo.repoDir, "--base", fuRepo.baseSha, "--head", fu180Head, "--follow-up", "--out-dir", fu180Out, "--json"]).stdout
+  );
+  assert.equal(fu180Auto.followUp, true);
+  assert.equal(fu180Auto.budgetMode, true);
+  assert.equal(fu180Auto.budgetSource, "agents-profile");
+  assert.equal(fu180Auto.prodLinesChanged, 180);
+  assert.equal(fu180Auto.mode, "panel");
+  assert.equal(fu180Auto.synthesisJudge, true);
+  assert.ok(readFileSync(join(fu180Out, "arch-correctness-packet.md"), "utf8").includes("- **Budget mode:** `true` (`agents-profile`)"));
+  assert.ok(readFileSync(join(fu180Out, "skeptic-judge-packet.md"), "utf8").includes("- **Budget mode:** `true` (`agents-profile`)"));
+});
+
+test("29. CCR-5..CCR-6: fences opened directly after list markers and blank-separated list continuations", async (t) => {
+  const { parseAgentsProfile } = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+
+  // CCR-5: `- ```markdown` fence opened directly after a list marker (both Enabled: yes example and `<!--` literal)
+  const listMarkerFenceAgents = [
+    "# Project",
+    "",
+    "### Budget mode (optional)",
+    "- **Enabled:** no",
+    "- ```markdown",
+    "  - **Enabled:** yes",
+    "  <!-- unclosed html comment inside list-marker fence",
+    "  ```",
+    "1. ~~~markdown",
+    "   - **Enabled:** yes",
+    "   ~~~",
+    "1. Ordered example:",
+    "   - **Enabled:** yes",
+    "",
+    "### Risky areas",
+    "- `src/auth/**`: auth.",
+    "",
+    "### Review checklist",
+    "- Check auth flows.",
+    "",
+  ].join("\n");
+  const parsedCcr5 = parseAgentsProfile(listMarkerFenceAgents);
+  assert.equal(parsedCcr5.budgetEnabled, false);
+  assert.deepEqual(parsedCcr5.riskyPatterns, ["src/auth/**"]);
+  assert.deepEqual(parsedCcr5.checklistBullets, ["Check auth flows."]);
+
+  const ccr5Repo = makeFixtureRepo(t, { "AGENTS.md": listMarkerFenceAgents });
+  writeAndCommit(ccr5Repo.repoDir, {
+    "src/auth/login.ts": "export const verifyLogin = (user: string) => user.length > 0;\n",
+  });
+  const ccr5Res = JSON.parse(
+    runRouterCli(["--repo-root", ccr5Repo.repoDir, "--base", ccr5Repo.baseSha, "--json"]).stdout
+  );
+  assert.equal(ccr5Res.budgetMode, false);
+  assert.equal(ccr5Res.touchesRiskyArea, true);
+  assert.equal(ccr5Res.mode, "panel");
+
+  // CCR-6: blank-separated 4-space continuation paragraph inside `- Protected paths:` stays a list continuation, while 6-space (`baseInd + 4`) is an indented code block
+  const blankSepListAgents = [
+    "# Project",
+    "",
+    "- Notes:",
+    "",
+    "      <!-- 6-space code block inside list item",
+    "",
+    "### Risky areas",
+    "- Protected paths:",
+    "",
+    "    `src/billing/**`: billing.",
+    "",
+    "### Budget mode (optional)",
+    "- **Enabled:** yes",
+    "",
+  ].join("\n");
+  const parsedCcr6 = parseAgentsProfile(blankSepListAgents);
+  assert.deepEqual(parsedCcr6.riskyPatterns, ["src/billing/**"]);
+  assert.equal(parsedCcr6.budgetEnabled, true);
+
+  const ccr6Repo = makeFixtureRepo(t, { "AGENTS.md": blankSepListAgents });
+  writeAndCommit(ccr6Repo.repoDir, {
+    "src/billing/charge.ts": "export const chargeCents = (n: number) => n * 100;\n",
+  });
+  const ccr6Res = JSON.parse(
+    runRouterCli(["--repo-root", ccr6Repo.repoDir, "--base", ccr6Repo.baseSha, "--json"]).stdout
+  );
+  assert.equal(ccr6Res.budgetMode, true);
+  assert.equal(ccr6Res.touchesRiskyArea, true);
+  assert.deepEqual(ccr6Res.matchedRiskyAreas, ["src/billing/**"]);
+  assert.equal(ccr6Res.mode, "panel");
+
+  // F-1..F-4: dedented top-level fence after list-marker fence, section-leading/nested `- - ```markdown`,
+  // parent-list fence interrupting nested list, blockquote fence with `<!--`, Setext section break,
+  // outer bullet continuation after sub-list, and empty trailing-space list marker.
+  const dedentedFenceAndMarkerAgents = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "- ```markdown",
+      "  x",
+      "```",
+      "- **Enabled:** yes",
+      "```",
+      "",
+      "### Risky areas",
+      "- ```sh",
+      "  cmd",
+      "  ```",
+      "  `db/migrations/**`: schema.",
+    ].join("\n")
+  );
+  assert.equal(dedentedFenceAndMarkerAgents.budgetEnabled, false);
+  assert.deepEqual(dedentedFenceAndMarkerAgents.riskyPatterns, ["db/migrations/**"]);
+
+  const nestedMarkerAndSetextAgents = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "- - ```markdown",
+      "    x",
+      "    ```",
+      "  - **Enabled:** yes",
+      "",
+      "Other Section",
+      "-------------",
+      "- **Enabled:** yes",
+      "",
+      "> [!NOTE]",
+      "> ```markdown",
+      "> <!-- unclosed comment inside blockquote fence",
+      "> ```",
+      "",
+      "- Outer docs:",
+      "    - Inner item",
+      "    ```markdown",
+      "  <!-- 2-space line inside parent-list fence interrupting inner item",
+      "    ```",
+      "",
+      "-",
+      "      <!-- 6-space code block right after empty bullet",
+      "",
+      "### Risky areas",
+      "- Auth flows:",
+      "  - OAuth",
+      "",
+      "  Applies to `src/auth/**`.",
+      "-   ",
+      "  `src/payments/**`: payments.",
+      "#### Notes",
+      "Only `src/docs/**` is non-risky.",
+    ].join("\n")
+  );
+  assert.equal(nestedMarkerAndSetextAgents.budgetEnabled, false);
+  assert.deepEqual(nestedMarkerAndSetextAgents.riskyPatterns, ["src/auth/**", "src/payments/**"]);
+});
+
+test("30. SJ-R2-1..SJ-R2-5: CommonMark container stack, HTML block type-2 boundaries, Setext/block transitions, lazy continuations, and O(N) marker scan", async () => {
+  const { parseAgentsProfile } = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+
+  // SJ-R2-1: mixed list/blockquote fences, dedented `> ``` `, lazy `< innerCol` non-fence, and col-0 `<!--` popping list
+  const sj1 = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "- item",
+      "  > ```markdown",
+      "> ```",
+      "> - **Enabled:** yes",
+      "  > ```",
+      "",
+      "> - Example:",
+      ">     ```markdown",
+      ">     <!-- unclosed in quoted list fence",
+      ">     ```",
+      "",
+      "- > ```markdown",
+      "  > <!-- unclosed in list quoted fence",
+      "  > ```",
+      "",
+      "- Outer",
+      "   -   Inner",
+      "      ```markdown",
+      "<!-- comment at col 0 closes list -->",
+      "  - **Enabled:** yes",
+      "",
+      "### Risky areas",
+      "- `src/core/**`: core.",
+    ].join("\n")
+  );
+  assert.equal(sj1.budgetEnabled, true);
+  assert.deepEqual(sj1.riskyPatterns, ["src/core/**"]);
+
+  const sj1DedentedBqFence = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "- item",
+      "  > ```markdown",
+      "> ```",
+      "> - **Enabled:** yes",
+      "> ```",
+    ].join("\n")
+  );
+  assert.equal(sj1DedentedBqFence.budgetEnabled, false);
+
+  // SJ-R2-2: blockquote HTML comment exit, HTML block type-2 closing line, backslash escapes, multiline code span
+  const sj2 = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "<!-- disabled:",
+      "--> - **Enabled:** yes",
+      "",
+      "> <!-- unclosed comment inside blockquote",
+      "",
+      "Escaped \\<!-- not a comment and multiline `code",
+      "span <!-- still code` here.",
+      "",
+      "### Risky areas",
+      "- Literal \\` backtick <!-- hidden `src/fake/**` --> and real `src/real/**` (`-->`).",
+    ].join("\n")
+  );
+  assert.equal(sj2.budgetEnabled, false);
+  assert.deepEqual(sj2.riskyPatterns, ["src/real/**"]);
+
+  // SJ-R2-3: stripped code block before `---`, bullet fence before col-0 Setext, blockquote lazy `---`, `2.` and 4-space Setext
+  const sj3a = parseAgentsProfile(
+    [
+      "Intro",
+      "```sh",
+      "echo hi",
+      "```",
+      "---",
+      "",
+      "> Note",
+      "lazy",
+      "---",
+      "",
+      "### Budget mode",
+      "- item",
+      "  ```sh",
+      "  cmd",
+      "  ```",
+      "Other Section",
+      "---",
+      "- **Enabled:** yes",
+      "",
+      "### Risky areas",
+      "- `src/api/**`: api.",
+    ].join("\n")
+  );
+  assert.equal(sj3a.budgetEnabled, false);
+  assert.deepEqual(sj3a.riskyPatterns, ["src/api/**"]);
+
+  const sj3b = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "Phase",
+      "2. Rollout",
+      "----------",
+      "- **Enabled:** yes",
+    ].join("\n")
+  );
+  assert.equal(sj3b.budgetEnabled, false);
+
+  const sj3c = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "Next",
+      "    Section",
+      "-----------",
+      "- **Enabled:** yes",
+    ].join("\n")
+  );
+  assert.equal(sj3c.budgetEnabled, false);
+
+  // SJ-R2-4: sub-list lazy wrap keeps top-level item open, wrapped metadata key on empty marker, intra-item heading excluded
+  const sj4 = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "- **Enabled:** yes",
+      "-",
+      "  **Enabled:** no",
+      "- Example:",
+      "  - Nested",
+      "lazy wrap",
+      "  - **Enabled:** yes",
+      "",
+      "### Risky areas",
+      "- #### Heading `src/fake/**`",
+      "- `src/valid/**`: valid.",
+    ].join("\n")
+  );
+  assert.equal(sj4.budgetEnabled, false);
+  assert.deepEqual(sj4.riskyPatterns, ["src/valid/**"]);
+
+  // SJ-R2-5: CommonMark Ex. 280 empty bullet + blank line closes item before 4-space code block, and 20k markers run in O(N)
+  const sj5 = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "-   ",
+      "",
+      "    <!-- 4-space indented code block after closed empty bullet",
+      "",
+      "### Risky areas",
+      "- `src/keep/**`: keep.",
+    ].join("\n")
+  );
+  assert.deepEqual(sj5.riskyPatterns, ["src/keep/**"]);
+
+  const t0 = performance.now();
+  const deepMarkers = parseAgentsProfile(`### Risky areas\n${"- ".repeat(20000)}\`src/deep/**\`: deep.\n`);
+  const elapsedMs = performance.now() - t0;
+  assert.deepEqual(deepMarkers.riskyPatterns, []);
+  assert.ok(elapsedMs < 500, `Expected O(N) marker scan (< 500ms), took ${elapsedMs.toFixed(1)}ms`);
+});
+
+test("31. r2c F-1..F-3: CommonMark §6.1 multi-backtick/unmatched code spans, soft-wrapped metadata values, and O(N) unclosed comment/backtick scan", async () => {
+  const { parseAgentsProfile } = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+
+  const spansAndWrapped = parseAgentsProfile(
+    [
+      "### Risky areas",
+      "- Literal `` ` `` in `src/billing/**`: billing.",
+      "- Note ``v2 in `src/auth/**`: auth.",
+      "- Raw ``` markers in `com.github.copilot/rules/core.mdc`: rules.",
+      "",
+      "### Review checklist",
+      "- **Checklist path:**",
+      "  ``docs/custom.md`` (custom)",
+      "",
+      "### Budget mode (optional)",
+      "- **Enabled:**",
+      "  ``yes``",
+    ].join("\n")
+  );
+  assert.deepEqual(spansAndWrapped.riskyPatterns, [
+    "src/billing/**",
+    "src/auth/**",
+    "com.github.copilot/rules/core.mdc",
+  ]);
+  assert.equal(spansAndWrapped.checklistPath, "docs/custom.md");
+  assert.equal(spansAndWrapped.budgetEnabled, true);
+
+  assert.equal(
+    parseAgentsProfile("### Budget mode\n- **Enabled:** ``unclosed `yes`\n").budgetEnabled,
+    false
+  );
+  assert.equal(
+    parseAgentsProfile("### Budget mode\n- **Enabled:** `<!-- c -->``yes```\n").budgetEnabled,
+    false
+  );
+  const softProseAfterMeta = parseAgentsProfile(
+    [
+      "### Review checklist",
+      "- **Checklist path:** inline only",
+      "  Keep rules inline in AGENTS.md.",
+      "- **Checklist path:** `docs/two  spaces.md`",
+      "  Extra explanation line.",
+      "",
+      "### Budget mode",
+      "- **Enabled:** yes",
+      "  Keep risky areas on panel.",
+    ].join("\n")
+  );
+  assert.equal(softProseAfterMeta.checklistPath, "docs/two  spaces.md");
+  assert.equal(softProseAfterMeta.budgetEnabled, true);
+  assert.equal(
+    parseAgentsProfile("### Review checklist\n- **Checklist path:** inline only\n  Keep inline.\n").checklistPath,
+    null
+  );
+
+  const t0 = performance.now();
+  const unclosedComments = parseAgentsProfile(
+    `### Risky areas\n- Prefix ${"<!-- ".repeat(20000)}\`src/fast/**\`: fast.\n- x ${"`".repeat(30000)}a\n`
+  );
+  const elapsedMs = performance.now() - t0;
+  assert.deepEqual(unclosedComments.riskyPatterns, ["src/fast/**"]);
+  assert.ok(elapsedMs < 500, `Expected O(N) inline scan (< 500ms), took ${elapsedMs.toFixed(1)}ms`);
+});
+
+
+
+
+
