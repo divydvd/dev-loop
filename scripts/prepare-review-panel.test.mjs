@@ -1982,7 +1982,6 @@ test("29. CCR-5..CCR-6: fences opened directly after list markers and blank-sepa
       "",
       "  Applies to `src/auth/**`.",
       "-   ",
-      "",
       "  `src/payments/**`: payments.",
       "#### Notes",
       "Only `src/docs/**` is non-risky.",
@@ -1990,6 +1989,164 @@ test("29. CCR-5..CCR-6: fences opened directly after list markers and blank-sepa
   );
   assert.equal(nestedMarkerAndSetextAgents.budgetEnabled, false);
   assert.deepEqual(nestedMarkerAndSetextAgents.riskyPatterns, ["src/auth/**", "src/payments/**"]);
+});
+
+test("30. SJ-R2-1..SJ-R2-5: CommonMark container stack, HTML block type-2 boundaries, Setext/block transitions, lazy continuations, and O(N) marker scan", async () => {
+  const { parseAgentsProfile } = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+
+  // SJ-R2-1: mixed list/blockquote fences, dedented `> ``` `, lazy `< innerCol` non-fence, and col-0 `<!--` popping list
+  const sj1 = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "- item",
+      "  > ```markdown",
+      "> ```",
+      "> - **Enabled:** yes",
+      "  > ```",
+      "",
+      "> - Example:",
+      ">     ```markdown",
+      ">     <!-- unclosed in quoted list fence",
+      ">     ```",
+      "",
+      "- > ```markdown",
+      "  > <!-- unclosed in list quoted fence",
+      "  > ```",
+      "",
+      "- Outer",
+      "   -   Inner",
+      "      ```markdown",
+      "<!-- comment at col 0 closes list -->",
+      "  - **Enabled:** yes",
+      "",
+      "### Risky areas",
+      "- `src/core/**`: core.",
+    ].join("\n")
+  );
+  assert.equal(sj1.budgetEnabled, true);
+  assert.deepEqual(sj1.riskyPatterns, ["src/core/**"]);
+
+  const sj1DedentedBqFence = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "- item",
+      "  > ```markdown",
+      "> ```",
+      "> - **Enabled:** yes",
+      "> ```",
+    ].join("\n")
+  );
+  assert.equal(sj1DedentedBqFence.budgetEnabled, false);
+
+  // SJ-R2-2: blockquote HTML comment exit, HTML block type-2 closing line, backslash escapes, multiline code span
+  const sj2 = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "<!-- disabled:",
+      "--> - **Enabled:** yes",
+      "",
+      "> <!-- unclosed comment inside blockquote",
+      "",
+      "Escaped \\<!-- not a comment and multiline `code",
+      "span <!-- still code` here.",
+      "",
+      "### Risky areas",
+      "- Literal \\` backtick <!-- hidden `src/fake/**` --> and real `src/real/**` (`-->`).",
+    ].join("\n")
+  );
+  assert.equal(sj2.budgetEnabled, false);
+  assert.deepEqual(sj2.riskyPatterns, ["src/real/**"]);
+
+  // SJ-R2-3: stripped code block before `---`, bullet fence before col-0 Setext, blockquote lazy `---`, `2.` and 4-space Setext
+  const sj3a = parseAgentsProfile(
+    [
+      "Intro",
+      "```sh",
+      "echo hi",
+      "```",
+      "---",
+      "",
+      "> Note",
+      "lazy",
+      "---",
+      "",
+      "### Budget mode",
+      "- item",
+      "  ```sh",
+      "  cmd",
+      "  ```",
+      "Other Section",
+      "---",
+      "- **Enabled:** yes",
+      "",
+      "### Risky areas",
+      "- `src/api/**`: api.",
+    ].join("\n")
+  );
+  assert.equal(sj3a.budgetEnabled, false);
+  assert.deepEqual(sj3a.riskyPatterns, ["src/api/**"]);
+
+  const sj3b = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "Phase",
+      "2. Rollout",
+      "----------",
+      "- **Enabled:** yes",
+    ].join("\n")
+  );
+  assert.equal(sj3b.budgetEnabled, false);
+
+  const sj3c = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "Next",
+      "    Section",
+      "-----------",
+      "- **Enabled:** yes",
+    ].join("\n")
+  );
+  assert.equal(sj3c.budgetEnabled, false);
+
+  // SJ-R2-4: sub-list lazy wrap keeps top-level item open, wrapped metadata key on empty marker, intra-item heading excluded
+  const sj4 = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "- **Enabled:** yes",
+      "-",
+      "  **Enabled:** no",
+      "- Example:",
+      "  - Nested",
+      "lazy wrap",
+      "  - **Enabled:** yes",
+      "",
+      "### Risky areas",
+      "- #### Heading `src/fake/**`",
+      "- `src/valid/**`: valid.",
+    ].join("\n")
+  );
+  assert.equal(sj4.budgetEnabled, false);
+  assert.deepEqual(sj4.riskyPatterns, ["src/valid/**"]);
+
+  // SJ-R2-5: CommonMark Ex. 280 empty bullet + blank line closes item before 4-space code block, and 20k markers run in O(N)
+  const sj5 = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "-   ",
+      "",
+      "    <!-- 4-space indented code block after closed empty bullet",
+      "",
+      "### Risky areas",
+      "- `src/keep/**`: keep.",
+    ].join("\n")
+  );
+  assert.deepEqual(sj5.riskyPatterns, ["src/keep/**"]);
+
+  const t0 = performance.now();
+  const deepMarkers = parseAgentsProfile(`### Risky areas\n${"- ".repeat(20000)}\`src/deep/**\`: deep.\n`);
+  const elapsedMs = performance.now() - t0;
+  assert.deepEqual(deepMarkers.riskyPatterns, []);
+  assert.ok(elapsedMs < 500, `Expected O(N) marker scan (< 500ms), took ${elapsedMs.toFixed(1)}ms`);
 });
 
 

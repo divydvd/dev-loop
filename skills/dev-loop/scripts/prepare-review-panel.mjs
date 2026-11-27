@@ -62,22 +62,13 @@ export function isProductionFile(relPath) {
   if (/^(?:plugin\.json|gemini-extension\.json|dev-loop-context\.md|GEMINI\.md|AGENTS\.md|CLAUDE\.md)$/.test(p) || /^scripts\/[^/]+\.(?:mjs|cjs|js|sh|py)$/.test(p)) return true;
   return !(/\.md$/i.test(p) || /^docs\//.test(p));
 }
-const THEMATIC_RE = /^(?:-[ \t]*){3,}$|^(?:\*[ \t]*){3,}$|^(?:_[ \t]*){3,}$/;
-function expandTabs(line) {
-  let out = "";
-  for (const ch of line) out += ch === "\t" ? " ".repeat(4 - (out.length % 4)) : ch;
-  return out;
-}
-function nextFenceState(fence, line, maxIndent = 3) {
-  const exp = expandTabs(line);
-  const ind = exp.match(/^ */)[0].length;
-  if (ind > maxIndent) return fence;
-  const rest = exp.slice(ind);
+const ASCII_PUNCT_RE = /^[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/;
+function nextFenceState(fence, line) {
   if (!fence) {
-    const m = rest.match(/^(`{3,}|~{3,})(.*)$/);
+    const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     return m && !(m[1][0] === "`" && m[2].includes("`")) ? m[1] : null;
   }
-  const m = rest.match(/^(`{3,}|~{3,})[ \t]*$/);
+  const m = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
   return m && m[1][0] === fence[0] && m[1].length >= fence.length ? null : fence;
 }
 function splitMdCodeAndProse(text) {
@@ -136,134 +127,144 @@ export function detectDomains(changedFiles, diffHunkText) {
   if (uiPath || /(?:^|[^A-Za-z0-9_])@Composable\b/.test(raw) || /\b(?:SwiftUI|contentDescription|semantics|accessibilityLabel|TalkBack|VoiceOver|prefers-reduced-motion|darkTheme)\b/.test(raw) || /\b(?:content\s+description|accessibility\s+label|talk\s+back|voice\s+over|prefers\s+reduced\s+motion|dark\s+theme)\b/i.test(split)) found.add("ui-a11y");
   return DOMAIN_ORDER.filter((d) => found.has(d));
 }
-function peelBq(rawExp, maxFirstInd) {
-  let [exp, bq] = [rawExp, 0];
-  for (let m; (m = exp.match(new RegExp(`^ {0,${bq ? 3 : maxFirstInd}}> ?`))); bq += 1) exp = exp.slice(m[0].length);
-  return { bq, exp, prefix: bq ? `${" ".repeat(rawExp.match(/^ */)[0].length)}${"> ".repeat(bq)}` : "" };
-}
-function scanListMarkers(exp, baseStack) {
-  let [ind, stack, empty, count, orderedFirst] = [exp.match(/^ */)[0].length, [...baseStack], false, 0, false];
-  let [rest, base] = [exp.slice(ind), stack.at(-1) ?? 0];
-  for (let lm; ind <= base + 3 && !THEMATIC_RE.test(rest) && (lm = rest.match(/^([-*+]|\d{1,9}[.)])(?:( +)(.*)|())$/));) {
-    while (stack.length && ind < stack[stack.length - 1]) stack.pop();
-    if (!count++) orderedFirst = /\d/.test(lm[1][0]);
-    const [sp, body] = [lm[2] ?? "", lm[3] ?? ""];
-    if (!body.trim()) { stack.push(ind + lm[1].length + 1); ind += lm[1].length + sp.length; rest = ""; empty = true; break; }
-    const col = ind + lm[1].length + (sp.length >= 5 ? 1 : sp.length);
-    stack.push(col); ind += lm[1].length + sp.length; rest = body; base = col;
-    if (sp.length >= 5) break;
-  }
-  return { count, orderedFirst, empty, stack, contentInd: ind, rest, base, markerPrefix: exp.slice(0, ind).trimEnd() };
-}
-function stripCommentsAndCodeBlocks(markdown) {
-  const [out, listStack] = [[], []];
-  let [cur, fence, fenceBq, fenceFirstMax, fenceMin, fenceMax, inComment, prevBlank, inIndented, bqDepth, bqPrevBlank, bqInIndented] = ["", null, 0, 3, 0, 3, false, true, false, 0, true, false];
-  const setRun = (bq, blank, indented) => { if (bq) { bqPrevBlank = blank; bqInIndented = indented; } else { prevBlank = blank; inIndented = indented; } };
-  for (const line of String(markdown ?? "").split(/\r?\n/)) {
-    if (!inComment) {
-      if (fence) {
-        let [fExp, qOk] = [expandTabs(line), true];
-        for (let q = 0, m; q < fenceBq; q += 1) if ((m = fExp.match(new RegExp(`^ {0,${q ? 3 : fenceFirstMax}}> ?`)))) fExp = fExp.slice(m[0].length); else { qOk = false; break; }
-        const fInd = fExp.match(/^ */)[0].length;
-        if (qOk && /^\s*$/.test(fExp)) continue;
-        if (qOk && fInd >= fenceMin) { if (nextFenceState(fence, fExp, fenceMax) === null) { fence = null; setRun(0, true, false); setRun(1, true, false); } continue; }
-        fence = null;
-        if (!fenceBq) while (listStack.length && fInd < listStack[listStack.length - 1]) listStack.pop();
-        setRun(0, true, false); setRun(1, true, false);
+const expandTabs = (line) => { let o = ""; for (const c of line) o += c === "\t" ? " ".repeat(4 - (o.length % 4)) : c; return o; };
+function stripInlineComments(s) {
+  const deadRuns = new Set();
+  let out = "";
+  for (let i = 0; i < s.length;) {
+    if (s[i] === "\\" && i + 1 < s.length && ASCII_PUNCT_RE.test(s[i + 1])) { out += s.slice(i, i + 2); i += 2; }
+    else if (s[i] === "`") {
+      let [run, end] = [1, -1];
+      while (s[i + run] === "`") run += 1;
+      if (!deadRuns.has(run)) {
+        for (let j = i + run, k = 1; j < s.length; j += k, k = 1) {
+          if (s[j] !== "`") continue;
+          while (s[j + k] === "`") k += 1;
+          if (k === run) { end = j + k; break; }
+        }
+        if (end === -1) deadRuns.add(run);
       }
-      const rawExp = expandTabs(line), rawInd = rawExp.match(/^ */)[0].length, rawRest = rawExp.slice(rawInd);
-      if (!rawRest) { setRun(0, true, false); bqDepth = 0; out.push(""); continue; }
-      if (rawInd <= 3 && (/^#{1,6}(?: +|$)/.test(rawRest) || THEMATIC_RE.test(rawRest))) listStack.length = 0;
-      else while (listStack.length && rawInd < listStack[listStack.length - 1] && (prevBlank || rawRest.startsWith(">") || THEMATIC_RE.test(rawRest) || /^#{1,6}(?: +|$)/.test(rawRest) || /^(?:[-*+]|\d{1,9}[.)])(?: +|$)/.test(rawRest) || nextFenceState(null, rawExp, (listStack.at(-2) ?? 0) + 3))) listStack.pop();
-      const baseInd = listStack.at(-1) ?? 0, { bq, exp, prefix } = peelBq(rawExp, baseInd + 3);
-      if (bq && bq !== bqDepth) { bqDepth = bq; setRun(1, true, false); } else if (!bq) bqDepth = 0;
-      if (bq && /^\s*$/.test(exp)) { setRun(1, true, false); out.push(prefix.trimEnd()); continue; }
-      const [effBase, effBlank, effInd] = bq ? [0, bqPrevBlank || bqInIndented, exp.match(/^ */)[0].length] : [baseInd, prevBlank || inIndented, rawInd];
-      const nf = nextFenceState(null, exp, effBase + 3);
-      if (nf) { [fence, fenceBq, fenceFirstMax, fenceMin, fenceMax] = [nf, bq, bq ? baseInd + 3 : 3, effBase, effBase + 3]; setRun(bq, false, false); continue; }
-      if (effBlank && effInd >= effBase + 4) { setRun(bq, false, true); continue; }
-      const scan = scanListMarkers(exp, bq ? [] : listStack);
-      const lnf = scan.count && scan.rest ? nextFenceState(null, `${" ".repeat(scan.contentInd)}${scan.rest}`, scan.base + 3) : null;
-      if (lnf || (scan.count && scan.contentInd >= scan.base + 4)) {
-        if (!bq) listStack.splice(0, listStack.length, ...scan.stack);
-        if (lnf) [fence, fenceBq, fenceFirstMax, fenceMin, fenceMax] = [lnf, bq, bq ? baseInd + 3 : 3, scan.base, scan.base + 3];
-        setRun(bq, false, !lnf); out.push(`${prefix}${scan.markerPrefix}`); continue;
+      const stop = end !== -1 ? end : i + run;
+      out += s.slice(i, stop); i = stop;
+    } else if (s.startsWith("<!--", i)) { const end = s.indexOf("-->", i + 2); if (end !== -1) i = end + 3; else { out += "<!--"; i += 4; } }
+    else { out += s[i]; i += 1; }
+  }
+  return out;
+}
+function parseMdBlocks(markdown) {
+  const [blocks, containers] = [[], []];
+  let leaf = null;
+  const closeLeaf = () => {
+    if (leaf?.type === "para") {
+      const text = stripInlineComments(leaf.lines.join("\n"));
+      if (text.trim()) { if (leaf.owner) leaf.owner.paras.push(text); else if (leaf.isRoot) blocks.push({ kind: "para", text }); }
+    }
+    leaf = null;
+  };
+  for (const rawLine of String(markdown ?? "").split(/\r?\n/)) {
+    const exp = expandTabs(rawLine);
+    let end = exp.length;
+    while (end > 0 && exp[end - 1] === " ") end -= 1;
+    let thematicStart = end + 1;
+    if (end >= 3 && "-*_".includes(exp[end - 1])) {
+      for (thematicStart = end - 1; thematicStart > 0 && (exp[thematicStart - 1] === exp[end - 1] || exp[thematicStart - 1] === " ");) thematicStart -= 1;
+    }
+    const isThematic = (p) => {
+      if (p < thematicStart || p >= end) return false;
+      let n = 0; for (let i = p; i < end && n < 3; i += 1) if (exp[i] === exp[end - 1]) n += 1; return n >= 3;
+    };
+    const countSpaces = (p) => { let s = p; while (s < end && exp[s] === " ") s += 1; return s - p; };
+    let [col, matched] = [0, 0];
+    for (; matched < containers.length; matched += 1) {
+      const c = containers[matched];
+      if (c.type === "bq") {
+        const sp = col < end ? countSpaces(col) : 4;
+        if (sp <= 3 && exp[col + sp] === ">") col += sp + 1 + (exp[col + sp + 1] === " " ? 1 : 0); else break;
+      } else if (c.closedByBlank) break;
+      else if (col >= end) { if (c.empty && matched === containers.length - 1 && !leaf) c.closedByBlank = true; col = end; }
+      else { const sp = countSpaces(col); if (col + sp >= c.col) { col = c.col; c.empty = false; } else break; }
+    }
+    const allMatched = matched === containers.length;
+    if (!allMatched && leaf && leaf.type !== "para") { closeLeaf(); containers.length = matched; }
+    if (allMatched && leaf?.type === "fence") {
+      const sp = col < end ? countSpaces(col) : 4, p = col + sp;
+      if (sp <= 3 && exp[p] === leaf.ch) {
+        let run = 1; while (p + run < end && exp[p + run] === leaf.ch) run += 1;
+        if (run >= leaf.len && p + run === end) leaf = null;
       }
-      if (bq) setRun(1, false, false);
+      continue;
     }
-    for (let i = 0; i < line.length;) {
-      if (inComment) { const end = line.indexOf("-->", i); if (end === -1) break; inComment = false; i = end + 3; }
-      else if (line[i] === "`") {
-        let [run, j, closeEnd] = [1, 0, -1];
-        while (line[i + run] === "`") run += 1;
-        for (j = i + run; j < line.length;) { if (line[j] !== "`") { j += 1; continue; } let k = 1; while (line[j + k] === "`") k += 1; if (k === run) { closeEnd = j + k; break; } j += k; }
-        const stop = closeEnd !== -1 ? closeEnd : i + run; cur += line.slice(i, stop); i = stop;
-      } else if (line.startsWith("<!--", i)) { inComment = true; i += 4; } else { cur += line[i]; i += 1; }
-    }
-    if (!inComment) {
-      const cExp = expandTabs(cur), cInd = cExp.match(/^ */)[0].length, cRest = cExp.slice(cInd);
-      if (cInd <= 3 && (/^#{1,6}(?: +|$)/.test(cRest) || THEMATIC_RE.test(cRest))) { listStack.length = 0; prevBlank = true; }
-      else if (!cRest) prevBlank = true;
-      else if (!peelBq(cExp, (listStack.at(-1) ?? 0) + 3).bq) { const cScan = scanListMarkers(cExp, listStack); if (cScan.count) { listStack.splice(0, listStack.length, ...cScan.stack); prevBlank = cScan.empty; } else prevBlank = false; }
-      else prevBlank = false;
-      inIndented = false; out.push(cur); cur = "";
-    }
-  }
-  if (cur) out.push(cur);
-  return out.join("\n");
-}
-function collectTopLevelBullets(sectionText) {
-  const bullets = [];
-  let [topCol, topOrdered, subCol, inBlock, prevBlank] = [0, false, 0, false, true];
-  for (const raw of sectionText.split(/\r?\n/)) {
-    const exp = expandTabs(raw), ind = exp.match(/^ */)[0].length, rest = exp.slice(ind);
-    if (!rest) { prevBlank = true; continue; }
-    if (prevBlank) {
-      inBlock = false;
-      if (ind < topCol) { topCol = 0; subCol = 0; } else if (subCol && ind < subCol) subCol = 0;
-    }
-    if (topCol === 0 ? ind <= 3 : ind < topCol) {
-      const scan = scanListMarkers(exp, []);
-      if (scan.count) {
-        [topCol, topOrdered, subCol, inBlock, prevBlank] = [scan.stack[0], scan.orderedFirst, scan.count > 1 ? scan.stack[1] : 0, false, scan.empty];
-        if (!topOrdered) { const first = scan.count === 1 ? scan.rest.trim() : ""; bullets.push({ firstLine: first, lines: first ? [first] : [] }); }
-        continue;
+    if (allMatched && leaf?.type === "comment") { if (exp.indexOf("-->", col) !== -1) leaf = null; continue; }
+    if (allMatched && leaf?.type === "indented") { if (col >= end || countSpaces(col) >= 4) continue; closeLeaf(); }
+    if (col >= end) { closeLeaf(); containers.length = matched; continue; }
+    let [progressed, consumed] = [false, false];
+    const interrupt = () => { if (!progressed) { closeLeaf(); containers.length = matched; progressed = true; } };
+    while (col < end) {
+      const sp = countSpaces(col), p = col + sp, ch = exp[p];
+      if (sp >= 4) { if (progressed || !leaf) { interrupt(); leaf = { type: "indented" }; consumed = true; } break; }
+      if (!progressed && allMatched && leaf?.type === "para" && (ch === "=" || ch === "-")) {
+        let u = p + 1; while (u < end && exp[u] === ch) u += 1;
+        if (u === end) {
+          const text = stripInlineComments(leaf.lines.join(" ")).replace(/\s+/g, " ").trim();
+          if (leaf.isRoot && text) blocks.push({ kind: "heading", depth: ch === "=" ? 1 : 2, text });
+          leaf = null; consumed = true; break;
+        }
       }
-      if (!prevBlank && topCol && !topOrdered && !subCol && !inBlock && !/^>|^#{1,6}(?: +|$)/.test(rest) && !THEMATIC_RE.test(rest)) bullets[bullets.length - 1].lines.push(rest.trim());
-      else { topCol = 0; subCol = 0; inBlock = false; }
-      prevBlank = false; continue;
+      if (ch === ">") { interrupt(); containers.push({ type: "bq" }); matched = containers.length; col = p + 1 + (p + 1 < end && exp[p + 1] === " " ? 1 : 0); continue; }
+      if (ch === "#") {
+        let h = 1; while (h <= 6 && p + h < end && exp[p + h] === "#") h += 1;
+        if (h <= 6 && (p + h === end || exp[p + h] === " ")) {
+          interrupt();
+          const text = stripInlineComments(exp.slice(p + h, end)).trim().replace(/(?:^| +)#+$/, "").trim();
+          if (containers.length === 0 && h <= 3) blocks.push({ kind: "heading", depth: h, text });
+          consumed = true; break;
+        }
+      }
+      if (ch === "`" || ch === "~") {
+        let run = 1; while (p + run < end && exp[p + run] === ch) run += 1;
+        if (run >= 3 && !(ch === "`" && exp.indexOf("`", p + run) !== -1 && exp.indexOf("`", p + run) < end)) { interrupt(); leaf = { type: "fence", ch, len: run }; consumed = true; break; }
+      }
+      if (exp.startsWith("<!--", p)) { interrupt(); if (exp.indexOf("-->", p + 2) === -1) leaf = { type: "comment" }; consumed = true; break; }
+      if (isThematic(p)) { interrupt(); consumed = true; break; }
+      let [mLen, ordered, delim, isOne] = [0, false, "", false];
+      if (ch === "-" || ch === "*" || ch === "+") [mLen, delim] = [1, ch];
+      else if (ch >= "0" && ch <= "9") {
+        let d = p; while (d < p + 9 && d < end && exp[d] >= "0" && exp[d] <= "9") d += 1;
+        if (d > p && d < end && (exp[d] === "." || exp[d] === ")")) [mLen, ordered, delim, isOne] = [d + 1 - p, true, exp[d], Number(exp.slice(p, d)) === 1];
+      }
+      if (mLen && (p + mLen >= end || exp[p + mLen] === " ")) {
+        const curList = containers[matched]?.type === "list" ? containers[matched] : null;
+        const sameList = Boolean(curList && curList.ordered === ordered && curList.delim === delim);
+        if (!(!progressed && leaf?.type === "para" && !sameList && (p + mLen >= end || (ordered && !isOne)))) {
+          interrupt();
+          const after = p + mLen, bullet = containers.length === 0 && !ordered ? { kind: "bullet", paras: [] } : null;
+          if (bullet) blocks.push(bullet);
+          if (after >= end) { containers.push({ type: "list", col: after + 1, ordered, delim, empty: true, closedByBlank: false, bullet }); matched = containers.length; consumed = true; break; }
+          let spAfter = 0; while (spAfter < 5 && after + spAfter < end && exp[after + spAfter] === " ") spAfter += 1;
+          const itemCol = after + (spAfter >= 5 ? 1 : spAfter);
+          containers.push({ type: "list", col: itemCol, ordered, delim, empty: false, closedByBlank: false, bullet });
+          matched = containers.length; col = itemCol; continue;
+        }
+      }
+      break;
     }
-    const sub = scanListMarkers(exp, subCol ? [topCol, subCol] : [topCol]);
-    if (sub.count) { subCol = sub.stack[1]; inBlock = false; prevBlank = sub.empty; continue; }
-    if (/^>|^#{1,6}(?: +|$)/.test(rest) || THEMATIC_RE.test(rest)) { inBlock = rest.startsWith(">"); prevBlank = false; continue; }
-    if (!topOrdered && !subCol && !inBlock) bullets[bullets.length - 1].lines.push(rest.trim());
-    prevBlank = false;
+    if (!consumed && col < end) {
+      const textLine = exp.slice(col + countSpaces(col), end);
+      if (!progressed && leaf?.type === "para") leaf.lines.push(textLine);
+      else { closeLeaf(); containers.length = matched; leaf = { type: "para", lines: [textLine], owner: containers.length === 1 && containers[0].type === "list" ? containers[0].bullet : null, isRoot: containers.length === 0 }; }
+    }
   }
-  return bullets.map((b) => ({ firstLine: b.firstLine, text: b.lines.join(" ").trim() }));
+  closeLeaf();
+  return blocks;
 }
-function extractHeadingSection(markdown, headingName) {
-  const headingRe = new RegExp(`^ {0,3}#{2,3}[ \\t]+${headingName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[ \\t]+\\(optional\\))?[ \\t]*#*[ \\t]*$`, "i");
-  const out = [];
-  let [inSection, listCol, prevBlank, paraStart] = [false, 0, true, -1];
-  for (const line of stripCommentsAndCodeBlocks(markdown).split(/\r?\n/)) {
-    const exp = expandTabs(line), ind = exp.match(/^ */)[0].length, rest = exp.slice(ind);
-    if (!inSection) { if (headingRe.test(exp)) inSection = true; continue; }
-    if (ind <= 3 && /^#{1,3}(?: +|$)/.test(rest)) break;
-    if (paraStart >= 0 && ind <= 3 && /^(?:=+|-+) *$/.test(rest)) { out.length = paraStart; break; }
-    if (!rest) { prevBlank = true; paraStart = -1; out.push(line); continue; }
-    if (prevBlank && ind < listCol) listCol = 0;
-    const scan = (listCol === 0 ? ind <= 3 : ind < listCol) ? scanListMarkers(exp, []) : null;
-    if (scan?.count) { listCol = scan.stack[0]; paraStart = -1; prevBlank = scan.empty; }
-    else if (listCol > 0 && ind >= listCol) { paraStart = -1; prevBlank = false; }
-    else if (ind <= 3 && !/^>|^#{1,6}(?: +|$)/.test(rest) && !THEMATIC_RE.test(rest)) {
-      if (listCol > 0 && !prevBlank) paraStart = -1;
-      else { listCol = 0; if (paraStart < 0) paraStart = out.length; }
-      prevBlank = false;
-    } else { listCol = 0; paraStart = -1; prevBlank = false; }
-    out.push(line);
-  }
-  return out.join("\n");
+function sectionBlocks(blocks, headingName) {
+  const re = new RegExp(`^${headingName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[ \\t]+\\(optional\\))?$`, "i");
+  const idx = blocks.findIndex((b) => b.kind === "heading" && (b.depth === 2 || b.depth === 3) && re.test(b.text));
+  if (idx === -1) return null;
+  const stop = blocks.findIndex((b, i) => i > idx && b.kind === "heading");
+  return blocks.slice(idx + 1, stop === -1 ? blocks.length : stop);
 }
+const sectionBullets = (blocks, name) => (sectionBlocks(blocks, name) ?? []).filter((b) => b.kind === "bullet").map((b) => ({ firstLine: b.paras[0]?.split("\n").map((l) => l.trim()).find(Boolean) ?? "", text: b.paras.map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean).join(" ") }));
 function globToRegExp(pattern) {
   const norm = pattern.replaceAll("\\", "/").replace(/^\.\//, "");
   let rx = "^";
@@ -274,11 +275,11 @@ function globToRegExp(pattern) {
 }
 
 export function parseAgentsProfile(agentsText) {
-  const [riskyPatterns, riskyConcepts, checklistBullets] = [[], [], []];
+  const [blocks, riskyPatterns, riskyConcepts, checklistBullets] = [parseMdBlocks(agentsText), [], [], []];
   let [checklistPath, budgetEnabled] = [undefined, false];
-  for (const { text } of collectTopLevelBullets(extractHeadingSection(agentsText, "Risky areas"))) {
+  for (const { text } of sectionBullets(blocks, "Risky areas")) {
     if (!text) continue;
-    const linePaths = [...text.matchAll(/`([^`\n]+)`/g)].map((m) => m[1].trim()).filter((s) => /[/.]/.test(s));
+    const linePaths = [...text.matchAll(/(?<!\\)(?:\\\\)*`+([^`\n]+?)`+/g)].map((m) => m[1].trim()).filter((s) => /[/.]/.test(s));
     const bare = text.match(/^([A-Za-z0-9_./*-]+)\s*:/);
     if (bare && /[/.]/.test(bare[1])) linePaths.push(bare[1]);
     if (linePaths.length) riskyPatterns.push(...linePaths);
@@ -287,7 +288,7 @@ export function parseAgentsProfile(agentsText) {
       if (clean.length >= 4 && clean !== "none") riskyConcepts.push(clean);
     }
   }
-  for (const { firstLine, text } of collectTopLevelBullets(extractHeadingSection(agentsText, "Review checklist"))) {
+  for (const { firstLine, text } of sectionBullets(blocks, "Review checklist")) {
     const cp = firstLine.match(/^(?:\*\*Checklist path:?\*\*:?|Checklist path:)[ \t]*(.*)$/i);
     if (cp) {
       const cleaned = cp[1].trim();
@@ -295,7 +296,7 @@ export function parseAgentsProfile(agentsText) {
       if (tok && !tok.startsWith("<")) checklistPath = /^inline only$/i.test(tok) ? null : tok;
     } else if (text) checklistBullets.push(text);
   }
-  for (const { firstLine } of collectTopLevelBullets(extractHeadingSection(agentsText, "Budget mode"))) {
+  for (const { firstLine } of sectionBullets(blocks, "Budget mode")) {
     const bm = firstLine.match(/^(?:\*\*Enabled:?\*\*:?|Enabled:)[ \t]*(.*)$/i);
     if (!bm) continue;
     const cleaned = bm[1].trim();
@@ -305,7 +306,9 @@ export function parseAgentsProfile(agentsText) {
   return { riskyPatterns: [...new Set(riskyPatterns)], riskyConcepts: [...new Set(riskyConcepts)], checklistBullets, checklistPath, budgetEnabled };
 }
 function parseReviewChecklist(checklistText) {
-  const activeText = extractHeadingSection(checklistText, "Active rules") || stripCommentsAndCodeBlocks(checklistText).split(/^ {0,3}#{2,3}\s+Retired\b/im)[0];
+  const all = parseMdBlocks(checklistText);
+  const stop = all.findIndex((b) => b.kind === "heading" && b.depth >= 2 && /^Retired\b/i.test(b.text));
+  const activeText = (sectionBlocks(all, "Active rules") ?? all.slice(0, stop === -1 ? all.length : stop)).filter((b) => b.kind === "para").map((b) => b.text).join("\n\n");
   const rules = [];
   let cols = null;
   for (const rawLine of activeText.split(/\r?\n/)) {
