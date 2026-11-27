@@ -1671,5 +1671,161 @@ test("27. SJ-1..SJ-4: parseArgs exit code 2, --budget + --budget-mode auto confl
   assert.equal(unRebasedPayments.mode, "panel");
 });
 
+test("28. CCR-1..CCR-4: indented HTML comment code examples, fenced/indented config examples, top-level bullet matching, and --follow-up 120-line cap under Budget mode", async (t) => {
+  const mod = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+  const { parseAgentsProfile, prepareReviewPanel } = mod;
+  assert.equal(mod.MAX_FOLLOW_UP_SINGLE_PROD_LINES, 120);
+
+  // CCR-1: 4-space-indented `<!--` code example (after blank line or heading) must not swallow later sections
+  const indentedCommentAgents = [
+    "# Project",
+    "",
+    "    <!-- example unclosed HTML comment in 4-space indented code block",
+    "",
+    "## Notes",
+    "    <!-- example immediately after heading",
+    "",
+    "### Risky areas",
+    "- `src/billing/**`: billing.",
+    "",
+    "### Review checklist",
+    "- Verify token expiry.",
+    "",
+    "### Budget mode (optional)",
+    "- **Enabled:** no",
+    "",
+  ].join("\n");
+  const parsedIndentedComment = parseAgentsProfile(indentedCommentAgents);
+  assert.deepEqual(parsedIndentedComment.riskyPatterns, ["src/billing/**"]);
+  assert.deepEqual(parsedIndentedComment.checklistBullets, ["Verify token expiry."]);
+  assert.equal(parsedIndentedComment.budgetEnabled, false);
+
+  const ccr1Repo = makeFixtureRepo(t, { "AGENTS.md": indentedCommentAgents });
+  writeAndCommit(ccr1Repo.repoDir, { "src/billing/charge.ts": "export const total = 10;\n" });
+  const ccr1Res = JSON.parse(
+    runRouterCli(["--repo-root", ccr1Repo.repoDir, "--base", ccr1Repo.baseSha, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(ccr1Res.touchesRiskyArea, true);
+  assert.equal(ccr1Res.mode, "panel");
+
+  // CCR-2: moving an active Risky areas bullet into a fenced or indented code example is detected as policy removal -> panel
+  const ccr2Repo = makeFixtureRepo(t, {
+    "AGENTS.md": [
+      "# Project",
+      "",
+      "### Risky areas",
+      "- `src/billing/**`: billing.",
+      "",
+      "### Budget mode (optional)",
+      "- **Enabled:** yes",
+      "",
+    ].join("\n"),
+  });
+  writeAndCommit(ccr2Repo.repoDir, {
+    "AGENTS.md": [
+      "# Project",
+      "",
+      "### Risky areas",
+      "```markdown",
+      "- `src/billing/**`: billing.",
+      "```",
+      "",
+      "### Budget mode (optional)",
+      "- **Enabled:** yes",
+      "",
+    ].join("\n"),
+  });
+  const ccr2Res = JSON.parse(
+    runRouterCli(["--repo-root", ccr2Repo.repoDir, "--base", ccr2Repo.baseSha, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(ccr2Res.touchesRiskyArea, true);
+  assert.equal(ccr2Res.mode, "panel");
+
+  // CCR-3: 4-space indented code example or 4-space nested sub-bullet `- **Enabled:** yes` after `Enabled: no` must stay false
+  const indentedBudgetAgents = [
+    "# Project",
+    "",
+    "### Budget mode (optional)",
+    "- **Enabled:** no",
+    "- Example nested item:",
+    "    - **Enabled:** yes",
+    "",
+    "    - **Enabled:** yes",
+    "",
+  ].join("\n");
+  assert.equal(parseAgentsProfile(indentedBudgetAgents).budgetEnabled, false);
+
+  const ccr3Repo = makeFixtureRepo(t, { "AGENTS.md": indentedBudgetAgents });
+  writeAndCommit(ccr3Repo.repoDir, {
+    "src/auth/token.ts": "export function checkAuth(authToken: string) { return authToken.length > 0; }\n",
+    "src/queue/pool.ts": "export async function drain(lock: Mutex) { return await Promise.resolve(Boolean(lock)); }\n",
+  });
+  const ccr3Res = JSON.parse(
+    runRouterCli(["--repo-root", ccr3Repo.repoDir, "--base", ccr3Repo.baseSha, "--json"]).stdout
+  );
+  assert.equal(ccr3Res.budgetMode, false);
+  assert.equal(ccr3Res.budgetSource, "off");
+  assert.equal(ccr3Res.mode, "panel");
+
+  // CCR-4: --follow-up enforces the 120-line follow-up cap (121-400 escalates to panel) while preserving active Budget mode
+  const fuRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+  });
+  for (const badArgs of [
+    ["--repo-root", fuRepo.repoDir, "--base", fuRepo.baseSha, "--follow-up=false"],
+    ["--repo-root", fuRepo.repoDir, "--base", fuRepo.baseSha, "--no-follow-up"],
+  ]) {
+    assert.equal(runRouterCli(badArgs).status, 2);
+  }
+  assert.throws(
+    () => prepareReviewPanel({ repoRoot: fuRepo.repoDir, base: fuRepo.baseSha, followUp: "yes" }),
+    (err) => err?.exitCode === 2
+  );
+
+  // 120-line 2-domain non-risky follow-up -> single (both with --budget-mode on and standard mode)
+  const fu120Head = writeAndCommit(fuRepo.repoDir, {
+    "src/auth/token.ts": `${Array.from({ length: 60 }, (_, i) => `export const authToken${i} = "${i}";`).join("\n")}\n`,
+    "src/queue/pool.ts": `${Array.from({ length: 60 }, (_, i) => `export async function mutexStep${i}() { return await Promise.resolve(${i}); }`).join("\n")}\n`,
+  });
+  const fu120Budget = JSON.parse(
+    runRouterCli(["--repo-root", fuRepo.repoDir, "--base", fuRepo.baseSha, "--head", fu120Head, "--budget-mode", "on", "--follow-up", "--json"]).stdout
+  );
+  assert.equal(fu120Budget.followUp, true);
+  assert.equal(fu120Budget.budgetMode, true);
+  assert.equal(fu120Budget.budgetSource, "cli");
+  assert.equal(fu120Budget.prodLinesChanged, 120);
+  assert.equal(fu120Budget.mode, "single");
+
+  // 121-line and 180-line non-risky follow-ups under Budget mode -> panel + skeptic-judge while preserving budgetMode: true
+  const fu121Head = writeAndCommit(fuRepo.repoDir, {
+    "src/feature/extra1.ts": "export const line121 = 121;\n",
+  });
+  const fu121Budget = JSON.parse(
+    runRouterCli(["--repo-root", fuRepo.repoDir, "--base", fuRepo.baseSha, "--head", fu121Head, "--budget-mode", "on", "--follow-up", "--json"]).stdout
+  );
+  assert.equal(fu121Budget.followUp, true);
+  assert.equal(fu121Budget.budgetMode, true);
+  assert.equal(fu121Budget.prodLinesChanged, 121);
+  assert.equal(fu121Budget.mode, "panel");
+  assert.equal(fu121Budget.synthesisJudge, true);
+
+  const fu180Out = join(fuRepo.outRoot, "fu-180-packets");
+  const fu180Head = writeAndCommit(fuRepo.repoDir, {
+    "src/feature/extra60.ts": `${Array.from({ length: 59 }, (_, i) => `export const f${i} = ${i};`).join("\n")}\n`,
+  });
+  const fu180Auto = JSON.parse(
+    runRouterCli(["--repo-root", fuRepo.repoDir, "--base", fuRepo.baseSha, "--head", fu180Head, "--follow-up", "--out-dir", fu180Out, "--json"]).stdout
+  );
+  assert.equal(fu180Auto.followUp, true);
+  assert.equal(fu180Auto.budgetMode, true);
+  assert.equal(fu180Auto.budgetSource, "agents-profile");
+  assert.equal(fu180Auto.prodLinesChanged, 180);
+  assert.equal(fu180Auto.mode, "panel");
+  assert.equal(fu180Auto.synthesisJudge, true);
+  assert.ok(readFileSync(join(fu180Out, "arch-correctness-packet.md"), "utf8").includes("- **Budget mode:** `true` (`agents-profile`)"));
+  assert.ok(readFileSync(join(fu180Out, "skeptic-judge-packet.md"), "utf8").includes("- **Budget mode:** `true` (`agents-profile`)"));
+});
+
+
 
 

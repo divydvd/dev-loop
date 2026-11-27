@@ -37,7 +37,8 @@ On resume, read this task's saved record, confirm session/assignment scope and `
   - Pass `--budget-mode on` (or `--budget`) when `Source` is `owner-chat` (direct owner command or confirmed resumed ledger state).
   - Pass `--budget-mode off` when `Source` is `owner-chat-off` (disabling `AGENTS.md` `Enabled: yes` for this task).
   - Omit the flag (default `--budget-mode auto`) when relying on `AGENTS.md`.
-  - Non-risky diffs of `<= 400` production lines route to `1` fresh `single-reviewer` subagent (`mode=single`, `synthesisJudge=false`) carrying all matched domain rules. Diffs touching `### Risky areas` or `> 400` production lines still route to the full `panel` + `skeptic-judge`.
+  - Non-risky initial PR diffs of `<= 400` production lines route to `1` fresh `single-reviewer` subagent (`mode=single`, `synthesisJudge=false`) carrying all matched domain rules. Diffs touching `### Risky areas` or `> 400` production lines still route to the full `panel` + `skeptic-judge`.
+  - For post-review follow-up fixes (`--base <reviewed-sha> --follow-up` alongside the active `--budget-mode` flag), `--follow-up` keeps the `<= 120` production-line `single` cap and escalates `> 120` production lines (`121–400` included) or risky-area edits to `panel` while preserving `budgetMode` metadata.
 
 ## Slice-Batched TDD Contract
 - **Non-risky features:** Group failing tests by cohesive vertical slice (`1` slice per `1–3` related tasks). Write all failing tests for the slice first, run the suite once to watch them fail for the expected missing behavior before writing production code, implement the slice, and run the suite to verify green.

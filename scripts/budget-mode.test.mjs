@@ -101,6 +101,7 @@ test("budget-mode.md specifies 1x model guidance, Step 1-5 cost rules, slice-bat
   assert.match(steps, /references\/milestones\.md/);
   assert.match(steps, /--budget-mode on/);
   assert.match(steps, /--budget-mode off/);
+  assert.match(steps, /--follow-up/);
   assert.match(steps, /400/);
 
   // Slice-batched TDD contract
@@ -152,6 +153,7 @@ test("SKILL.md places ### Budget mode after ### Absence mode and wires Steps 1, 
   assert.match(step2, /references\/budget-mode\.md/);
   assert.match(step3, /references\/budget-mode\.md/);
   assert.match(step5, /--budget-mode/);
+  assert.match(step5, /--follow-up/);
   assert.match(step5, /Step-3 single-task review never replaces.*panel[\s\S]*skeptic-judge/i);
   assert.match(step8, /optional limits/i);
 });
@@ -162,6 +164,7 @@ test("review-panel.md and testing.md document Budget mode flags, 400-line cap, a
 
   assert.match(panel, /--budget-mode\s*<auto\|on\|off>|--budget-mode/);
   assert.match(panel, /--budget\b/);
+  assert.match(panel, /--follow-up/);
   assert.match(panel, /### Budget mode \(optional\)/);
   assert.match(panel, /400/);
   assert.match(panel, /single-reviewer/);

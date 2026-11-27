@@ -14,6 +14,7 @@ node <dev-loop-skill-dir>/scripts/prepare-review-panel.mjs \
   --head <head-sha-or-WORKTREE> \
   --out-dir <temp-dir-outside-repo> \
   [--budget | --budget-mode <auto|on|off>] \
+  [--follow-up] \
   --json
 ```
 - Put `--out-dir` in a temporary directory outside `--repo-root` (for example `$TMPDIR/dev-loop-review-<id>` or the session `files/` folder). The script rejects any `--out-dir` inside `--repo-root` so frozen packets never pollute `git status`.
@@ -71,9 +72,10 @@ Evaluate the final `skeptic-judge` output with `receiving-code-review`. Fix conf
 Record `panel (<roles> -> skeptic-judge)` in the `Reviewer` row of `assets/pr-body.md` (for example `panel (arch-correctness, concurrency-state, security-privacy, ui-a11y -> skeptic-judge)`).
 
 ## Focused follow-up review after fixes
+- Run `scripts/prepare-review-panel.mjs` with `--base <reviewed-sha> --head <head-sha-or-WORKTREE> --follow-up` (preserving any active `--budget-mode <auto|on|off>`) to route post-review follow-up diffs deterministically.
 - Do not re-run the full multi-agent panel for a small follow-up fix (`<= 120` production lines outside new risky areas, even when Budget mode is `on`).
 - Give later substantive changes a focused `single` independent review (`single (<agent>)`) of the changed behavior and affected interactions before the next push, and record that commit and reviewer in `Changes after review`.
-- Re-run `panel` mode only when follow-up changes add `> 120` production lines or touch a newly affected risky area.
+- Re-run `panel` mode when `--follow-up` detects `> 120` production lines (including `121–400` production lines under Budget mode) or a newly affected risky area.
 - Harmless spelling or formatting edits after review do not need another review.
 
 ## Conclusion
