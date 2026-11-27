@@ -1853,6 +1853,83 @@ test("28. CCR-1..CCR-4: indented HTML comment code examples, fenced/indented con
   assert.ok(readFileSync(join(fu180Out, "skeptic-judge-packet.md"), "utf8").includes("- **Budget mode:** `true` (`agents-profile`)"));
 });
 
+test("29. CCR-5..CCR-6: fences opened directly after list markers and blank-separated list continuations", async (t) => {
+  const { parseAgentsProfile } = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+
+  // CCR-5: `- ```markdown` fence opened directly after a list marker (both Enabled: yes example and `<!--` literal)
+  const listMarkerFenceAgents = [
+    "# Project",
+    "",
+    "### Budget mode (optional)",
+    "- **Enabled:** no",
+    "- ```markdown",
+    "  - **Enabled:** yes",
+    "  <!-- unclosed html comment inside list-marker fence",
+    "  ```",
+    "1. ~~~markdown",
+    "   - **Enabled:** yes",
+    "   ~~~",
+    "1. Ordered example:",
+    "   - **Enabled:** yes",
+    "",
+    "### Risky areas",
+    "- `src/auth/**`: auth.",
+    "",
+    "### Review checklist",
+    "- Check auth flows.",
+    "",
+  ].join("\n");
+  const parsedCcr5 = parseAgentsProfile(listMarkerFenceAgents);
+  assert.equal(parsedCcr5.budgetEnabled, false);
+  assert.deepEqual(parsedCcr5.riskyPatterns, ["src/auth/**"]);
+  assert.deepEqual(parsedCcr5.checklistBullets, ["Check auth flows."]);
+
+  const ccr5Repo = makeFixtureRepo(t, { "AGENTS.md": listMarkerFenceAgents });
+  writeAndCommit(ccr5Repo.repoDir, {
+    "src/auth/login.ts": "export const verifyLogin = (user: string) => user.length > 0;\n",
+  });
+  const ccr5Res = JSON.parse(
+    runRouterCli(["--repo-root", ccr5Repo.repoDir, "--base", ccr5Repo.baseSha, "--json"]).stdout
+  );
+  assert.equal(ccr5Res.budgetMode, false);
+  assert.equal(ccr5Res.touchesRiskyArea, true);
+  assert.equal(ccr5Res.mode, "panel");
+
+  // CCR-6: blank-separated 4-space continuation paragraph inside `- Protected paths:` stays a list continuation, while 6-space (`baseInd + 4`) is an indented code block
+  const blankSepListAgents = [
+    "# Project",
+    "",
+    "- Notes:",
+    "",
+    "      <!-- 6-space code block inside list item",
+    "",
+    "### Risky areas",
+    "- Protected paths:",
+    "",
+    "    `src/billing/**`: billing.",
+    "",
+    "### Budget mode (optional)",
+    "- **Enabled:** yes",
+    "",
+  ].join("\n");
+  const parsedCcr6 = parseAgentsProfile(blankSepListAgents);
+  assert.deepEqual(parsedCcr6.riskyPatterns, ["src/billing/**"]);
+  assert.equal(parsedCcr6.budgetEnabled, true);
+
+  const ccr6Repo = makeFixtureRepo(t, { "AGENTS.md": blankSepListAgents });
+  writeAndCommit(ccr6Repo.repoDir, {
+    "src/billing/charge.ts": "export const chargeCents = (n: number) => n * 100;\n",
+  });
+  const ccr6Res = JSON.parse(
+    runRouterCli(["--repo-root", ccr6Repo.repoDir, "--base", ccr6Repo.baseSha, "--json"]).stdout
+  );
+  assert.equal(ccr6Res.budgetMode, true);
+  assert.equal(ccr6Res.touchesRiskyArea, true);
+  assert.deepEqual(ccr6Res.matchedRiskyAreas, ["src/billing/**"]);
+  assert.equal(ccr6Res.mode, "panel");
+});
+
+
 
 
 

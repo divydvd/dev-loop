@@ -133,22 +133,55 @@ export function detectDomains(changedFiles, diffHunkText) {
 }
 function stripCommentsAndCodeBlocks(markdown) {
   const [out, listStack] = [[], []];
-  let [cur, fence, fenceMax, inComment, prevBlank, inIndented] = ["", null, 3, false, true, false];
+  let [cur, fence, fenceMin, fenceMax, inComment, prevBlank, inIndented] = ["", null, 0, 3, false, true, false];
   for (const line of String(markdown ?? "").split(/\r?\n/)) {
     if (!inComment) {
       if (fence) {
-        fence = nextFenceState(fence, line, fenceMax);
-        if (!fence) { prevBlank = true; inIndented = false; }
-        continue;
+        if (/^\s*$/.test(line)) continue;
+        const fInd = expandLeadTabs(line).match(/^ */)[0].length;
+        const closed = nextFenceState(fence, line, fenceMax) === null;
+        if (closed) {
+          fence = null;
+          while (listStack.length && fInd < listStack[listStack.length - 1]) listStack.pop();
+          prevBlank = true; inIndented = false; continue;
+        }
+        if (fInd >= fenceMin) continue;
+        fence = null;
       }
       if (/^\s*$/.test(line)) { prevBlank = true; inIndented = false; out.push(""); continue; }
       const exp = expandLeadTabs(line), ind = exp.match(/^ */)[0].length, rest = exp.slice(ind);
       if (ind <= 3 && /^#{1,6}(?:\s|$)/.test(rest)) listStack.length = 0;
-      else while (listStack.length && ind < listStack[listStack.length - 1] && (prevBlank || /^(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/.test(rest))) listStack.pop();
+      else {
+        const opensTopOrParentFence = listStack.length > 0 && ind < listStack[listStack.length - 1] && Boolean(nextFenceState(null, line, 3));
+        while (listStack.length && ind < listStack[listStack.length - 1] && (prevBlank || opensTopOrParentFence || /^(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/.test(rest))) listStack.pop();
+      }
       const baseInd = listStack.length ? listStack[listStack.length - 1] : 0;
       const nf = nextFenceState(null, line, baseInd + 3);
-      if (nf) { fence = nf; fenceMax = baseInd + 3; prevBlank = false; inIndented = false; continue; }
-      if ((prevBlank || inIndented) && ind >= 4) { inIndented = true; prevBlank = false; continue; }
+      if (nf) { fence = nf; fenceMin = baseInd; fenceMax = baseInd + 3; prevBlank = false; inIndented = false; continue; }
+      if ((prevBlank || inIndented) && ind >= baseInd + 4) { inIndented = true; prevBlank = false; continue; }
+      let [mInd, mRest, mBase, nextCols] = [ind, rest, baseInd, [...listStack]];
+      while (mInd <= mBase + 3) {
+        const lm = mRest.match(/^([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/);
+        if (!lm) break;
+        while (nextCols.length && mInd < nextCols[nextCols.length - 1]) nextCols.pop();
+        if (lm[2].length >= 5) {
+          const col = mInd + lm[1].length + 1;
+          nextCols.push(col); mInd = col + lm[2].length - 1; mRest = lm[3]; mBase = col; break;
+        }
+        const col = mInd + lm[1].length + lm[2].length;
+        nextCols.push(col); mInd = col; mRest = lm[3]; mBase = col;
+      }
+      if (nextCols.length !== listStack.length || nextCols.some((v, idx) => v !== listStack[idx])) {
+        const lnf = nextFenceState(null, `${" ".repeat(mInd)}${mRest}`, mBase + 3);
+        if (lnf) {
+          listStack.splice(0, listStack.length, ...nextCols);
+          fence = lnf; fenceMin = mBase; fenceMax = mBase + 3; prevBlank = false; inIndented = false; continue;
+        }
+        if (mInd >= mBase + 4) {
+          listStack.splice(0, listStack.length, ...nextCols);
+          inIndented = true; prevBlank = false; continue;
+        }
+      }
     }
     let i = 0;
     while (i < line.length) {
@@ -202,12 +235,17 @@ function collectTopLevelBullets(sectionText) {
     if (/^\s*$/.test(exp)) { prevBlank = true; continue; }
     const ind = exp.match(/^ */)[0].length, rest = exp.slice(ind);
     if (prevBlank && ind < topCol) { topCol = 0; inSubList = false; }
-    const bm = (topCol === 0 ? ind <= 3 : ind < topCol) ? rest.match(/^([-*+])(?:([ \t]+)(.*)|())$/) : null;
+    const canStartTop = topCol === 0 ? ind <= 3 : ind < topCol;
+    const bm = canStartTop ? rest.match(/^([-*+])(?:([ \t]+)(.*)|())$/) : null;
+    const om = canStartTop && !bm ? rest.match(/^(\d{1,9}[.)])(?:([ \t]+)(.*)|())$/) : null;
     if (bm) {
       topCol = ind + bm[1].length + Math.min((bm[2] ?? " ").length, 4);
       const first = (bm[3] ?? "").trim();
       inSubList = false; prevBlank = false;
       bullets.push({ firstLine: first, lines: first ? [first] : [] });
+    } else if (om) {
+      topCol = ind + om[1].length + Math.min((om[2] ?? " ").length, 4);
+      inSubList = true; prevBlank = false;
     } else if (topCol > 0 && ind >= topCol) {
       if (/^(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/.test(rest)) inSubList = true;
       else if (!inSubList && rest.trim()) bullets[bullets.length - 1].lines.push(rest.trim());
