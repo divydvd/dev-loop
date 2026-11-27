@@ -26,6 +26,7 @@ test("core.mdc wires budget-mode.md in Rule 4, stays within startup limits, and 
   assert.match(rule4, /skills\/dev-loop\/references\/budget-mode\.md/);
   assert.match(rule4, /budget mode/i);
   assert.match(rule4, /budget mode off/i);
+  assert.match(rule4, /standard mode/i);
   assert.match(rule4, /AGENTS\.md/);
   assert.match(rule4, /approvals.*required test tiers.*risky-area panels.*independent review/i);
 
@@ -49,8 +50,10 @@ test("budget-mode.md defines precedence, trust boundary, away-mode orthogonality
   }
 
   // Precedence order
-  assert.match(doc, /budget mode off|standard mode/i);
-  assert.match(doc, /### Budget mode \(optional\)/);
+  assert.match(doc, /budget mode off/i);
+  assert.match(doc, /standard mode/i);
+  assert.match(doc, /### Budget mode.*### Budget mode \(optional\)|### Budget mode \(optional\)/);
+  assert.match(doc, /both current.*AGENTS\.md.*base-branch.*AGENTS\.md/i);
   assert.match(doc, /Enabled:\s*yes/);
   assert.match(doc, /default.*off/i);
 
@@ -113,6 +116,8 @@ test("budget-mode.md specifies 1x model guidance, Step 1-5 cost rules, slice-bat
   assert.match(safety, /Core Rule 23|independent.*review/i);
   assert.match(safety, /Core Rule 21|merge/i);
   assert.match(safety, /Step-3.*never.*replace.*panel|single-task review.*never.*replace.*panel/i);
+  assert.match(safety, /single-reviewer-packet\.md/);
+  assert.match(safety, /references\/review-panel\.md/);
 
   assert.deepEqual(checkRepo(REPO_ROOT), []);
 });
