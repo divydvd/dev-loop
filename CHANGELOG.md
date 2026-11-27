@@ -2,6 +2,16 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.25 (2026-11-27)
+- **Save the `2026-11-27` Budget mode live A/B benchmark report and add `B7-webhook-queue`, `--baseline-budget-mode` / `--candidate-budget-mode`, and `usage.json` telemetry extraction to `scripts/run-benchmark.mjs`.**
+  - **What:** Commit the sanitized ASD-STE100 A/B benchmark report at `docs/benchmarks/2026-11-27-budget-mode-ab.md` and link it from `README.md`.
+    Add canonical benchmark task `B7-webhook-queue` (`route: "small"`, `hasFlowDocs: true`) in `scripts/run-benchmark.mjs` with `SEC-01`, `CONC-01`, and `ARCH-01` checklist rules, `docs/flows/webhooks.md` drift verification, `runVerifiedTests` anti-tampering checks, and `11` blind oracle invariants (`O1`–`O11`).
+    Add `budgetMode = false` to `runSingleTask` and `runBenchmark` plus `--baseline-budget-mode` and `--candidate-budget-mode` CLI flags so sandbox `AGENTS.md` commits `Enabled: yes|no` on `main`, `BENCHMARK_BUDGET_MODE` exposes `"1"` or `"0"`, and enabled runs prepend `"budget mode\n\n"`.
+    Pass `--usage-output-file <sandboxDir>/usage.json` on live `copilot -p` invocations and teach `extractSandboxTelemetry` to fall back to `<sandboxDir>/usage.json` or per-session `<sessRoot>/<id>/usage.json` (`modelMetrics` `usage.totalNanoAiu` and `requests.count`) when `events.jsonl` omits `totalNanoAiu`.
+    Add deterministic zero-credit regressions in `scripts/run-benchmark.test.mjs` (`B-T7a`–`B-T7d`) and bump all `5` plugin manifests to `0.5.25`.
+  - **Why:** Copilot CLI `1.0.115-7` writes `totalNanoAiu` and request counts to `--usage-output-file` rather than `events.jsonl`, and `scripts/run-benchmark.mjs` previously lacked a multi-domain task (`SEC-01` + `CONC-01` + `ARCH-01`) and CLI flags to reproduce Standard-vs-Budget A/B runs (`70.15 AIUs` / `30` calls vs `34.25 AIUs` / `16` calls, `-51.2%`, `11/11` oracle parity on `claude-sonnet-5.5` at `eb2599c`).
+  - **Check:** Run `node scripts/check.mjs` and `node --test scripts/run-benchmark.test.mjs` plus all `.github/workflows/check.yml` suites; during future `infra-review` or routing changes, run `node scripts/run-benchmark.mjs --baseline <base> --candidate <head> --candidate-budget-mode --tasks B7-webhook-queue --samples 1` to verify cost savings and `O1`–`O11` quality parity.
+
 ## 0.5.24 (2026-11-27)
 - **Add opt-in Budget mode (`budget mode` / `standard mode` and `AGENTS.md` `### Budget mode`) for lower-credit execution.**
   - **What:** Add `skills/dev-loop/references/budget-mode.md`, wire `Core Rule 4` in `com.github.copilot/rules/core.mdc` and `dev-loop-context.md`, and connect `skills/dev-loop/SKILL.md`, `references/review-panel.md`, `references/testing.md`, `assets/project-profile.md`, and `assets/pr-body.md`.
