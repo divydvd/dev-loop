@@ -19,20 +19,20 @@ The dev-loop core rules (`dev-loop: core`, loaded by the active host's `dev-loop
 - **Enabled:** no
 - **Applies when:** <concrete qualifying changes; for example new webhook handlers or public API changes>
 <!-- Set Enabled to yes only with concrete criteria. Missing or unclear criteria do not select automatic review.
-     Selected designs receive one fresh-context review before the existing design approval.
-     One focused recheck is available after material corrections. Existing approval and PR review stay required. -->
+     Selected designs receive one fresh-context review before the existing design approval. -->
+
+### Budget mode (optional)
+<!-- Keep Enabled set to no unless this project opts into cost-optimized routing by default. Per-task owner commands still work. -->
+- **Enabled:** no
 
 ### Graphify (optional)
-<!-- Omit this section when the project does not use Graphify. Keep project commands here, not in the shared plugin. -->
+<!-- Omit when the project does not use Graphify. Keep project commands here, not in the shared plugin. -->
 - **Enabled:** <yes or no>
 - **Graph location:** <path inside this checkout; for example graphify-out/graph.json>
 - **Query command:** <scoped command; for example graphify query "<question>" --budget 1500>
 - **Freshness check:** <command that verifies the graph matches this checkout, HEAD, and working-tree files; or "unavailable">
 - **Local refresh command:** <permitted local-only command; or "none">
-<!-- A freshness check must detect changed, added, and deleted inputs, including relevant untracked files.
-     HEAD or a graph timestamp alone is insufficient. Without a reliable check, use source search.
-     Refresh example: GRAPHIFY_BACKEND=none graphify extract . --code-only.
-     Confirm that the project's refresh also provides the evidence its freshness check needs.
+<!-- A freshness check must detect changed, added, and deleted inputs; without a reliable check, use source search.
      Keep generated graphs local to each checkout and exclude them from Git. Never include secrets.
      No installation or external processing is authorized by this section. -->
 

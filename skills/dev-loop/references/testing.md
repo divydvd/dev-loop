@@ -27,6 +27,8 @@ The method can be an existing automated test, integration check, device scenario
 Use the project's tools and commands. Do not install a tool or create a test service by default.
 Assert observable results, including error behavior and preserved behavior, not only mocked calls or successful exit codes.
 Keep TDD: reproduce the fault or missing behavior before the implementation, then check the fix and regressions.
+When Budget mode is active (`references/budget-mode.md`), select `3–6` `required` rows covering acceptance conditions, boundaries, and error/consumer paths, and record deferred low-impact permutations as `optional` (`budget-mode`) with a 1-line reason in `Optional limits`.
+Under Budget mode, non-risky features may use Slice-batched TDD (`1` cohesive slice per `1–3` related tasks): write all failing tests for the slice first and watch them fail before writing production code; bugs and `### Risky areas` keep strict single-fault reproduce-first TDD.
 
 ## Permanent project regression inventory
 The permanent inventory protects important existing flows across tasks.

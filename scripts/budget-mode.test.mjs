@@ -121,3 +121,66 @@ test("budget-mode.md specifies 1x model guidance, Step 1-5 cost rules, slice-bat
 
   assert.deepEqual(checkRepo(REPO_ROOT), []);
 });
+
+test("SKILL.md places ### Budget mode after ### Absence mode and wires Steps 1, 2, 3, 5, and 8", () => {
+  const skill = read("skills/dev-loop/SKILL.md");
+
+  const absenceIdx = skill.indexOf("### Absence mode");
+  const budgetIdx = skill.indexOf("### Budget mode");
+  const contextIdx = skill.indexOf("## Keep the context small");
+  assert.ok(absenceIdx !== -1, "missing ### Absence mode in SKILL.md");
+  assert.ok(budgetIdx !== -1, "missing ### Budget mode in SKILL.md");
+  assert.ok(contextIdx !== -1, "missing ## Keep the context small in SKILL.md");
+  assert.ok(absenceIdx < budgetIdx && budgetIdx < contextIdx, "### Budget mode must sit between ### Absence mode and ## Keep the context small");
+
+  const budgetSection = skill.slice(budgetIdx, contextIdx);
+  assert.match(budgetSection, /references\/budget-mode\.md/);
+
+  const step1 = skill.split("## 1. Route")[1]?.split("## 2. Plan")[0] ?? "";
+  const step2 = skill.split("## 2. Plan")[1]?.split("## 3. Build")[0] ?? "";
+  const step3 = skill.split("## 3. Build")[1]?.split("## 4. Flow docs")[0] ?? "";
+  const step5 = skill.split("## 5. Self-review")[1]?.split("## 6. Verify")[0] ?? "";
+  const step8 = skill.split("## 8. Report")[1]?.split("## Stop conditions")[0] ?? "";
+
+  assert.match(step1, /references\/budget-mode\.md/);
+  assert.match(step2, /references\/budget-mode\.md/);
+  assert.match(step3, /references\/budget-mode\.md/);
+  assert.match(step5, /--budget-mode/);
+  assert.match(step8, /optional limits/i);
+});
+
+test("review-panel.md and testing.md document Budget mode flags, 400-line cap, and Slice-batched TDD", () => {
+  const panel = read("skills/dev-loop/references/review-panel.md");
+  const testing = read("skills/dev-loop/references/testing.md");
+
+  assert.match(panel, /--budget-mode\s*<auto\|on\|off>|--budget-mode/);
+  assert.match(panel, /--budget\b/);
+  assert.match(panel, /400/);
+  assert.match(panel, /single-reviewer/);
+  assert.match(panel, /Risky areas[\s\S]*skeptic-judge|skeptic-judge[\s\S]*Risky areas/);
+
+  assert.match(testing, /Slice-batched TDD/);
+  assert.match(testing, /references\/budget-mode\.md/);
+  assert.match(testing, /fail.*before.*production|before.*implementation/i);
+  assert.match(testing, /bug.*risky|bugs and.*Risky areas/i);
+  assert.match(testing, /budget-mode/);
+  assert.match(testing, /Optional limits/i);
+});
+
+test("project-profile.md stays <= 5500 bytes with ### Budget mode (optional) and pr-body.md records Budget mode", () => {
+  const profile = read("skills/dev-loop/assets/project-profile.md");
+  const pr = read("skills/dev-loop/assets/pr-body.md");
+
+  const profileBytes = Buffer.byteLength(profile, "utf8");
+  assert.ok(profileBytes <= 5500, `expected project-profile.md <= 5500 bytes, got ${profileBytes}`);
+  assert.match(profile, /### Budget mode \(optional\)/);
+  const budgetProfile = profile.split("### Budget mode (optional)")[1]?.split("###")[0] ?? "";
+  assert.match(budgetProfile, /- \*\*Enabled:\*\*\s*no/);
+
+  const indReview = pr.split("### Independent agent review")[1]?.split("### GitHub Copilot review")[0] ?? "";
+  assert.match(indReview, /Budget mode/);
+  assert.match(indReview, /agents-profile/);
+  assert.match(indReview, /task-switch/);
+  assert.match(indReview, /single\s*\(<agent>\)/);
+  assert.match(indReview, /panel\s*\(<roles>\s*->\s*skeptic-judge\)/);
+});

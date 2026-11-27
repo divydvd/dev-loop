@@ -29,6 +29,12 @@ Keep feature design and risky-plan approval, protected actions, tests, review, a
 Absence mode does not change app permissions, guards, or execution mode.
 Without confirmed activation, follow the normal route.
 
+### Budget mode
+For the owner's direct `budget mode`, `budget mode off`, or `standard mode` instruction, saved task budget state, or `Budget mode` `Enabled: yes` in `AGENTS.md`, read `references/budget-mode.md` before questions or further task work.
+Precedence is per-task owner chat command > `AGENTS.md` (when enabled on both `HEAD` and the base branch) > default `off`.
+Keep feature design approval, risky-plan review, risky-task review, failing-test-first TDD, required test tiers, and independent PR review unchanged.
+Without confirmed activation, follow the normal route.
+
 ## Keep the context small
 Each compaction costs model calls and loses facts. Do these steps in each phase.
 - Find code with `grep` or a code search first. Then read only the lines that you need: about 150 lines or fewer in each read. Do not read a whole file of more than about 300 lines. These limits also apply to `cat`, `sed`, and `head` in a shell.
@@ -64,6 +70,7 @@ For non-UI tasks, skip that reference and the profile's UI reuse pointers.
   - For a UI change, make a mockup before you ask for the design approval. Do not wait for the owner to ask for it, and do not offer it first. Do not use the brainstorming visual companion. Make one self-contained HTML file (inline CSS and JavaScript, no network) in the session files folder, or in a local folder outside the repo when the host has no session files folder. Show each changed screen, before and after, in the light and dark themes. Use the app's real texts, colors, and sizes from the code. Open the file in the browser canvas with a `file://` URL when `browser` canvas is available; otherwise follow `references/hosts/README.md` and give the owner the exact local path and `file://` URL. Put its path in the plan and the PR body.
   - For a small feature (one area, 3 tasks or fewer), show a design of 2–5 lines and ask one question, with your recommended choice first. After the approval, save the acceptance record (`assets/acceptance-record.md`) as the plan, in `docs/superpowers/plans/<YYYY-MM-DD>-<topic>.md`. Then build it with `test-driven-development`. Do not use `writing-plans`. Copy the record into the PR body.
   - For a bigger feature, write a plan (step 2) after the approval.
+  - When Budget mode is active (`references/budget-mode.md`), batch up to 4 product questions into one `ask_user` round, check feasibility inline (`0` `builder-check` subagents), and skip automatic `design-review` unless the owner explicitly asks for it.
 - **Bug:** use `systematic-debugging`. Reproduce the bug, find the root cause, and write a test that fails because of the bug.
   - If the fix is in one area and has 3 tasks or fewer, save the acceptance record (`assets/acceptance-record.md`) before you write the fix. Save it as the plan, in `docs/superpowers/plans/<YYYY-MM-DD>-<topic>.md`. Then fix it with `test-driven-development`. Do not use `writing-plans`. Copy the record into the PR body.
   - If the fix is bigger, write a plan (step 2).
@@ -89,7 +96,7 @@ A review-only request does not start implementation. A late review alone does no
 
 ## 2. Plan
 - Use `writing-plans`. Put the acceptance record (`assets/acceptance-record.md`) at the top of the plan.
-- Save test cases under `references/testing.md` before implementation. Link detailed cases for complex or high-risk work.
+- Save test cases under `references/testing.md` before implementation. Link detailed cases for complex or high-risk work. When Budget mode is active (`references/budget-mode.md`), keep plans compact (`<= 80` lines) with `3–6` required matrix rows and record deferred low-impact permutations in `Optional limits`.
 - Select existing flows from the project's permanent regression inventory under `references/testing.md`; link case IDs in the task record.
   Use `assets/regression-matrix.md` when establishing a project baseline, not a duplicate inventory or a list of permanent passes.
 - Make tasks of 2–5 minutes. Mark the tasks that can run in parallel.
@@ -101,7 +108,7 @@ A review-only request does not start implementation. A late review alone does no
 - Choose the execution method from the core rules. Do not ask.
 
 ## 3. Build
-- Follow `executing-plans` or `subagent-driven-development`, as core rule 7 says. Use test-driven development.
+- Follow `executing-plans` or `subagent-driven-development`, as core rule 7 says. Use test-driven development. When Budget mode is active (`references/budget-mode.md`), run `executing-plans` inline for up to `8` tasks, use Slice-batched TDD only on non-risky features, and keep per-task independent review on `### Risky areas`.
 - For multi-milestone assignments, use `references/milestones.md` to select eligible work and maintain the existing execution ledger.
   Finish each milestone's tests, docs, and independent review before its first publication.
 - Update affected cases and evidence under `references/testing.md` when requirements, source, setup, or consumers change.
@@ -126,7 +133,7 @@ Retain assignment-level gaps and required final integration checks; one ready PR
   Give the reviewer the matrix and evidence; a completed table alone does not establish coverage.
 - For UI work, check the reuse decision against the final code, affected consumers, and the required UI evidence.
 - Require independent agent review of the complete PR diff before the first push. This covers code, tests, configuration, dependencies, workflows, rules, skills, and operational instructions, regardless of the plan route.
-- Run `scripts/prepare-review-panel.mjs` (`node <dev-loop-skill-dir>/scripts/prepare-review-panel.mjs --repo-root <repo-root> --base <base> --head <head-or-WORKTREE> --out-dir <temp-dir-outside-repo> --json`) and follow `references/review-panel.md`. Keep `--out-dir` outside `--repo-root` so frozen `<role>-packet.md` files never dirty `git status`.
+- Run `scripts/prepare-review-panel.mjs` (`node <dev-loop-skill-dir>/scripts/prepare-review-panel.mjs --repo-root <repo-root> --base <base> --head <head-or-WORKTREE> --out-dir <temp-dir-outside-repo> [--budget-mode <auto|on|off>] --json`; pass `--budget-mode on` or `--budget-mode off` when a per-task owner override is active under `references/budget-mode.md`) and follow `references/review-panel.md`. Keep `--out-dir` outside `--repo-root` so frozen `<role>-packet.md` files never dirty `git status`.
 - Use `requesting-code-review` in separate agent contexts according to the router mode (`exempt`, `single`, or `panel` with `2`–`4` domain specialists in parallel plus `skeptic-judge`; use `dispatch: sequential` on single-subagent hosts). Give each reviewer its packet, base and head commits (or exact `WORKTREE` snapshot), acceptance record, saved test matrix, and project checklist (both inline `### Review checklist` bullets and the external `Checklist path` file when configured). Ask reviewers to check the source and affected callers, not only the author's explanation. Self-review and GitHub Copilot review do not replace this review or the required tests.
 - Reuse an existing independent review when it covers the complete PR diff and its interactions. Isolated task reviews do not establish integration coverage. Review the missing coverage rather than repeat completed work.
 - Give later substantive changes a focused independent review (`single` mode unless follow-up edits exceed `120` production lines or touch a new risky area) of the changed behavior and affected interactions before the next push. Harmless spelling or formatting edits do not need another review. Do not request a full review merely to obtain a clean verdict.
