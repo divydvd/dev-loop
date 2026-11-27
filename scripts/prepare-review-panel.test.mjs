@@ -1927,6 +1927,69 @@ test("29. CCR-5..CCR-6: fences opened directly after list markers and blank-sepa
   assert.equal(ccr6Res.touchesRiskyArea, true);
   assert.deepEqual(ccr6Res.matchedRiskyAreas, ["src/billing/**"]);
   assert.equal(ccr6Res.mode, "panel");
+
+  // F-1..F-4: dedented top-level fence after list-marker fence, section-leading/nested `- - ```markdown`,
+  // parent-list fence interrupting nested list, blockquote fence with `<!--`, Setext section break,
+  // outer bullet continuation after sub-list, and empty trailing-space list marker.
+  const dedentedFenceAndMarkerAgents = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "- ```markdown",
+      "  x",
+      "```",
+      "- **Enabled:** yes",
+      "```",
+      "",
+      "### Risky areas",
+      "- ```sh",
+      "  cmd",
+      "  ```",
+      "  `db/migrations/**`: schema.",
+    ].join("\n")
+  );
+  assert.equal(dedentedFenceAndMarkerAgents.budgetEnabled, false);
+  assert.deepEqual(dedentedFenceAndMarkerAgents.riskyPatterns, ["db/migrations/**"]);
+
+  const nestedMarkerAndSetextAgents = parseAgentsProfile(
+    [
+      "### Budget mode",
+      "- - ```markdown",
+      "    x",
+      "    ```",
+      "  - **Enabled:** yes",
+      "",
+      "Other Section",
+      "-------------",
+      "- **Enabled:** yes",
+      "",
+      "> [!NOTE]",
+      "> ```markdown",
+      "> <!-- unclosed comment inside blockquote fence",
+      "> ```",
+      "",
+      "- Outer docs:",
+      "    - Inner item",
+      "    ```markdown",
+      "  <!-- 2-space line inside parent-list fence interrupting inner item",
+      "    ```",
+      "",
+      "-",
+      "      <!-- 6-space code block right after empty bullet",
+      "",
+      "### Risky areas",
+      "- Auth flows:",
+      "  - OAuth",
+      "",
+      "  Applies to `src/auth/**`.",
+      "-   ",
+      "",
+      "  `src/payments/**`: payments.",
+      "#### Notes",
+      "Only `src/docs/**` is non-risky.",
+    ].join("\n")
+  );
+  assert.equal(nestedMarkerAndSetextAgents.budgetEnabled, false);
+  assert.deepEqual(nestedMarkerAndSetextAgents.riskyPatterns, ["src/auth/**", "src/payments/**"]);
 });
 
 

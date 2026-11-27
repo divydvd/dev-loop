@@ -62,9 +62,14 @@ export function isProductionFile(relPath) {
   if (/^(?:plugin\.json|gemini-extension\.json|dev-loop-context\.md|GEMINI\.md|AGENTS\.md|CLAUDE\.md)$/.test(p) || /^scripts\/[^/]+\.(?:mjs|cjs|js|sh|py)$/.test(p)) return true;
   return !(/\.md$/i.test(p) || /^docs\//.test(p));
 }
-const expandLeadTabs = (line) => line.replace(/^[ \t]+/, (s) => s.replaceAll("\t", "    "));
+const THEMATIC_RE = /^(?:-[ \t]*){3,}$|^(?:\*[ \t]*){3,}$|^(?:_[ \t]*){3,}$/;
+function expandTabs(line) {
+  let out = "";
+  for (const ch of line) out += ch === "\t" ? " ".repeat(4 - (out.length % 4)) : ch;
+  return out;
+}
 function nextFenceState(fence, line, maxIndent = 3) {
-  const exp = expandLeadTabs(line);
+  const exp = expandTabs(line);
   const ind = exp.match(/^ */)[0].length;
   if (ind > maxIndent) return fence;
   const rest = exp.slice(ind);
@@ -131,97 +136,77 @@ export function detectDomains(changedFiles, diffHunkText) {
   if (uiPath || /(?:^|[^A-Za-z0-9_])@Composable\b/.test(raw) || /\b(?:SwiftUI|contentDescription|semantics|accessibilityLabel|TalkBack|VoiceOver|prefers-reduced-motion|darkTheme)\b/.test(raw) || /\b(?:content\s+description|accessibility\s+label|talk\s+back|voice\s+over|prefers\s+reduced\s+motion|dark\s+theme)\b/i.test(split)) found.add("ui-a11y");
   return DOMAIN_ORDER.filter((d) => found.has(d));
 }
+function peelBq(rawExp, maxFirstInd) {
+  let [exp, bq] = [rawExp, 0];
+  for (let m; (m = exp.match(new RegExp(`^ {0,${bq ? 3 : maxFirstInd}}> ?`))); bq += 1) exp = exp.slice(m[0].length);
+  return { bq, exp, prefix: bq ? `${" ".repeat(rawExp.match(/^ */)[0].length)}${"> ".repeat(bq)}` : "" };
+}
+function scanListMarkers(exp, baseStack) {
+  let [ind, stack, empty, count, orderedFirst] = [exp.match(/^ */)[0].length, [...baseStack], false, 0, false];
+  let [rest, base] = [exp.slice(ind), stack.at(-1) ?? 0];
+  for (let lm; ind <= base + 3 && !THEMATIC_RE.test(rest) && (lm = rest.match(/^([-*+]|\d{1,9}[.)])(?:( +)(.*)|())$/));) {
+    while (stack.length && ind < stack[stack.length - 1]) stack.pop();
+    if (!count++) orderedFirst = /\d/.test(lm[1][0]);
+    const [sp, body] = [lm[2] ?? "", lm[3] ?? ""];
+    if (!body.trim()) { stack.push(ind + lm[1].length + 1); ind += lm[1].length + sp.length; rest = ""; empty = true; break; }
+    const col = ind + lm[1].length + (sp.length >= 5 ? 1 : sp.length);
+    stack.push(col); ind += lm[1].length + sp.length; rest = body; base = col;
+    if (sp.length >= 5) break;
+  }
+  return { count, orderedFirst, empty, stack, contentInd: ind, rest, base, markerPrefix: exp.slice(0, ind).trimEnd() };
+}
 function stripCommentsAndCodeBlocks(markdown) {
   const [out, listStack] = [[], []];
-  let [cur, fence, fenceMin, fenceMax, inComment, prevBlank, inIndented] = ["", null, 0, 3, false, true, false];
+  let [cur, fence, fenceBq, fenceFirstMax, fenceMin, fenceMax, inComment, prevBlank, inIndented, bqDepth, bqPrevBlank, bqInIndented] = ["", null, 0, 3, 0, 3, false, true, false, 0, true, false];
+  const setRun = (bq, blank, indented) => { if (bq) { bqPrevBlank = blank; bqInIndented = indented; } else { prevBlank = blank; inIndented = indented; } };
   for (const line of String(markdown ?? "").split(/\r?\n/)) {
     if (!inComment) {
       if (fence) {
-        if (/^\s*$/.test(line)) continue;
-        const fInd = expandLeadTabs(line).match(/^ */)[0].length;
-        const closed = nextFenceState(fence, line, fenceMax) === null;
-        if (closed) {
-          fence = null;
-          while (listStack.length && fInd < listStack[listStack.length - 1]) listStack.pop();
-          prevBlank = true; inIndented = false; continue;
-        }
-        if (fInd >= fenceMin) continue;
+        let [fExp, qOk] = [expandTabs(line), true];
+        for (let q = 0, m; q < fenceBq; q += 1) if ((m = fExp.match(new RegExp(`^ {0,${q ? 3 : fenceFirstMax}}> ?`)))) fExp = fExp.slice(m[0].length); else { qOk = false; break; }
+        const fInd = fExp.match(/^ */)[0].length;
+        if (qOk && /^\s*$/.test(fExp)) continue;
+        if (qOk && fInd >= fenceMin) { if (nextFenceState(fence, fExp, fenceMax) === null) { fence = null; setRun(0, true, false); setRun(1, true, false); } continue; }
         fence = null;
+        if (!fenceBq) while (listStack.length && fInd < listStack[listStack.length - 1]) listStack.pop();
+        setRun(0, true, false); setRun(1, true, false);
       }
-      if (/^\s*$/.test(line)) { prevBlank = true; inIndented = false; out.push(""); continue; }
-      const exp = expandLeadTabs(line), ind = exp.match(/^ */)[0].length, rest = exp.slice(ind);
-      if (ind <= 3 && /^#{1,6}(?:\s|$)/.test(rest)) listStack.length = 0;
-      else {
-        const opensTopOrParentFence = listStack.length > 0 && ind < listStack[listStack.length - 1] && Boolean(nextFenceState(null, line, 3));
-        while (listStack.length && ind < listStack[listStack.length - 1] && (prevBlank || opensTopOrParentFence || /^(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/.test(rest))) listStack.pop();
+      const rawExp = expandTabs(line), rawInd = rawExp.match(/^ */)[0].length, rawRest = rawExp.slice(rawInd);
+      if (!rawRest) { setRun(0, true, false); bqDepth = 0; out.push(""); continue; }
+      if (rawInd <= 3 && (/^#{1,6}(?: +|$)/.test(rawRest) || THEMATIC_RE.test(rawRest))) listStack.length = 0;
+      else while (listStack.length && rawInd < listStack[listStack.length - 1] && (prevBlank || rawRest.startsWith(">") || THEMATIC_RE.test(rawRest) || /^#{1,6}(?: +|$)/.test(rawRest) || /^(?:[-*+]|\d{1,9}[.)])(?: +|$)/.test(rawRest) || nextFenceState(null, rawExp, (listStack.at(-2) ?? 0) + 3))) listStack.pop();
+      const baseInd = listStack.at(-1) ?? 0, { bq, exp, prefix } = peelBq(rawExp, baseInd + 3);
+      if (bq && bq !== bqDepth) { bqDepth = bq; setRun(1, true, false); } else if (!bq) bqDepth = 0;
+      if (bq && /^\s*$/.test(exp)) { setRun(1, true, false); out.push(prefix.trimEnd()); continue; }
+      const [effBase, effBlank, effInd] = bq ? [0, bqPrevBlank || bqInIndented, exp.match(/^ */)[0].length] : [baseInd, prevBlank || inIndented, rawInd];
+      const nf = nextFenceState(null, exp, effBase + 3);
+      if (nf) { [fence, fenceBq, fenceFirstMax, fenceMin, fenceMax] = [nf, bq, bq ? baseInd + 3 : 3, effBase, effBase + 3]; setRun(bq, false, false); continue; }
+      if (effBlank && effInd >= effBase + 4) { setRun(bq, false, true); continue; }
+      const scan = scanListMarkers(exp, bq ? [] : listStack);
+      const lnf = scan.count && scan.rest ? nextFenceState(null, `${" ".repeat(scan.contentInd)}${scan.rest}`, scan.base + 3) : null;
+      if (lnf || (scan.count && scan.contentInd >= scan.base + 4)) {
+        if (!bq) listStack.splice(0, listStack.length, ...scan.stack);
+        if (lnf) [fence, fenceBq, fenceFirstMax, fenceMin, fenceMax] = [lnf, bq, bq ? baseInd + 3 : 3, scan.base, scan.base + 3];
+        setRun(bq, false, !lnf); out.push(`${prefix}${scan.markerPrefix}`); continue;
       }
-      const baseInd = listStack.length ? listStack[listStack.length - 1] : 0;
-      const nf = nextFenceState(null, line, baseInd + 3);
-      if (nf) { fence = nf; fenceMin = baseInd; fenceMax = baseInd + 3; prevBlank = false; inIndented = false; continue; }
-      if ((prevBlank || inIndented) && ind >= baseInd + 4) { inIndented = true; prevBlank = false; continue; }
-      let [mInd, mRest, mBase, nextCols] = [ind, rest, baseInd, [...listStack]];
-      while (mInd <= mBase + 3) {
-        const lm = mRest.match(/^([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/);
-        if (!lm) break;
-        while (nextCols.length && mInd < nextCols[nextCols.length - 1]) nextCols.pop();
-        if (lm[2].length >= 5) {
-          const col = mInd + lm[1].length + 1;
-          nextCols.push(col); mInd = col + lm[2].length - 1; mRest = lm[3]; mBase = col; break;
-        }
-        const col = mInd + lm[1].length + lm[2].length;
-        nextCols.push(col); mInd = col; mRest = lm[3]; mBase = col;
-      }
-      if (nextCols.length !== listStack.length || nextCols.some((v, idx) => v !== listStack[idx])) {
-        const lnf = nextFenceState(null, `${" ".repeat(mInd)}${mRest}`, mBase + 3);
-        if (lnf) {
-          listStack.splice(0, listStack.length, ...nextCols);
-          fence = lnf; fenceMin = mBase; fenceMax = mBase + 3; prevBlank = false; inIndented = false; continue;
-        }
-        if (mInd >= mBase + 4) {
-          listStack.splice(0, listStack.length, ...nextCols);
-          inIndented = true; prevBlank = false; continue;
-        }
-      }
+      if (bq) setRun(1, false, false);
     }
-    let i = 0;
-    while (i < line.length) {
-      if (inComment) {
-        const end = line.indexOf("-->", i);
-        if (end === -1) break;
-        inComment = false; i = end + 3;
-      } else if (line[i] === "`") {
-        let run = 1;
+    for (let i = 0; i < line.length;) {
+      if (inComment) { const end = line.indexOf("-->", i); if (end === -1) break; inComment = false; i = end + 3; }
+      else if (line[i] === "`") {
+        let [run, j, closeEnd] = [1, 0, -1];
         while (line[i + run] === "`") run += 1;
-        let [j, closeEnd] = [i + run, -1];
-        while (j < line.length) {
-          if (line[j] !== "`") { j += 1; continue; }
-          let k = 1;
-          while (line[j + k] === "`") k += 1;
-          if (k === run) { closeEnd = j + k; break; }
-          j += k;
-        }
-        const stop = closeEnd !== -1 ? closeEnd : i + run;
-        cur += line.slice(i, stop); i = stop;
-      } else if (line.startsWith("<!--", i)) {
-        inComment = true; i += 4;
-      } else { cur += line[i]; i += 1; }
+        for (j = i + run; j < line.length;) { if (line[j] !== "`") { j += 1; continue; } let k = 1; while (line[j + k] === "`") k += 1; if (k === run) { closeEnd = j + k; break; } j += k; }
+        const stop = closeEnd !== -1 ? closeEnd : i + run; cur += line.slice(i, stop); i = stop;
+      } else if (line.startsWith("<!--", i)) { inComment = true; i += 4; } else { cur += line[i]; i += 1; }
     }
     if (!inComment) {
-      const cExp = expandLeadTabs(cur), cInd = cExp.match(/^ */)[0].length, cRest = cExp.slice(cInd);
-      if (cInd <= 3 && /^#{1,6}(?:\s|$)/.test(cRest)) { listStack.length = 0; prevBlank = true; }
-      else if (/^\s*$/.test(cur)) prevBlank = true;
-      else {
-        const baseInd = listStack.length ? listStack[listStack.length - 1] : 0;
-        const lm = cInd <= baseInd + 3 ? cRest.match(/^([-*+]|\d{1,9}[.)])(?:([ \t]+)|$)/) : null;
-        if (lm) {
-          while (listStack.length && cInd < listStack[listStack.length - 1]) listStack.pop();
-          listStack.push(cInd + lm[1].length + Math.min((lm[2] ?? " ").length, 4));
-        }
-        prevBlank = false;
-      }
-      inIndented = false;
-      out.push(cur);
-      cur = "";
+      const cExp = expandTabs(cur), cInd = cExp.match(/^ */)[0].length, cRest = cExp.slice(cInd);
+      if (cInd <= 3 && (/^#{1,6}(?: +|$)/.test(cRest) || THEMATIC_RE.test(cRest))) { listStack.length = 0; prevBlank = true; }
+      else if (!cRest) prevBlank = true;
+      else if (!peelBq(cExp, (listStack.at(-1) ?? 0) + 3).bq) { const cScan = scanListMarkers(cExp, listStack); if (cScan.count) { listStack.splice(0, listStack.length, ...cScan.stack); prevBlank = cScan.empty; } else prevBlank = false; }
+      else prevBlank = false;
+      inIndented = false; out.push(cur); cur = "";
     }
   }
   if (cur) out.push(cur);
@@ -229,43 +214,53 @@ function stripCommentsAndCodeBlocks(markdown) {
 }
 function collectTopLevelBullets(sectionText) {
   const bullets = [];
-  let [topCol, inSubList, prevBlank] = [0, false, true];
+  let [topCol, topOrdered, subCol, inBlock, prevBlank] = [0, false, 0, false, true];
   for (const raw of sectionText.split(/\r?\n/)) {
-    const exp = expandLeadTabs(raw);
-    if (/^\s*$/.test(exp)) { prevBlank = true; continue; }
-    const ind = exp.match(/^ */)[0].length, rest = exp.slice(ind);
-    if (prevBlank && ind < topCol) { topCol = 0; inSubList = false; }
-    const canStartTop = topCol === 0 ? ind <= 3 : ind < topCol;
-    const bm = canStartTop ? rest.match(/^([-*+])(?:([ \t]+)(.*)|())$/) : null;
-    const om = canStartTop && !bm ? rest.match(/^(\d{1,9}[.)])(?:([ \t]+)(.*)|())$/) : null;
-    if (bm) {
-      topCol = ind + bm[1].length + Math.min((bm[2] ?? " ").length, 4);
-      const first = (bm[3] ?? "").trim();
-      inSubList = false; prevBlank = false;
-      bullets.push({ firstLine: first, lines: first ? [first] : [] });
-    } else if (om) {
-      topCol = ind + om[1].length + Math.min((om[2] ?? " ").length, 4);
-      inSubList = true; prevBlank = false;
-    } else if (topCol > 0 && ind >= topCol) {
-      if (/^(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/.test(rest)) inSubList = true;
-      else if (!inSubList && rest.trim()) bullets[bullets.length - 1].lines.push(rest.trim());
-      prevBlank = false;
-    } else {
-      if (!prevBlank && topCol > 0 && !inSubList && rest.trim()) bullets[bullets.length - 1].lines.push(rest.trim());
-      else { topCol = 0; inSubList = false; }
-      prevBlank = false;
+    const exp = expandTabs(raw), ind = exp.match(/^ */)[0].length, rest = exp.slice(ind);
+    if (!rest) { prevBlank = true; continue; }
+    if (prevBlank) {
+      inBlock = false;
+      if (ind < topCol) { topCol = 0; subCol = 0; } else if (subCol && ind < subCol) subCol = 0;
     }
+    if (topCol === 0 ? ind <= 3 : ind < topCol) {
+      const scan = scanListMarkers(exp, []);
+      if (scan.count) {
+        [topCol, topOrdered, subCol, inBlock, prevBlank] = [scan.stack[0], scan.orderedFirst, scan.count > 1 ? scan.stack[1] : 0, false, scan.empty];
+        if (!topOrdered) { const first = scan.count === 1 ? scan.rest.trim() : ""; bullets.push({ firstLine: first, lines: first ? [first] : [] }); }
+        continue;
+      }
+      if (!prevBlank && topCol && !topOrdered && !subCol && !inBlock && !/^>|^#{1,6}(?: +|$)/.test(rest) && !THEMATIC_RE.test(rest)) bullets[bullets.length - 1].lines.push(rest.trim());
+      else { topCol = 0; subCol = 0; inBlock = false; }
+      prevBlank = false; continue;
+    }
+    const sub = scanListMarkers(exp, subCol ? [topCol, subCol] : [topCol]);
+    if (sub.count) { subCol = sub.stack[1]; inBlock = false; prevBlank = sub.empty; continue; }
+    if (/^>|^#{1,6}(?: +|$)/.test(rest) || THEMATIC_RE.test(rest)) { inBlock = rest.startsWith(">"); prevBlank = false; continue; }
+    if (!topOrdered && !subCol && !inBlock) bullets[bullets.length - 1].lines.push(rest.trim());
+    prevBlank = false;
   }
   return bullets.map((b) => ({ firstLine: b.firstLine, text: b.lines.join(" ").trim() }));
 }
 function extractHeadingSection(markdown, headingName) {
-  const headingRe = new RegExp(`^ {0,3}#{2,3}\\s+${headingName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s+\\(optional\\))?[ \\t]*$`, "i");
+  const headingRe = new RegExp(`^ {0,3}#{2,3}[ \\t]+${headingName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[ \\t]+\\(optional\\))?[ \\t]*#*[ \\t]*$`, "i");
   const out = [];
-  let inSection = false;
+  let [inSection, listCol, prevBlank, paraStart] = [false, 0, true, -1];
   for (const line of stripCommentsAndCodeBlocks(markdown).split(/\r?\n/)) {
-    if (!inSection && headingRe.test(line)) { inSection = true; continue; }
-    if (inSection && /^ {0,3}#{1,3}\s+/.test(line)) break;
-    if (inSection) out.push(line);
+    const exp = expandTabs(line), ind = exp.match(/^ */)[0].length, rest = exp.slice(ind);
+    if (!inSection) { if (headingRe.test(exp)) inSection = true; continue; }
+    if (ind <= 3 && /^#{1,3}(?: +|$)/.test(rest)) break;
+    if (paraStart >= 0 && ind <= 3 && /^(?:=+|-+) *$/.test(rest)) { out.length = paraStart; break; }
+    if (!rest) { prevBlank = true; paraStart = -1; out.push(line); continue; }
+    if (prevBlank && ind < listCol) listCol = 0;
+    const scan = (listCol === 0 ? ind <= 3 : ind < listCol) ? scanListMarkers(exp, []) : null;
+    if (scan?.count) { listCol = scan.stack[0]; paraStart = -1; prevBlank = scan.empty; }
+    else if (listCol > 0 && ind >= listCol) { paraStart = -1; prevBlank = false; }
+    else if (ind <= 3 && !/^>|^#{1,6}(?: +|$)/.test(rest) && !THEMATIC_RE.test(rest)) {
+      if (listCol > 0 && !prevBlank) paraStart = -1;
+      else { listCol = 0; if (paraStart < 0) paraStart = out.length; }
+      prevBlank = false;
+    } else { listCol = 0; paraStart = -1; prevBlank = false; }
+    out.push(line);
   }
   return out.join("\n");
 }
@@ -508,13 +503,7 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
   const allRiskyConcepts = [...new Set([...riskyConcepts, ...baseProfiles.flatMap((p) => p.riskyConcepts)])];
   const [headPatSet, headConSet] = [new Set(riskyPatterns), new Set(riskyConcepts)];
   const removedRisky = [...new Set([...mergeBaseProfile.riskyPatterns.filter((x) => !headPatSet.has(x)), ...mergeBaseProfile.riskyConcepts.filter((x) => !headConSet.has(x))])];
-  const [effectiveBudget, budgetSource] = (budget || normBudgetMode === "on")
-    ? [true, "cli"]
-    : normBudgetMode === "off"
-      ? [false, "cli-off"]
-      : (headBudgetEnabled && baseBudgetEnabled)
-        ? [true, "agents-profile"]
-        : [false, "off"];
+  const [effectiveBudget, budgetSource] = (budget || normBudgetMode === "on") ? [true, "cli"] : normBudgetMode === "off" ? [false, "cli-off"] : (headBudgetEnabled && baseBudgetEnabled) ? [true, "agents-profile"] : [false, "off"];
   const lowerCtx = diffContextText.toLowerCase();
   const matchedRiskyAreas = [...new Set([...allRiskyPatterns.filter((pat) => changedFiles.some((f) => globToRegExp(pat).test(f.replaceAll("\\", "/")))), ...allRiskyConcepts.filter((phrase) => changedFiles.some((f) => !isTestOrGeneratedFile(f)) && lowerCtx.includes(phrase)), ...removedRisky])];
   const touchesRiskyArea = matchedRiskyAreas.length > 0;
@@ -527,16 +516,8 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
     return isHarmlessMarkdownChange(rel, baseText, headText);
   }));
   const triggeredDomains = harmless ? [] : detectDomains(changedFiles, diffHunkText);
-  const shouldEscalatePanel = followUp
-    ? (touchesRiskyArea || prodLinesChanged > MAX_FOLLOW_UP_SINGLE_PROD_LINES)
-    : effectiveBudget
-      ? (touchesRiskyArea || prodLinesChanged > MAX_BUDGET_SINGLE_PROD_LINES)
-      : (prodLinesChanged > 120 || touchesRiskyArea || triggeredDomains.length >= 2);
-  const [mode, roles, synthesisJudge, judgeRole] = harmless
-    ? ["exempt", [], false, null]
-    : shouldEscalatePanel
-      ? ["panel", ["arch-correctness", ...(triggeredDomains.length > 0 ? triggeredDomains : ["security-privacy"])], true, "skeptic-judge"]
-      : ["single", ["single-reviewer"], false, null];
+  const shouldEscalatePanel = followUp ? (touchesRiskyArea || prodLinesChanged > MAX_FOLLOW_UP_SINGLE_PROD_LINES) : effectiveBudget ? (touchesRiskyArea || prodLinesChanged > MAX_BUDGET_SINGLE_PROD_LINES) : (prodLinesChanged > 120 || touchesRiskyArea || triggeredDomains.length >= 2);
+  const [mode, roles, synthesisJudge, judgeRole] = harmless ? ["exempt", [], false, null] : shouldEscalatePanel ? ["panel", ["arch-correctness", ...(triggeredDomains.length > 0 ? triggeredDomains : ["security-privacy"])], true, "skeptic-judge"] : ["single", ["single-reviewer"], false, null];
   const result = { repoRoot: realRepoRoot, base, baseSha, mergeBaseSha, headRef: head, head: resolvedHead, mode, followUp, budgetMode: effectiveBudget, budgetSource, prodLinesChanged, totalLinesChanged, touchesRiskyArea, matchedRiskyAreas, triggeredDomains, roles, synthesisJudge, judgeRole, changedFiles, checklistLoaded, outDir: resolvedOutDir, packets: [] };
   if (resolvedOutDir) {
     const writeOut = prepareSafeOutDir(resolvedOutDir, realRepoRoot);
