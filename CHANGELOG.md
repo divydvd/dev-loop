@@ -2,6 +2,19 @@
 
 Each entry says what changed, why (the evidence), and how the next weekly review checks that the change helped.
 
+## 0.5.24 (2026-11-27)
+- **Add opt-in Budget mode (`budget mode` / `standard mode` and `AGENTS.md` `### Budget mode`) for lower-credit execution.**
+  - **What:** Add `skills/dev-loop/references/budget-mode.md`, wire `Core Rule 4` in `com.github.copilot/rules/core.mdc` and `dev-loop-context.md`, and connect `skills/dev-loop/SKILL.md`, `references/review-panel.md`, `references/testing.md`, `assets/project-profile.md`, and `assets/pr-body.md`.
+    Extend `skills/dev-loop/scripts/prepare-review-panel.mjs` with `--budget` and `--budget-mode <auto|on|off>` so non-risky diffs up to `<= 400` production lines route to `single` (`single-reviewer-packet.md`) when Budget mode is active, while any risky-area match or `> 400`-line diff keeps full `panel` + `skeptic-judge`.
+    Require `Enabled: yes` in both `HEAD` and `--base` `AGENTS.md` before `auto` activates `agents-profile` mode, so an unmerged branch edit cannot downgrade its own Step-5 review.
+    Define `1x` subagent model selection, inline Acceptance Record + Test Matrix planning up to `<= 4` non-risky tasks (`<= 250` lines), and slice-batched TDD (`1` RED + `1` GREEN run per cohesive task slice) while keeping all owner approvals, risky-area gates, and Step-6 verification unchanged.
+    Add `scripts/budget-mode.test.mjs`, expand `scripts/prepare-review-panel.test.mjs`, wire CI in `.github/workflows/check.yml`, and document `## Budget mode` and `## Rule/check map` in `README.md`.
+  - **Why:** Standard dev-loop runs spend extra credits on multi-specialist Step-5 panels (`3–5` subagents), per-assertion test runs, and full `writing-plans` overhead even on routine `81–400`-line non-risky work.
+    Pre-change `writing-skills` baseline probes (`T-BM1`–`T-BM3`) showed that without explicit rules, agents either ignore `"budget mode"` (`3–5` review subagents on routine work) or over-comply and rationalize skipping risky-area `panel` + `skeptic-judge` review on a `20`-line `core.mdc` change.
+    Independent `Core Rule 7` reviews of the core/reference and skill/template tasks caught a branch-only `AGENTS.md` self-downgrade mismatch, an `off (task-switch)` reporting gap, and small-route risky-gate wording; deterministic tests reproduce and lock down each check while keeping `core.mdc` at `44` lines (`AGENTS.md + core.mdc = 7,799 <= 15,000` bytes) and `project-profile.md` at `5,251 <= 5,500` bytes.
+  - **Check:** Run `node scripts/check.mjs`, `node --test scripts/prepare-review-panel.test.mjs scripts/budget-mode.test.mjs scripts/testing-contract.test.mjs scripts/independent-review.test.mjs scripts/portability-contract.test.mjs scripts/release.test.mjs`, all `.github/workflows/check.yml` suites, isolated Copilot CLI discovery, and `writing-skills` consuming-agent checks `T-BM1`–`T-BM3`.
+    During weekly `infra-review`, compare `Budget mode` PR records (`off` vs `on`) in `collect-metrics.mjs` cost and review-escape counts to verify lower credit spend without any drop below the `90%` quality floor.
+
 ## 0.5.23 (2026-11-21)
 - **Separate PR-relative session timing from lifetime totals.**
   - **What:** Add clipped before-PR, PR-open, and after-merge timing for unique sessions.

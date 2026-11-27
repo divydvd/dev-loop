@@ -189,3 +189,25 @@ test("project-profile.md stays <= 5500 bytes with ### Budget mode (optional) and
   assert.match(indReview, /single\s*\(<agent>\)/);
   assert.match(indReview, /panel\s*\(<roles>\s*->\s*skeptic-judge\)/);
 });
+
+test("README.md documents ## Budget mode with T-BM1..T-BM6, maps Budget mode in ## Rule/check map, and check.yml runs budget-mode.test.mjs", () => {
+  const readme = read("README.md");
+  const workflow = read(".github/workflows/check.yml");
+
+  const absenceIdx = readme.indexOf("\n## Absence mode\n");
+  const budgetIdx = readme.indexOf("\n## Budget mode\n");
+  const designIdx = readme.indexOf("\n## Optional design review\n");
+  assert.ok(absenceIdx !== -1 && budgetIdx !== -1 && designIdx !== -1, "README.md must place ## Budget mode between ## Absence mode and ## Optional design review");
+  assert.ok(absenceIdx < budgetIdx && budgetIdx < designIdx, "## Budget mode must appear after ## Absence mode and before ## Optional design review");
+
+  const budgetReadme = readme.slice(budgetIdx, designIdx);
+  for (const marker of ["### Abstract", "### Application checks", "### Conclusion", "T-BM1", "T-BM2", "T-BM3", "T-BM4", "T-BM5", "T-BM6"]) {
+    assert.ok(budgetReadme.includes(marker), `README.md ## Budget mode missing: ${marker}`);
+  }
+
+  const ruleMap = readme.split("## Rule/check map")[1]?.split("### Failure-feedback application checks")[0] ?? "";
+  assert.match(ruleMap, /skills\/dev-loop\/references\/budget-mode\.md/);
+  assert.match(ruleMap, /scripts\/budget-mode\.test\.mjs/);
+
+  assert.match(workflow, /node --test scripts\/budget-mode\.test\.mjs/);
+});
