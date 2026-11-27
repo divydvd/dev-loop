@@ -1262,3 +1262,238 @@ test("22. M2/M3 integration: AGENTS.md 'Checklist path' honors 'inline only', cu
   );
 });
 
+test("23. budget mode: 250-line multi-domain non-risky diff routes to single-reviewer with all domain rules and cleans stale panel packets", (t) => {
+  const { repoDir, outRoot, baseSha } = makeFixtureRepo(t, {
+    "docs/testing/review-checklist.md": [
+      "# Project Review Checklist",
+      "",
+      "## Active rules",
+      "| Rule ID | Domain | Trigger paths or tokens | Check (observable defect to verify) | Source PRs |",
+      "| --- | --- | --- | --- | --- |",
+      "| R-SEC-BM | security-privacy | `src/auth/**`, `authToken` | Never persist raw bearer tokens in logs. | #31 |",
+      "| R-CONC-BM | concurrency-state | `src/queue/**`, `Mutex` | Release queue mutex in finally block. | #32 |",
+      "",
+      "## Retired rules",
+      "| Rule ID | Domain | Trigger paths or tokens | Check | Status |",
+      "| --- | --- | --- | --- | --- |",
+      "| R-RET-BM | security-privacy | `src/auth/**` | Legacy auth rule. | retired |",
+      "",
+    ].join("\n"),
+  });
+
+  writeAndCommit(repoDir, {
+    "src/auth/token.ts": [
+      "export function verifySession(authToken: string): boolean {",
+      ...Array.from({ length: 123 }, (_, i) => `  const step${i} = authToken.length + ${i};`),
+      "  return step0 > 0;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/queue/pool.ts": [
+      "export async function runWithMutex(lock: Mutex): Promise<number> {",
+      ...Array.from({ length: 123 }, (_, i) => `  const slot${i} = await Promise.resolve(${i});`),
+      "  return slot0;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const sharedOut = join(outRoot, "rerun-packets");
+  const stdRes = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--out-dir", sharedOut, "--json"]);
+  assert.equal(stdRes.status, 0, stdRes.stderr);
+  const stdJson = JSON.parse(stdRes.stdout);
+  assert.equal(stdJson.mode, "panel");
+  assert.equal(stdJson.budgetMode, false);
+  assert.equal(stdJson.budgetSource, "off");
+  assert.ok(stdJson.prodLinesChanged >= 250);
+  assert.equal(existsSync(join(sharedOut, "arch-correctness-packet.md")), true);
+  assert.equal(existsSync(join(sharedOut, "skeptic-judge-packet.md")), true);
+
+  const budgetRes = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--out-dir", sharedOut, "--budget", "--json"]);
+  assert.equal(budgetRes.status, 0, budgetRes.stderr);
+  const budgetJson = JSON.parse(budgetRes.stdout);
+  assert.equal(budgetJson.mode, "single");
+  assert.deepEqual(budgetJson.roles, ["single-reviewer"]);
+  assert.equal(budgetJson.synthesisJudge, false);
+  assert.equal(budgetJson.judgeRole, null);
+  assert.equal(budgetJson.budgetMode, true);
+  assert.equal(budgetJson.budgetSource, "cli");
+
+  assert.equal(existsSync(join(sharedOut, "arch-correctness-packet.md")), false);
+  assert.equal(existsSync(join(sharedOut, "security-privacy-packet.md")), false);
+  assert.equal(existsSync(join(sharedOut, "concurrency-state-packet.md")), false);
+  assert.equal(existsSync(join(sharedOut, "skeptic-judge-packet.md")), false);
+
+  const singlePacket = readFileSync(join(sharedOut, "single-reviewer-packet.md"), "utf8");
+  assert.ok(singlePacket.includes("- **Budget mode:** `true` (`cli`)"), singlePacket);
+  assert.ok(singlePacket.includes("R-SEC-BM"), singlePacket);
+  assert.ok(singlePacket.includes("R-CONC-BM"), singlePacket);
+  assert.equal(singlePacket.includes("R-RET-BM"), false);
+});
+
+test("24. budget mode: risky-area 30-line diff and >400-line non-risky diff still escalate to panel + skeptic-judge", (t) => {
+  const { repoDir, outRoot, baseSha } = makeFixtureRepo(t);
+
+  // 1) 30-line risky-area edit with --budget-mode on -> panel + skeptic-judge
+  const riskyHead = writeAndCommit(repoDir, {
+    "src/billing/ledger.ts": [
+      "export function postEntry(amount: number): number {",
+      ...Array.from({ length: 28 }, (_, i) => `  const adj${i} = amount + ${i};`),
+      "  return adj0;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const riskyOut = join(outRoot, "risky-budget");
+  const riskyRes = runRouterCli([
+    "--repo-root",
+    repoDir,
+    "--base",
+    baseSha,
+    "--head",
+    riskyHead,
+    "--out-dir",
+    riskyOut,
+    "--budget-mode",
+    "on",
+    "--json",
+  ]);
+  assert.equal(riskyRes.status, 0, riskyRes.stderr);
+  const riskyJson = JSON.parse(riskyRes.stdout);
+  assert.equal(riskyJson.touchesRiskyArea, true);
+  assert.equal(riskyJson.mode, "panel");
+  assert.equal(riskyJson.synthesisJudge, true);
+  assert.equal(riskyJson.judgeRole, "skeptic-judge");
+  assert.equal(riskyJson.budgetMode, true);
+  assert.equal(riskyJson.budgetSource, "cli");
+  assert.ok(readFileSync(join(riskyOut, "arch-correctness-packet.md"), "utf8").includes("- **Budget mode:** `true` (`cli`)"));
+  assert.ok(readFileSync(join(riskyOut, "skeptic-judge-packet.md"), "utf8").includes("- **Budget mode:** `true` (`cli`)"));
+
+  // 2a) Boundary 400-line non-risky edit with --budget-mode on -> single
+  const cap400Head = writeAndCommit(repoDir, {
+    "src/feature/within-cap.ts": `${Array.from({ length: 400 }, (_, i) => `export const c${i} = ${i};`).join("\n")}\n`,
+  });
+  const cap400Json = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", riskyHead, "--head", cap400Head, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(cap400Json.prodLinesChanged, 400);
+  assert.equal(cap400Json.mode, "single");
+  assert.deepEqual(cap400Json.roles, ["single-reviewer"]);
+
+  // 2b) 405-line non-risky edit with --budget-mode on -> panel + skeptic-judge
+  const over400Head = writeAndCommit(repoDir, {
+    "src/feature/over-cap.ts": `${Array.from({ length: 405 }, (_, i) => `export const o${i} = ${i};`).join("\n")}\n`,
+  });
+  const over400Json = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", cap400Head, "--head", over400Head, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(over400Json.prodLinesChanged, 405);
+  assert.equal(over400Json.mode, "panel");
+  assert.equal(over400Json.synthesisJudge, true);
+  assert.equal(over400Json.judgeRole, "skeptic-judge");
+
+  // 3) Harmless README typo with --budget-mode on -> exempt
+  const currentReadme = readFileSync(join(repoDir, "README.md"), "utf8");
+  const typoHead = writeAndCommit(repoDir, {
+    "README.md": currentReadme.replace("explains teh setup", "explains the setup"),
+  });
+  const typoJson = JSON.parse(
+    runRouterCli(["--repo-root", repoDir, "--base", over400Head, "--head", typoHead, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(typoJson.mode, "exempt");
+  assert.deepEqual(typoJson.roles, []);
+  assert.equal(typoJson.budgetMode, true);
+  assert.equal(typoJson.budgetSource, "cli");
+});
+
+test("25. budget mode: AGENTS.md ### Budget mode (optional) precedence, comment/placeholder parsing, and unmerged self-downgrade guard", async (t) => {
+  const mod = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+  assert.equal(mod.MAX_BUDGET_SINGLE_PROD_LINES, 400);
+  assert.equal(mod.parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** yes <!-- active -->\n").budgetEnabled, true);
+  assert.equal(mod.parseAgentsProfile("### Budget mode\n- **Enabled:** `YES`\n").budgetEnabled, true);
+  assert.equal(mod.parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** <yes or no>\n").budgetEnabled, false);
+  assert.equal(mod.parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** no\n").budgetEnabled, false);
+  assert.equal(mod.parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** invalid\n").budgetEnabled, false);
+
+  const twoDomainFiles = {
+    "src/auth/token.ts": `export function checkAuth(authToken: string) {\n${Array.from({ length: 98 }, (_, i) => `  const a${i} = authToken;`).join("\n")}\n  return a0;\n}\n`,
+    "src/queue/pool.ts": `export async function drain(lock: Mutex) {\n${Array.from({ length: 98 }, (_, i) => `  const q${i} = await Promise.resolve(${i});`).join("\n")}\n  return q0;\n}\n`,
+  };
+
+  // 1) Base AGENTS.md has Budget mode Enabled: yes -> auto activates agents-profile; --budget-mode off overrides to cli-off
+  const enabledRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** yes <!-- enabled on main -->\n",
+  });
+  writeAndCommit(enabledRepo.repoDir, twoDomainFiles);
+
+  const autoOnJson = JSON.parse(
+    runRouterCli(["--repo-root", enabledRepo.repoDir, "--base", enabledRepo.baseSha, "--json"]).stdout
+  );
+  assert.equal(autoOnJson.budgetMode, true);
+  assert.equal(autoOnJson.budgetSource, "agents-profile");
+  assert.equal(autoOnJson.mode, "single");
+
+  const cliOffJson = JSON.parse(
+    runRouterCli(["--repo-root", enabledRepo.repoDir, "--base", enabledRepo.baseSha, "--budget-mode", "off", "--json"]).stdout
+  );
+  assert.equal(cliOffJson.budgetMode, false);
+  assert.equal(cliOffJson.budgetSource, "cli-off");
+  assert.equal(cliOffJson.mode, "panel");
+
+  // 2) Base AGENTS.md has placeholder/no/invalid -> auto keeps budgetMode false
+  for (const val of ["<yes or no>", "no", "invalid"]) {
+    const offRepo = makeFixtureRepo(t, {
+      "AGENTS.md": `# Project\n\n### Budget mode (optional)\n- **Enabled:** ${val}\n`,
+    });
+    writeAndCommit(offRepo.repoDir, twoDomainFiles);
+    const offJson = JSON.parse(
+      runRouterCli(["--repo-root", offRepo.repoDir, "--base", offRepo.baseSha, "--budget-mode", "auto", "--json"]).stdout
+    );
+    assert.equal(offJson.budgetMode, false, `expected false for ${val}`);
+    assert.equal(offJson.budgetSource, "off", `expected off for ${val}`);
+    assert.equal(offJson.mode, "panel");
+  }
+
+  // 3) Unmerged self-downgrade guard: base AGENTS.md has Enabled: no, branch edits AGENTS.md to Enabled: yes + 200-line 2-domain diff
+  const selfDowngradeRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Budget mode (optional)\n- **Enabled:** no\n",
+  });
+  writeAndCommit(selfDowngradeRepo.repoDir, {
+    "AGENTS.md": "# Project\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+    ...twoDomainFiles,
+  });
+  const guardedAutoJson = JSON.parse(
+    runRouterCli(["--repo-root", selfDowngradeRepo.repoDir, "--base", selfDowngradeRepo.baseSha, "--json"]).stdout
+  );
+  assert.equal(guardedAutoJson.budgetMode, false);
+  assert.equal(guardedAutoJson.budgetSource, "off");
+  assert.equal(guardedAutoJson.mode, "panel");
+
+  const explicitCliJson = JSON.parse(
+    runRouterCli(["--repo-root", selfDowngradeRepo.repoDir, "--base", selfDowngradeRepo.baseSha, "--budget", "--json"]).stdout
+  );
+  assert.equal(explicitCliJson.budgetMode, true);
+  assert.equal(explicitCliJson.budgetSource, "cli");
+  assert.equal(explicitCliJson.mode, "single");
+});
+
+test("26. budget mode: invalid --budget-mode or conflicting --budget + --budget-mode off exits with code 2", async (t) => {
+  const { repoDir, baseSha } = makeFixtureRepo(t);
+  writeAndCommit(repoDir, { "src/index.ts": "export const v = 1;\n" });
+
+  const invalidModeRes = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--budget-mode", "maybe"]);
+  assert.equal(invalidModeRes.status, 2);
+  assert.match(invalidModeRes.stderr, /--budget-mode/);
+
+  const conflictRes = runRouterCli(["--repo-root", repoDir, "--base", baseSha, "--budget", "--budget-mode", "off"]);
+  assert.equal(conflictRes.status, 2);
+  assert.match(conflictRes.stderr, /conflict|--budget/i);
+
+  const { prepareReviewPanel } = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+  assert.throws(
+    () => prepareReviewPanel({ repoRoot: repoDir, base: baseSha, budget: true, budgetMode: "off" }),
+    (err) => err?.exitCode === 2
+  );
+});
+
+
