@@ -324,17 +324,22 @@ export const BENCHMARK_TASKS = [
         "assert.deepEqual(await q.processEvent({ eventId: 'e1', rawBody: '{\"a\":1}', signature: 'sha256=' + 'b'.repeat(64) }), { accepted: false, status: 'invalid_signature', attempts: 0 });",
         "t = 1499; assert.deepEqual(await q.processEvent({ eventId: 'e1', rawBody: '{\"a\":1}', signature: sign('sec', '{\"a\":1}') }), { accepted: true, status: 'duplicate', attempts: 0 }); assert.equal(calls, 1);",
         "t = 1500; assert.deepEqual(await q.processEvent({ eventId: 'e1', rawBody: '{\"a\":1}', signature: sign('sec', '{\"a\":1}') }), { accepted: true, status: 'delivered', attempts: 1 }); assert.equal(calls, 2); t = 2000; assert.equal(q.size(), 0);",
-        // O8: concurrent in-flight coalescing (both success and failure) and forged-sig check before in-flight lookup
+        // O8: concurrent in-flight coalescing (same ID) vs independent delivery (distinct IDs), and forged-sig check before in-flight lookup
         "let release, infCalls = 0; const gate = new Promise((r) => { release = r; }); const q8 = createWebhookQueue({ secret: 'sec', deliver: async () => { infCalls += 1; await gate; } });",
-        "const p1 = q8.processEvent({ eventId: 'c1', rawBody: 'x', signature: sign('sec', 'x') }), p2 = q8.processEvent({ eventId: 'c1', rawBody: 'x', signature: sign('sec', 'x') });",
+        "const p1 = q8.processEvent({ eventId: 'c1', rawBody: 'x', signature: sign('sec', 'x') }), p2 = q8.processEvent({ eventId: 'c1', rawBody: 'x', signature: sign('sec', 'x') }), pDistinct = q8.processEvent({ eventId: 'c2', rawBody: 'x', signature: sign('sec', 'x') });",
         "assert.equal(q8.size(), 0); assert.deepEqual(await q8.processEvent({ eventId: 'c1', rawBody: 'x', signature: 'sha256=' + 'f'.repeat(64) }), { accepted: false, status: 'invalid_signature', attempts: 0 }); release();",
-        "const [cRes1, cRes2] = await Promise.all([p1, p2]); assert.equal(infCalls, 1); assert.deepEqual(cRes1, { accepted: true, status: 'delivered', attempts: 1 }); assert.deepEqual(cRes2, { accepted: true, status: 'delivered', attempts: 1 });",
+        "const [cRes1, cRes2, cResDistinct] = await Promise.all([p1, p2, pDistinct]); assert.equal(infCalls, 2); assert.deepEqual(cRes1, { accepted: true, status: 'delivered', attempts: 1 }); assert.deepEqual(cRes2, { accepted: true, status: 'delivered', attempts: 1 }); assert.deepEqual(cResDistinct, { accepted: true, status: 'delivered', attempts: 1 });",
+        "assert.deepEqual(await q8.processEvent({ eventId: 'c3', rawBody: 'x', signature: sign('sec', 'x') }), { accepted: true, status: 'delivered', attempts: 1 }); assert.equal(infCalls, 3); assert.equal(q8.size(), 3);",
         "let releaseFail, failCalls = 0; const failGate = new Promise((r) => { releaseFail = r; }); const q8f = createWebhookQueue({ secret: 'sec', maxRetries: 0, deliver: async () => { failCalls += 1; await failGate; throw new Error('boom'); } });",
         "const pf1 = q8f.processEvent({ eventId: 'cf1', rawBody: 'x', signature: sign('sec', 'x') }), pf2 = q8f.processEvent({ eventId: 'cf1', rawBody: 'x', signature: sign('sec', 'x') }); releaseFail();",
         "const [cfRes1, cfRes2] = await Promise.all([pf1, pf2]); assert.equal(failCalls, 1); assert.deepEqual(cfRes1, { accepted: false, status: 'delivery_failed', attempts: 1 }); assert.deepEqual(cfRes2, { accepted: false, status: 'delivery_failed', attempts: 1 }); assert.equal(q8f.size(), 0);",
-        // O9-O11: transient retries, non-retryable fast stop, and uncached failure recovery
-        "let r9 = 0; const q9 = createWebhookQueue({ secret: 'sec', maxRetries: 2, deliver: async () => { r9 += 1; if (r9 < 3) throw new Error('temp'); } });",
-        "assert.deepEqual(await q9.processEvent({ eventId: 'r9', rawBody: 'x', signature: sign('sec', 'x') }), { accepted: true, status: 'delivered', attempts: 3 }); assert.equal(q9.size(), 1);",
+        // O9-O11 + default options (ttlMs = 60_000, maxRetries = 2): transient retries, non-retryable fast stop, and uncached failure recovery
+        "let td = 10_000, rd = 0; const qDef = createWebhookQueue({ secret: 'sec', now: () => td, deliver: async () => { rd += 1; if (rd < 3) throw new Error('temp'); } });",
+        "assert.deepEqual(await qDef.processEvent({ eventId: 'd1', rawBody: 'x', signature: sign('sec', 'x') }), { accepted: true, status: 'delivered', attempts: 3 }); assert.equal(rd, 3); assert.equal(qDef.size(), 1);",
+        "td = 69_999; assert.deepEqual(await qDef.processEvent({ eventId: 'd1', rawBody: 'x', signature: sign('sec', 'x') }), { accepted: true, status: 'duplicate', attempts: 0 }); assert.equal(rd, 3);",
+        "td = 70_000; assert.deepEqual(await qDef.processEvent({ eventId: 'd1', rawBody: 'x', signature: sign('sec', 'x') }), { accepted: true, status: 'delivered', attempts: 1 }); assert.equal(rd, 4);",
+        "let rdFail = 0; const qDefFail = createWebhookQueue({ secret: 'sec', deliver: async () => { rdFail += 1; throw new Error('always'); } });",
+        "assert.deepEqual(await qDefFail.processEvent({ eventId: 'df1', rawBody: 'x', signature: sign('sec', 'x') }), { accepted: false, status: 'delivery_failed', attempts: 3 }); assert.equal(rdFail, 3);",
         "let r10 = 0; const q10 = createWebhookQueue({ secret: 'sec', maxRetries: 3, deliver: async () => { r10 += 1; throw Object.assign(new Error('fatal'), { retryable: false }); } });",
         "assert.deepEqual(await q10.processEvent({ eventId: 'r10', rawBody: 'x', signature: sign('sec', 'x') }), { accepted: false, status: 'delivery_failed', attempts: 1 }); assert.equal(r10, 1); assert.equal(q10.size(), 0);",
         "let failMode = true; const q11 = createWebhookQueue({ secret: 'sec', maxRetries: 2, deliver: async () => { if (failMode) throw new Error('down'); } });",
@@ -377,7 +382,7 @@ export function extractSandboxTelemetry(homeDir, sandboxDir = null) {
       if (uSess) hasSessUsageFile = true;
       const m = hasEv ? parseSessionEvents(evPath) : null;
       const sNano = m?.totalNanoAiu ?? uSess?.totalNanoAiu ?? null;
-      const rawCalls = m?.totalNanoAiu !== null && m?.totalNanoAiu !== undefined ? m.modelCalls : (uSess?.modelCalls ?? (m && m.modelCalls > 0 ? m.modelCalls : (uSess?.active ? null : (m?.modelCalls ?? null))));
+      const rawCalls = uSess?.modelCalls ?? (m?.totalNanoAiu !== null && m?.totalNanoAiu !== undefined ? m.modelCalls : (m && m.modelCalls > 0 ? m.modelCalls : (uSess?.active ? null : (m?.modelCalls ?? null))));
       const sessActive = (rawCalls !== null && rawCalls > 0) || (sNano !== null && sNano > 0) || Boolean(uSess?.active);
       if (rawCalls !== null) calls += rawCalls; else if (sessActive) missingSessCalls = true;
       if (sNano !== null) { sessNanoSum += sNano; hasSessNano = true; }

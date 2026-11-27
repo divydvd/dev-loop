@@ -1103,6 +1103,27 @@ test("B-T7a: B7-webhook-queue fails when docs/flows/webhooks.md is stale or O1-O
       ],
     });
     assert.equal(noTseRes.passed, false, "SEC-01: omitting valid crypto.timingSafeEqual must fail oracle");
+
+    // CCR2-1 defect: wrong default ttlMs or maxRetries must fail oracle when caller omits options
+    const badDefaultsRes = runSingleTask(b7, {
+      driverCmd: [
+        process.execPath,
+        writeB7Variant("o1-bad-defaults", 'code = code.replace("ttlMs = 60_000, maxRetries = 2", "ttlMs = 1_000, maxRetries = 0");'),
+      ],
+    });
+    assert.equal(badDefaultsRes.passed, false, "wrong default ttlMs or maxRetries must fail oracle");
+
+    // CCR2-2 defect: keying delivered/inFlight on a single shared slot instead of eventId must fail oracle
+    const singleSlotRes = runSingleTask(b7, {
+      driverCmd: [
+        process.execPath,
+        writeB7Variant(
+          "o8-single-slot",
+          'code = code.replaceAll("delivered.has(eventId)", "delivered.has(\'*\')").replaceAll("delivered.set(eventId,", "delivered.set(\'*\',").replaceAll("inFlight.has(eventId)", "inFlight.has(\'*\')").replaceAll("inFlight.get(eventId)", "inFlight.get(\'*\')").replaceAll("inFlight.set(eventId,", "inFlight.set(\'*\',").replaceAll("inFlight.delete(eventId)", "inFlight.delete(\'*\')");',
+        ),
+      ],
+    });
+    assert.equal(singleSlotRes.passed, false, "coalescing or caching unrelated eventIds together must fail oracle");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1378,6 +1399,24 @@ test("B-T7c: live copilot -p passes --usage-output-file and extractSandboxTeleme
     const hybridTel = benchMod.extractSandboxTelemetry(hybridHome, hybridSb);
     assert.equal(hybridTel.totalNanoAiu, 7000);
     assert.equal(hybridTel.modelCalls, 4, "must combine s1 events.jsonl call count (1) with s2 usage.json requests.count (3)");
+
+    // 4. Cost checkpoint in events.jsonl must not override complete per-session usage.json requests.count
+    const ckptHome = join(dir, "ckpt-usage-home");
+    mkdirSync(join(ckptHome, "session-state", "s1"), { recursive: true });
+    writeFileSync(
+      join(ckptHome, "session-state", "s1", "events.jsonl"),
+      JSON.stringify({ timestamp: "2026-11-27T12:00:00.000Z", type: "assistant.turn_start", data: { turnId: "0" } }) + "\n" +
+        JSON.stringify({ timestamp: "2026-11-27T12:00:03.000Z", type: "assistant.message", data: { turnId: "0" } }) + "\n" +
+        JSON.stringify({ timestamp: "2026-11-27T12:00:03.000Z", type: "session.shutdown", data: { totalNanoAiu: 5000 } }) + "\n",
+    );
+    writeFileSync(
+      join(ckptHome, "session-state", "s1", "usage.json"),
+      JSON.stringify({ modelMetrics: { "claude-sonnet-5.5": { requests: { count: 16 }, usage: { totalNanoAiu: 5000 } } } }),
+    );
+    const ckptTel = benchMod.extractSandboxTelemetry(ckptHome);
+    assert.equal(ckptTel.totalNanoAiu, 5000);
+    assert.equal(ckptTel.modelCalls, 16, "complete per-session usage.json requests.count must win even when events.jsonl has a cost checkpoint");
+    assert.equal(ckptTel.activeSec, 3);
 
     // 4. Partial missing session usage.json (without top-level usage.json) returns null instead of undercounting
     mkdirSync(join(multiHome, "session-state", "unmetered"), { recursive: true });
