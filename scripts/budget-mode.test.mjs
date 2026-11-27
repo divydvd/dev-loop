@@ -143,9 +143,12 @@ test("SKILL.md places ### Budget mode after ### Absence mode and wires Steps 1, 
   const step8 = skill.split("## 8. Report")[1]?.split("## Stop conditions")[0] ?? "";
 
   assert.match(step1, /references\/budget-mode\.md/);
+  assert.match(step1, /Risky areas[\s\S]*Core Rule 6[\s\S]*Core Rule 7/);
+  assert.match(step1, /com\.github\.copilot\/\*\*[\s\S]*skills\/\*\*[\s\S]*AGENTS\.md[\s\S]*never trivial/i);
   assert.match(step2, /references\/budget-mode\.md/);
   assert.match(step3, /references\/budget-mode\.md/);
   assert.match(step5, /--budget-mode/);
+  assert.match(step5, /Step-3 single-task review never replaces.*panel[\s\S]*skeptic-judge/i);
   assert.match(step8, /optional limits/i);
 });
 
@@ -155,6 +158,7 @@ test("review-panel.md and testing.md document Budget mode flags, 400-line cap, a
 
   assert.match(panel, /--budget-mode\s*<auto\|on\|off>|--budget-mode/);
   assert.match(panel, /--budget\b/);
+  assert.match(panel, /### Budget mode \(optional\)/);
   assert.match(panel, /400/);
   assert.match(panel, /single-reviewer/);
   assert.match(panel, /Risky areas[\s\S]*skeptic-judge|skeptic-judge[\s\S]*Risky areas/);
@@ -179,8 +183,9 @@ test("project-profile.md stays <= 5500 bytes with ### Budget mode (optional) and
 
   const indReview = pr.split("### Independent agent review")[1]?.split("### GitHub Copilot review")[0] ?? "";
   assert.match(indReview, /Budget mode/);
+  assert.match(indReview, /off \(task-switch\)/);
   assert.match(indReview, /agents-profile/);
-  assert.match(indReview, /task-switch/);
+  assert.match(indReview, /on \(task-switch\)/);
   assert.match(indReview, /single\s*\(<agent>\)/);
   assert.match(indReview, /panel\s*\(<roles>\s*->\s*skeptic-judge\)/);
 });

@@ -58,7 +58,7 @@ Record elapsed review time and host-provided usage, or "unavailable". This does 
 | Item | Evidence |
 | --- | --- |
 | Reviewer | <`single (<agent>)` or `panel (<roles> -> skeptic-judge)` (append `; dispatch: sequential` on single-subagent hosts); never the implementer or GitHub Copilot reviewer> |
-| Budget mode | <`off` or `on (agents-profile)` or `on (task-switch)`> |
+| Budget mode | <`off`, `off (task-switch)`, `on (agents-profile)`, or `on (task-switch)`> |
 | Reviewed commit | <SHA or exact `WORKTREE:<sha256>` snapshot and its committed content> |
 | Scope | <complete PR diff and interactions (`single` or `panel` roles); or existing coverage plus focused review> |
 | Verdict | <findings addressed, unresolved findings, or unavailable; not a test result> |

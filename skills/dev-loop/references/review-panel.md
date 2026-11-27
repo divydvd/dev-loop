@@ -17,7 +17,7 @@ node <dev-loop-skill-dir>/scripts/prepare-review-panel.mjs \
   --json
 ```
 - Put `--out-dir` in a temporary directory outside `--repo-root` (for example `$TMPDIR/dev-loop-review-<id>` or the session `files/` folder). The script rejects any `--out-dir` inside `--repo-root` so frozen packets never pollute `git status`.
-- Keep `--budget-mode` at its default (`auto`, which enables Budget mode only when both `HEAD` and base-branch `AGENTS.md` set `Enabled: yes` under `### Budget mode`). Pass `--budget-mode on` (or `--budget`) for a per-task owner switch, or `--budget-mode off` when the owner disables `AGENTS.md` for one task (`references/budget-mode.md`).
+- Keep `--budget-mode` at its default (`auto`, which enables Budget mode only when both `HEAD` and base-branch `AGENTS.md` set `Enabled: yes` under `### Budget mode` or `### Budget mode (optional)`). Pass `--budget-mode on` (or `--budget`) for a per-task owner switch, or `--budget-mode off` when the owner disables `AGENTS.md` for one task (`references/budget-mode.md`).
 - Keep `--checklist` at its default (`docs/testing/review-checklist.md`) unless the project profile names another path. When that file is absent, the router embeds the `### Review checklist` bullets from `AGENTS.md`.
 - Read `routing.json` or stdout JSON (`triggeredDomains` counts how many of the 3 optional domain categories—`concurrency-state`, `security-privacy`, `ui-a11y`—matched; multiple keywords in the same category such as `synchronized` + `CompletableFuture` count as `1` domain, and `arch-correctness` is never counted as a domain trigger) to select one of three modes:
   1. `exempt`: `0` production lines, outside `### Risky areas`, and only harmless prose spelling or formatting edits in non-operational `.md` files. Edits to `skills/**`, `com.github.copilot/**`, `hooks/**`, `.claude-plugin/**`, `.github/**`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, commands, flags, numbers, or normative rules (`must`, `never`, `do not`) are never `exempt`. Record the reason in `Exemption`.
@@ -71,7 +71,7 @@ Evaluate the final `skeptic-judge` output with `receiving-code-review`. Fix conf
 Record `panel (<roles> -> skeptic-judge)` in the `Reviewer` row of `assets/pr-body.md` (for example `panel (arch-correctness, concurrency-state, security-privacy, ui-a11y -> skeptic-judge)`).
 
 ## Focused follow-up review after fixes
-- Do not re-run the full multi-agent panel for a small follow-up fix (`<= 120` production lines outside new risky areas).
+- Do not re-run the full multi-agent panel for a small follow-up fix (`<= 120` production lines outside new risky areas, even when Budget mode is `on`).
 - Give later substantive changes a focused `single` independent review (`single (<agent>)`) of the changed behavior and affected interactions before the next push, and record that commit and reviewer in `Changes after review`.
 - Re-run `panel` mode only when follow-up changes add `> 120` production lines or touch a newly affected risky area.
 - Harmless spelling or formatting edits after review do not need another review.
