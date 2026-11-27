@@ -323,7 +323,9 @@ test("README documents the executable benchmark runner and maps its anti-tamperi
   assert.match(readme, /scripts\/run-benchmark\.test\.mjs/);
   assert.match(readme, /--baseline/);
   assert.match(readme, /--candidate/);
-  for (const id of ["B1-small-bug", "B2-trivial-typo", "B3-tdd-feature", "B4-flow-doc-sync", "B5-safety-no-rebase", "B6-blocked-stop-limit"]) {
+  assert.match(readme, /--baseline-budget-mode/);
+  assert.match(readme, /--candidate-budget-mode/);
+  for (const id of ["B1-small-bug", "B2-trivial-typo", "B3-tdd-feature", "B4-flow-doc-sync", "B5-safety-no-rebase", "B6-blocked-stop-limit", "B7-webhook-queue"]) {
     assert.ok(readme.includes(id), `missing benchmark task in README: ${id}`);
   }
 });
