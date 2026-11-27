@@ -201,7 +201,7 @@ test("README.md documents ## Budget mode with T-BM1..T-BM6, maps Budget mode in 
   assert.ok(absenceIdx < budgetIdx && budgetIdx < designIdx, "## Budget mode must appear after ## Absence mode and before ## Optional design review");
 
   const budgetReadme = readme.slice(budgetIdx, designIdx);
-  for (const marker of ["### Abstract", "### Application checks", "### Conclusion", "T-BM1", "T-BM2", "T-BM3", "T-BM4", "T-BM5", "T-BM6"]) {
+  for (const marker of ["### Abstract", "### Application checks", "### Conclusion", "T-BM1", "T-BM2", "T-BM3", "T-BM4", "T-BM5", "T-BM6", "<= 80", "<= 8", "1–400"]) {
     assert.ok(budgetReadme.includes(marker), `README.md ## Budget mode missing: ${marker}`);
   }
 
