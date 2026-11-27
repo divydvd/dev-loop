@@ -62,12 +62,17 @@ export function isProductionFile(relPath) {
   if (/^(?:plugin\.json|gemini-extension\.json|dev-loop-context\.md|GEMINI\.md|AGENTS\.md|CLAUDE\.md)$/.test(p) || /^scripts\/[^/]+\.(?:mjs|cjs|js|sh|py)$/.test(p)) return true;
   return !(/\.md$/i.test(p) || /^docs\//.test(p));
 }
-function nextFenceState(fence, line) {
+const expandLeadTabs = (line) => line.replace(/^[ \t]+/, (s) => s.replaceAll("\t", "    "));
+function nextFenceState(fence, line, maxIndent = 3) {
+  const exp = expandLeadTabs(line);
+  const ind = exp.match(/^ */)[0].length;
+  if (ind > maxIndent) return fence;
+  const rest = exp.slice(ind);
   if (!fence) {
-    const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    const m = rest.match(/^(`{3,}|~{3,})(.*)$/);
     return m && !(m[1][0] === "`" && m[2].includes("`")) ? m[1] : null;
   }
-  const m = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+  const m = rest.match(/^(`{3,}|~{3,})[ \t]*$/);
   return m && m[1][0] === fence[0] && m[1].length >= fence.length ? null : fence;
 }
 function splitMdCodeAndProse(text) {
@@ -127,14 +132,23 @@ export function detectDomains(changedFiles, diffHunkText) {
   return DOMAIN_ORDER.filter((d) => found.has(d));
 }
 function stripCommentsAndCodeBlocks(markdown) {
-  const out = [];
-  let [cur, fence, inComment, prevBlank, inIndented] = ["", null, false, true, false];
+  const [out, listStack] = [[], []];
+  let [cur, fence, fenceMax, inComment, prevBlank, inIndented] = ["", null, 3, false, true, false];
   for (const line of String(markdown ?? "").split(/\r?\n/)) {
     if (!inComment) {
-      const nf = nextFenceState(fence, line);
-      if (fence || nf) { prevBlank = Boolean(fence && !nf); inIndented = false; fence = nf; continue; }
-      if ((prevBlank || inIndented) && /^(?: {4}|\t)/.test(line)) { inIndented = true; prevBlank = false; continue; }
+      if (fence) {
+        fence = nextFenceState(fence, line, fenceMax);
+        if (!fence) { prevBlank = true; inIndented = false; }
+        continue;
+      }
       if (/^\s*$/.test(line)) { prevBlank = true; inIndented = false; out.push(""); continue; }
+      const exp = expandLeadTabs(line), ind = exp.match(/^ */)[0].length, rest = exp.slice(ind);
+      if (ind <= 3 && /^#{1,6}(?:\s|$)/.test(rest)) listStack.length = 0;
+      else while (listStack.length && ind < listStack[listStack.length - 1] && (prevBlank || /^(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/.test(rest))) listStack.pop();
+      const baseInd = listStack.length ? listStack[listStack.length - 1] : 0;
+      const nf = nextFenceState(null, line, baseInd + 3);
+      if (nf) { fence = nf; fenceMax = baseInd + 3; prevBlank = false; inIndented = false; continue; }
+      if ((prevBlank || inIndented) && ind >= 4) { inIndented = true; prevBlank = false; continue; }
     }
     let i = 0;
     while (i < line.length) {
@@ -160,7 +174,18 @@ function stripCommentsAndCodeBlocks(markdown) {
       } else { cur += line[i]; i += 1; }
     }
     if (!inComment) {
-      prevBlank = /^\s*$/.test(cur) || /^ {0,3}#{1,6}(?:\s|$)/.test(cur);
+      const cExp = expandLeadTabs(cur), cInd = cExp.match(/^ */)[0].length, cRest = cExp.slice(cInd);
+      if (cInd <= 3 && /^#{1,6}(?:\s|$)/.test(cRest)) { listStack.length = 0; prevBlank = true; }
+      else if (/^\s*$/.test(cur)) prevBlank = true;
+      else {
+        const baseInd = listStack.length ? listStack[listStack.length - 1] : 0;
+        const lm = cInd <= baseInd + 3 ? cRest.match(/^([-*+]|\d{1,9}[.)])(?:([ \t]+)|$)/) : null;
+        if (lm) {
+          while (listStack.length && cInd < listStack[listStack.length - 1]) listStack.pop();
+          listStack.push(cInd + lm[1].length + Math.min((lm[2] ?? " ").length, 4));
+        }
+        prevBlank = false;
+      }
       inIndented = false;
       out.push(cur);
       cur = "";
@@ -168,6 +193,32 @@ function stripCommentsAndCodeBlocks(markdown) {
   }
   if (cur) out.push(cur);
   return out.join("\n");
+}
+function collectTopLevelBullets(sectionText) {
+  const bullets = [];
+  let [topCol, inSubList, prevBlank] = [0, false, true];
+  for (const raw of sectionText.split(/\r?\n/)) {
+    const exp = expandLeadTabs(raw);
+    if (/^\s*$/.test(exp)) { prevBlank = true; continue; }
+    const ind = exp.match(/^ */)[0].length, rest = exp.slice(ind);
+    if (prevBlank && ind < topCol) { topCol = 0; inSubList = false; }
+    const bm = (topCol === 0 ? ind <= 3 : ind < topCol) ? rest.match(/^([-*+])(?:([ \t]+)(.*)|())$/) : null;
+    if (bm) {
+      topCol = ind + bm[1].length + Math.min((bm[2] ?? " ").length, 4);
+      const first = (bm[3] ?? "").trim();
+      inSubList = false; prevBlank = false;
+      bullets.push({ firstLine: first, lines: first ? [first] : [] });
+    } else if (topCol > 0 && ind >= topCol) {
+      if (/^(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/.test(rest)) inSubList = true;
+      else if (!inSubList && rest.trim()) bullets[bullets.length - 1].lines.push(rest.trim());
+      prevBlank = false;
+    } else {
+      if (!prevBlank && topCol > 0 && !inSubList && rest.trim()) bullets[bullets.length - 1].lines.push(rest.trim());
+      else { topCol = 0; inSubList = false; }
+      prevBlank = false;
+    }
+  }
+  return bullets.map((b) => ({ firstLine: b.firstLine, text: b.lines.join(" ").trim() }));
 }
 function extractHeadingSection(markdown, headingName) {
   const headingRe = new RegExp(`^ {0,3}#{2,3}\\s+${headingName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s+\\(optional\\))?[ \\t]*$`, "i");
@@ -191,32 +242,28 @@ function globToRegExp(pattern) {
 
 export function parseAgentsProfile(agentsText) {
   const [riskyPatterns, riskyConcepts, checklistBullets] = [[], [], []];
-  let [checklistPath, inChecklistMeta, budgetEnabled] = [undefined, false, false];
-  for (const line of extractHeadingSection(agentsText, "Risky areas").split(/\r?\n/)) {
-    if (!/^ {0,3}-\s+/.test(line)) continue;
-    const trimmed = line.trim();
-    const linePaths = [...trimmed.matchAll(/`([^`\n]+)`/g)].map((m) => m[1].trim()).filter((s) => /[/.]/.test(s));
-    const bare = trimmed.match(/^-\s+([A-Za-z0-9_./*-]+)\s*:/);
+  let [checklistPath, budgetEnabled] = [undefined, false];
+  for (const { text } of collectTopLevelBullets(extractHeadingSection(agentsText, "Risky areas"))) {
+    if (!text) continue;
+    const linePaths = [...text.matchAll(/`([^`\n]+)`/g)].map((m) => m[1].trim()).filter((s) => /[/.]/.test(s));
+    const bare = text.match(/^([A-Za-z0-9_./*-]+)\s*:/);
     if (bare && /[/.]/.test(bare[1])) linePaths.push(bare[1]);
     if (linePaths.length) riskyPatterns.push(...linePaths);
-    else for (const part of (trimmed.replace(/^-\s+/, "").split(":")[0] ?? "").split(/\band\b|,/i)) {
+    else for (const part of (text.split(":")[0] ?? "").split(/\band\b|,/i)) {
       const clean = part.replace(/`/g, "").trim().replace(/^(?:the|a|an)\s+/i, "").replace(/\s+/g, " ").toLowerCase();
       if (clean.length >= 4 && clean !== "none") riskyConcepts.push(clean);
     }
   }
-  for (const raw of extractHeadingSection(agentsText, "Review checklist").split(/\r?\n/)) {
-    const t = raw.trim();
-    const cp = raw.match(/^ {0,3}-\s+(?:\*\*Checklist path:?\*\*:?|Checklist path:)[ \t]*(.*)$/i);
+  for (const { firstLine, text } of collectTopLevelBullets(extractHeadingSection(agentsText, "Review checklist"))) {
+    const cp = firstLine.match(/^(?:\*\*Checklist path:?\*\*:?|Checklist path:)[ \t]*(.*)$/i);
     if (cp) {
-      inChecklistMeta = true;
       const cleaned = cp[1].trim();
       const tok = cleaned && !cleaned.startsWith("<") ? (cleaned.match(/^`([^`\n]*)`|^"([^"\n]*)"|^'([^'\n]*)'/)?.slice(1).find((x) => x !== undefined) ?? cleaned.replace(/\s+\([^)]*\)\s*$/, "")).trim() : "";
       if (tok && !tok.startsWith("<")) checklistPath = /^inline only$/i.test(tok) ? null : tok;
-    } else if (/^ {0,3}-\s+/.test(raw)) { inChecklistMeta = false; checklistBullets.push(t.slice(2).trim()); }
-    else if (!inChecklistMeta && checklistBullets.length && t) checklistBullets[checklistBullets.length - 1] += ` ${t}`;
+    } else if (text) checklistBullets.push(text);
   }
-  for (const raw of extractHeadingSection(agentsText, "Budget mode").split(/\r?\n/)) {
-    const bm = raw.match(/^ {0,3}-\s+(?:\*\*Enabled:?\*\*:?|Enabled:)[ \t]*(.*)$/i);
+  for (const { firstLine } of collectTopLevelBullets(extractHeadingSection(agentsText, "Budget mode"))) {
+    const bm = firstLine.match(/^(?:\*\*Enabled:?\*\*:?|Enabled:)[ \t]*(.*)$/i);
     if (!bm) continue;
     const cleaned = bm[1].trim();
     const tok = cleaned && !cleaned.startsWith("<") ? (cleaned.match(/^`([^`\n]*)`|^"([^"\n]*)"|^'([^'\n]*)'/)?.slice(1).find((x) => x !== undefined) ?? cleaned.replace(/\s+\([^)]*\)\s*$/, "")).trim() : "";

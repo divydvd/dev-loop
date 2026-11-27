@@ -1741,19 +1741,46 @@ test("28. CCR-1..CCR-4: indented HTML comment code examples, fenced/indented con
   assert.equal(ccr2Res.touchesRiskyArea, true);
   assert.equal(ccr2Res.mode, "panel");
 
-  // CCR-3: 4-space indented code example or 4-space nested sub-bullet `- **Enabled:** yes` after `Enabled: no` must stay false
+  // CCR-3 + nested CommonMark sub-bullets (2/3/4 spaces) + list-indented fences + wrapped Risky areas continuations
   const indentedBudgetAgents = [
     "# Project",
     "",
+    "- Setup notes:",
+    "    ```markdown",
+    "    <!-- unclosed comment inside 4-space list fence",
+    "    - **Enabled:** yes",
+    "    ```",
+    "",
+    "### Risky areas",
+    "- `src/auth/**` and",
+    "    `src/billing/**`: auth and billing.",
+    "- Retired examples:",
+    "  - `src/legacy/**`: retired.",
+    "",
+    "### Review checklist",
+    "- **Checklist path:** `docs/review-checklist.md`",
+    "- Example:",
+    "  - **Checklist path:** `inline only`",
+    "- Keep",
+    "    wrapped checklist prose intact.",
+    "",
     "### Budget mode (optional)",
     "- **Enabled:** no",
-    "- Example nested item:",
+    "- Example 2-space nested item:",
+    "  - **Enabled:** yes",
+    "- Example 3-space nested item:",
+    "   - **Enabled:** yes",
+    "- Example 4-space nested item:",
     "    - **Enabled:** yes",
     "",
     "    - **Enabled:** yes",
     "",
   ].join("\n");
-  assert.equal(parseAgentsProfile(indentedBudgetAgents).budgetEnabled, false);
+  const parsedNested = parseAgentsProfile(indentedBudgetAgents);
+  assert.equal(parsedNested.budgetEnabled, false);
+  assert.deepEqual(parsedNested.riskyPatterns, ["src/auth/**", "src/billing/**"]);
+  assert.equal(parsedNested.checklistPath, "docs/review-checklist.md");
+  assert.ok(parsedNested.checklistBullets.includes("Keep wrapped checklist prose intact."));
 
   const ccr3Repo = makeFixtureRepo(t, { "AGENTS.md": indentedBudgetAgents });
   writeAndCommit(ccr3Repo.repoDir, {
