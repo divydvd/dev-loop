@@ -125,12 +125,34 @@ export function detectDomains(changedFiles, diffHunkText) {
   if (uiPath || /(?:^|[^A-Za-z0-9_])@Composable\b/.test(raw) || /\b(?:SwiftUI|contentDescription|semantics|accessibilityLabel|TalkBack|VoiceOver|prefers-reduced-motion|darkTheme)\b/.test(raw) || /\b(?:content\s+description|accessibility\s+label|talk\s+back|voice\s+over|prefers\s+reduced\s+motion|dark\s+theme)\b/i.test(split)) found.add("ui-a11y");
   return DOMAIN_ORDER.filter((d) => found.has(d));
 }
+function stripCommentsOutsideFences(markdown) {
+  const chunks = [];
+  let [fence, buf] = [null, []];
+  for (const line of String(markdown ?? "").split(/\r?\n/)) {
+    const nf = nextFenceState(fence, line);
+    if (fence || nf) {
+      if (buf.length) { chunks.push(buf.join("\n").replace(/<!--[\s\S]*?-->/g, "")); buf = []; }
+      chunks.push(line);
+    } else buf.push(line);
+    fence = nf;
+  }
+  if (buf.length) chunks.push(buf.join("\n").replace(/<!--[\s\S]*?-->/g, ""));
+  return chunks.join("\n");
+}
 function extractHeadingSection(markdown, headingName) {
-  const match = new RegExp(`^#{2,3}\\s+${headingName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s+\\(optional\\))?[ \\t]*$`, "im").exec(markdown);
-  if (!match) return "";
-  const rest = markdown.slice(match.index + match[0].length);
-  const next = rest.search(/^#{1,3}\s+/m);
-  return next === -1 ? rest : rest.slice(0, next);
+  const headingRe = new RegExp(`^#{2,3}\\s+${headingName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s+\\(optional\\))?[ \\t]*$`, "i");
+  const out = [];
+  let [fence, inSection] = [null, false];
+  for (const line of stripCommentsOutsideFences(markdown).split(/\r?\n/)) {
+    const nf = nextFenceState(fence, line);
+    if (!fence && !nf) {
+      if (!inSection && headingRe.test(line)) { inSection = true; fence = nf; continue; }
+      if (inSection && /^#{1,3}\s+/.test(line)) break;
+    }
+    if (inSection) out.push(line);
+    fence = nf;
+  }
+  return out.join("\n");
 }
 function globToRegExp(pattern) {
   const norm = pattern.replaceAll("\\", "/").replace(/^\.\//, "");
@@ -274,12 +296,12 @@ function prepareSafeOutDir(resolvedOutDir, realRepoRoot) {
   };
 }
 
-export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = null, agentsFile = "AGENTS.md", checklist, budget = false, budgetMode = "auto" }) {
+export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = null, agentsFile = "AGENTS.md", checklist, budget = false, budgetMode = undefined }) {
   const cliArgError = (msg) => Object.assign(new Error(msg), { exitCode: 2 });
   if (typeof budget !== "boolean") throw cliArgError("Invalid --budget flag: expected boolean");
-  const normBudgetMode = typeof budgetMode === "string" ? budgetMode.trim().toLowerCase() : "";
+  const normBudgetMode = budgetMode === undefined ? "auto" : (typeof budgetMode === "string" ? budgetMode.trim().toLowerCase() : "");
   if (!["auto", "on", "off"].includes(normBudgetMode)) throw cliArgError(`Invalid --budget-mode "${String(budgetMode)}": expected auto, on, or off`);
-  if (budget && normBudgetMode === "off") throw cliArgError("Conflicting flags: --budget cannot be combined with --budget-mode off");
+  if (budget && budgetMode !== undefined && normBudgetMode !== "on") throw cliArgError(`Conflicting flags: --budget cannot be combined with --budget-mode ${normBudgetMode}`);
   if (!repoRoot || !existsSync(repoRoot)) throw new Error(`Repository root does not exist: ${String(repoRoot)}`);
   validateGitRef(base, "--base");
   validateGitRef(head, "--head");
@@ -358,13 +380,19 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
   const lexicalChecklist = effectiveChecklist ? checkContained(effectiveChecklist, "--checklist") : null;
   const checklistRel = lexicalChecklist ? relative(realRepoRoot, lexicalChecklist).replaceAll("\\", "/") : null;
   const rawChecklistText = lexicalChecklist ? (head === "WORKTREE" ? readWorktreeConfig(lexicalChecklist, "--checklist") : gitConfigOrNull(realRepoRoot, resolvedHead, checklistRel, opPaths)) : null;
-  let baseBudgetEnabled = false;
-  try {
-    const baseProfile = parseAgentsProfile(gitConfigOrNull(realRepoRoot, mergeBaseSha, agentsRel, opPaths) ?? "");
-    baseBudgetEnabled = baseProfile.budgetEnabled;
-    const baseCfg = checklist === undefined ? baseProfile.checklistPath : null;
-    if (baseCfg) { const bLex = resolve(realRepoRoot, baseCfg); if (isInsideOrEqual(realRepoRoot, bLex)) gitConfigOrNull(realRepoRoot, mergeBaseSha, relative(realRepoRoot, bLex).replaceAll("\\", "/"), opPaths); }
-  } catch {}
+  const baseProfiles = [...new Set([mergeBaseSha, baseSha])].map((rev) => {
+    try {
+      const p = parseAgentsProfile(gitConfigOrNull(realRepoRoot, rev, agentsRel, opPaths) ?? "");
+      const bCfg = checklist === undefined ? p.checklistPath : null;
+      if (bCfg) { const bLex = resolve(realRepoRoot, bCfg); if (isInsideOrEqual(realRepoRoot, bLex)) gitConfigOrNull(realRepoRoot, rev, relative(realRepoRoot, bLex).replaceAll("\\", "/"), opPaths); }
+      return p;
+    } catch { return { riskyPatterns: [], riskyConcepts: [], budgetEnabled: false }; }
+  });
+  const baseBudgetEnabled = baseProfiles.length > 0 && baseProfiles.every((p) => p.budgetEnabled);
+  const allRiskyPatterns = [...new Set([...riskyPatterns, ...baseProfiles.flatMap((p) => p.riskyPatterns)])];
+  const allRiskyConcepts = [...new Set([...riskyConcepts, ...baseProfiles.flatMap((p) => p.riskyConcepts)])];
+  const [headPatSet, headConSet] = [new Set(riskyPatterns), new Set(riskyConcepts)];
+  const removedRisky = [...new Set([...baseProfiles.flatMap((p) => p.riskyPatterns).filter((x) => !headPatSet.has(x)), ...baseProfiles.flatMap((p) => p.riskyConcepts).filter((x) => !headConSet.has(x))])];
   const [effectiveBudget, budgetSource] = (budget || normBudgetMode === "on")
     ? [true, "cli"]
     : normBudgetMode === "off"
@@ -373,7 +401,7 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
         ? [true, "agents-profile"]
         : [false, "off"];
   const lowerCtx = diffContextText.toLowerCase();
-  const matchedRiskyAreas = [...riskyPatterns.filter((pat) => changedFiles.some((f) => globToRegExp(pat).test(f.replaceAll("\\", "/")))), ...riskyConcepts.filter((phrase) => changedFiles.some((f) => !isTestOrGeneratedFile(f)) && lowerCtx.includes(phrase))];
+  const matchedRiskyAreas = [...new Set([...allRiskyPatterns.filter((pat) => changedFiles.some((f) => globToRegExp(pat).test(f.replaceAll("\\", "/")))), ...allRiskyConcepts.filter((phrase) => changedFiles.some((f) => !isTestOrGeneratedFile(f)) && lowerCtx.includes(phrase)), ...removedRisky])];
   const touchesRiskyArea = matchedRiskyAreas.length > 0;
   const checklistLoaded = rawChecklistText !== null;
   const checklistRules = checklistLoaded ? parseReviewChecklist(rawChecklistText) : [];
@@ -403,12 +431,15 @@ export function prepareReviewPanel({ repoRoot, base, head = "HEAD", outDir = nul
 }
 function main() {
   try {
-    const opts = { "repo-root": { type: "string" }, base: { type: "string" }, head: { type: "string", default: "HEAD" }, "out-dir": { type: "string" }, "agents-file": { type: "string", default: "AGENTS.md" }, checklist: { type: "string" }, budget: { type: "boolean", default: false }, "budget-mode": { type: "string", default: "auto" }, json: { type: "boolean", default: false } };
+    const opts = { "repo-root": { type: "string" }, base: { type: "string" }, head: { type: "string", default: "HEAD" }, "out-dir": { type: "string" }, "agents-file": { type: "string", default: "AGENTS.md" }, checklist: { type: "string" }, budget: { type: "boolean", default: false }, "budget-mode": { type: "string" }, json: { type: "boolean", default: false } };
     const { values: v } = parseArgs({ options: opts, strict: true });
     if (!v["repo-root"] || !v.base) throw new Error("Usage: prepare-review-panel.mjs --repo-root <dir> --base <git-ref> [--head <git-ref-or-WORKTREE>] [--out-dir <temp-dir-outside-repo>] [--agents-file <rel-path>] [--checklist <rel-path>] [--budget] [--budget-mode <auto|on|off>] [--json]");
     const r = prepareReviewPanel({ repoRoot: v["repo-root"], base: v.base, head: v.head, outDir: v["out-dir"] ?? null, agentsFile: v["agents-file"], checklist: v.checklist, budget: v.budget, budgetMode: v["budget-mode"] });
     process.stdout.write(v.json ? `${JSON.stringify(r, null, 2)}\n` : `mode=${r.mode} roles=${r.roles.join(",") || "none"} synthesisJudge=${r.synthesisJudge} budgetMode=${r.budgetMode} budgetSource=${r.budgetSource} prodLinesChanged=${r.prodLinesChanged} head=${r.head}\n`);
-  } catch (error) { process.stderr.write(`prepare-review-panel: ${error.message}\n`); process.exit(error?.exitCode ?? 1); }
+  } catch (error) {
+    process.stderr.write(`prepare-review-panel: ${error.message}\n`);
+    process.exit(error?.exitCode ?? (String(error?.code || "").startsWith("ERR_PARSE_ARGS_") ? 2 : 1));
+  }
 }
 const isMain = (() => { try { return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return Boolean(process.argv[1]) && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url)); } })();
 if (isMain) main();

@@ -59,18 +59,20 @@ test("budget-mode.md defines precedence, trust boundary, away-mode orthogonality
 
   // Trust boundary: reject untrusted sources and cross-session agent messages
   const activation = doc.split("## Activation, Precedence, and Trust Boundary")[1]?.split("## Task Ledger State")[0] ?? "";
-  for (const untrusted of ["issues", "PR comments", "review", "logs", "docs", "quoted", "cross-session"]) {
+  for (const untrusted of ["issues", "PR comments", "review", "logs", "web pages", "MCP", "subagent", "docs", "quoted", "cross-session"]) {
     assert.match(activation, new RegExp(untrusted, "i"), `activation section must reject ${untrusted}`);
   }
   assert.match(activation, /references\/absence-mode\.md/);
   assert.match(activation, /away mode/i);
   assert.match(activation, /unmerged.*AGENTS\.md|base branch/i);
 
-  // Task ledger state fields
+  // Task ledger state fields + provenance + standard-mode optional row reassessment
   const ledger = doc.split("## Task Ledger State")[1]?.split("## Step-by-Step Budget Rules")[0] ?? "";
-  for (const field of ["Budget mode", "Source", "Scope"]) {
+  for (const field of ["Budget mode", "Source", "Scope", "Owner activation"]) {
     assert.ok(ledger.includes(field), `missing ledger field: ${field}`);
   }
+  assert.match(ledger, /cannot be confirmed|unconfirmed/i);
+  assert.match(ledger, /reassess.*optional.*budget-mode/i);
 });
 
 test("budget-mode.md specifies 1x model guidance, Step 1-5 cost rules, slice-batched TDD, and non-negotiable gates", () => {
@@ -86,6 +88,7 @@ test("budget-mode.md specifies 1x model guidance, Step 1-5 cost rules, slice-bat
   // Step 1-5 rules
   const steps = doc.split("## Step-by-Step Budget Rules")[1]?.split("## Slice-Batched TDD Contract")[0] ?? "";
   assert.match(steps, /ask_user/);
+  assert.match(steps, /away mode.*absence|when away mode is inactive/i);
   assert.match(steps, /single.*round|one.*turn|batch/i);
   assert.match(steps, /builder-check|builder check/i);
   assert.match(steps, /design-review/);

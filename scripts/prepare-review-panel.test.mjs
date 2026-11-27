@@ -1496,4 +1496,112 @@ test("26. budget mode: invalid --budget-mode or conflicting --budget + --budget-
   );
 });
 
+test("27. SJ-1..SJ-4: parseArgs exit code 2, --budget + --budget-mode auto conflict, multiline/fenced AGENTS.md parsing, advanced --base disablement, and unmerged Risky areas deletion guard", async (t) => {
+  const { parseAgentsProfile } = await import("../skills/dev-loop/scripts/prepare-review-panel.mjs");
+  const { repoDir, outRoot, baseSha } = makeFixtureRepo(t);
+  writeAndCommit(repoDir, { "src/index.ts": "export const v = 1;\n" });
+
+  // SJ-1: conflicting --budget + --budget-mode auto and malformed CLI flags exit 2
+  for (const badArgs of [
+    ["--repo-root", repoDir, "--base", baseSha, "--budget", "--budget-mode", "auto"],
+    ["--repo-root", repoDir, "--base", baseSha, "--budget-mode"],
+    ["--repo-root", repoDir, "--base", baseSha, "--budget=off"],
+    ["--repo-root", repoDir, "--base", baseSha, "--no-budget"],
+  ]) {
+    const badRes = runRouterCli(badArgs);
+    assert.equal(badRes.status, 2, `expected exit 2 for ${badArgs.join(" ")}, got ${badRes.status}: ${badRes.stderr}`);
+  }
+
+  // SJ-2: multiline HTML comments and fenced '# comment' inside ### Budget mode
+  assert.equal(
+    parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** no\n<!--\n- **Enabled:** yes\n-->\n").budgetEnabled,
+    false
+  );
+  assert.equal(
+    parseAgentsProfile("<!--\n### Budget mode\n- **Enabled:** yes\n-->\n").budgetEnabled,
+    false
+  );
+  assert.equal(
+    parseAgentsProfile("### Budget mode (optional)\n- **Enabled:** yes <!-- multiline\nnote -->\n").budgetEnabled,
+    true
+  );
+  assert.equal(
+    parseAgentsProfile("### Budget mode\n- **Enabled:** yes\n```sh\n# shell comment inside fence\necho ok\n```\n- **Enabled:** no\n").budgetEnabled,
+    false
+  );
+
+  // SJ-3: --base advances after branch fork to set Enabled: no (without rebase) -> auto stays off -> panel
+  const twoDomainFiles = {
+    "src/auth/token.ts": `export function checkAuth(authToken: string) {\n${Array.from({ length: 80 }, (_, i) => `  const a${i} = authToken;`).join("\n")}\n  return a0;\n}\n`,
+    "src/queue/pool.ts": `export async function drain(lock: Mutex) {\n${Array.from({ length: 80 }, (_, i) => `  const q${i} = await Promise.resolve(${i});`).join("\n")}\n  return q0;\n}\n`,
+  };
+  const advRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+  });
+  const featHead = writeAndCommit(advRepo.repoDir, twoDomainFiles, "feat on branch");
+  git(advRepo.repoDir, ["checkout", "main"]);
+  writeAndCommit(
+    advRepo.repoDir,
+    {
+      "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** no\n",
+    },
+    "disable budget mode on main"
+  );
+  git(advRepo.repoDir, ["checkout", "feature"]);
+  const advRes = JSON.parse(
+    runRouterCli(["--repo-root", advRepo.repoDir, "--base", "main", "--head", featHead, "--json"]).stdout
+  );
+  assert.equal(advRes.budgetMode, false);
+  assert.equal(advRes.budgetSource, "off");
+  assert.equal(advRes.mode, "panel");
+
+  // SJ-4: unmerged deletion of a ### Risky areas entry in AGENTS.md cannot downgrade Budget mode review to single
+  const riskyDelRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+  });
+  writeAndCommit(riskyDelRepo.repoDir, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+    "src/billing/ledger.ts": "export const balance = 42;\n",
+  });
+  const riskyDelJson = JSON.parse(
+    runRouterCli(["--repo-root", riskyDelRepo.repoDir, "--base", riskyDelRepo.baseSha, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(riskyDelJson.touchesRiskyArea, true);
+  assert.equal(riskyDelJson.mode, "panel");
+
+  // Also deleting a Risky areas entry alone in AGENTS.md escalates touchesRiskyArea to panel
+  const policyOnlyRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n- `src/billing/**`: billing.\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+  });
+  writeAndCommit(policyOnlyRepo.repoDir, {
+    "AGENTS.md": "# Project\n\n### Risky areas\n\n### Budget mode (optional)\n- **Enabled:** yes\n",
+  });
+  const policyOnlyJson = JSON.parse(
+    runRouterCli(["--repo-root", policyOnlyRepo.repoDir, "--base", policyOnlyRepo.baseSha, "--budget-mode", "on", "--json"]).stdout
+  );
+  assert.equal(policyOnlyJson.touchesRiskyArea, true);
+  assert.equal(policyOnlyJson.mode, "panel");
+
+  // WORKTREE uncommitted Enabled: yes + reused --out-dir cleans stale single-reviewer-packet.md
+  const wtRepo = makeFixtureRepo(t, {
+    "AGENTS.md": "# Project\n\n### Budget mode (optional)\n- **Enabled:** no\n",
+  });
+  const wtOut = join(outRoot, "wt-stale-single");
+  mkdirSync(wtOut, { recursive: true });
+  writeFileSync(join(wtOut, "single-reviewer-packet.md"), "stale single packet", "utf8");
+  writeFileSync(join(wtRepo.repoDir, "AGENTS.md"), "# Project\n\n### Budget mode (optional)\n- **Enabled:** yes\n", "utf8");
+  for (const [rel, content] of Object.entries(twoDomainFiles)) {
+    const abs = join(wtRepo.repoDir, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content, "utf8");
+  }
+  const wtJson = JSON.parse(
+    runRouterCli(["--repo-root", wtRepo.repoDir, "--base", wtRepo.baseSha, "--head", "WORKTREE", "--out-dir", wtOut, "--json"]).stdout
+  );
+  assert.equal(wtJson.budgetMode, false);
+  assert.equal(wtJson.mode, "panel");
+  assert.equal(existsSync(join(wtOut, "single-reviewer-packet.md")), false);
+});
+
+
 
